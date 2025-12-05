@@ -6,8 +6,6 @@
 
 **Rail** è l'applicazione definitiva per il pendolare moderno. Nata dall'esigenza di avere informazioni chiare e precise, Rail unisce il monitoraggio dei treni in tempo reale con funzionalità social uniche per i viaggi di gruppo, il tutto racchiuso in un design nativo ed essenziale.
 
----
-
 ## 📱 Screenshots
 
 <p float="left">
@@ -17,7 +15,6 @@
   <img src="Thumbnails/screen4.png" width="200" />
 </p>
 
----
 
 ## ✨ Funzionalità Chiave
 
@@ -26,7 +23,6 @@
 * **Contesto Intelligente:** Integrazione con servizi meteo per visualizzare le condizioni atmosferiche previste ad ogni singola fermata intermedia.
 * **UI Nativa e Fluida:** Interfaccia sviluppata interamente in SwiftUI seguendo le Human Interface Guidelines di Apple.
 
----
 
 ## 🛠 Tech Stack & Architettura
 
@@ -45,14 +41,10 @@ Il progetto è stato sviluppato con un approccio moderno, privilegiando la puliz
 * **Stati UI Dinamici:** Gestione fluida degli stati di caricamento, errore e "empty state" (scheletri di caricamento) per migliorare la percezione di velocità dell'app.
 * **Privacy First:** Architettura progettata per processare i dati sensibili (nomi, posizioni) esclusivamente on-device.
 
----
-
 ## 📄 Licenza
 
 Questo progetto è distribuito sotto licenza **GNU GPLv3**.
 Sei libero di studiare, modificare e utilizzare il codice, ma qualsiasi lavoro derivato distribuito deve rimanere open source sotto la stessa licenza. Vedi il file `LICENSE` per maggiori dettagli.
-
----
 
 ## 📬 Contatti
 
@@ -61,7 +53,6 @@ Sarei felice di discutere le scelte architetturali o ricevere feedback sul codic
 
 🌐 **Website:** [francescoparadiso.com](https://www.francescoparadiso.com)
 
----
 
 ## 🚀 Download
 
