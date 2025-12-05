@@ -1,8 +1,9 @@
 # Rail - Il tuo viaggio, semplificato.
 
 [![iOS 26+](https://img.shields.io/badge/iOS-26.0%2B-blue.svg?style=flat)](https://developer.apple.com/ios/)
-[![Swift 6.2](https://img.shields.io/badge/Swift-6.2-blue.svg?style=flat)](https://developer.apple.com/swift/)
-[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-orange.svg)](https://www.gnu.org/licenses/gpl-3.0)
+[![Swift 6.2](https://img.shields.io/badge/Swift-6.2-orange.svg?style=flat)](https://developer.apple.com/swift/)
+[![SwiftUI](https://img.shields.io/badge/UI-SwiftUI-3F88F9.svg?style=flat&logo=swift&logoColor=white)](https://developer.apple.com/xcode/swiftui/)
+[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 
 **Rail** è l'applicazione definitiva per il pendolare moderno. Nata dall'esigenza di avere informazioni chiare e precise, Rail unisce il monitoraggio dei treni in tempo reale con funzionalità social uniche per i viaggi di gruppo, il tutto racchiuso in un design nativo ed essenziale.
 
@@ -15,7 +16,6 @@
   <img src="Thumbnails/screen4.png" width="200" />
 </p>
 
-
 ## ✨ Funzionalità Chiave
 
 * **Monitoraggio Live:** Tracking in tempo reale di orari, ritardi, binari e cancellazioni.
@@ -23,23 +23,26 @@
 * **Contesto Intelligente:** Integrazione con servizi meteo per visualizzare le condizioni atmosferiche previste ad ogni singola fermata intermedia.
 * **UI Nativa e Fluida:** Interfaccia sviluppata interamente in SwiftUI seguendo le Human Interface Guidelines di Apple.
 
-
 ## 🛠 Tech Stack & Architettura
 
-Il progetto è stato sviluppato con un approccio moderno, privilegiando la pulizia del codice e le performance.
+Il progetto è sviluppato sfruttando le potenzialità di **Swift 6.2**, adottando un approccio pragmatico che combina le più recenti API Apple con una solida gestione dei dati legacy.
 
-* **Linguaggio:** Swift 6.2 (con supporto a concorrenza Swift 6)
+* **Linguaggio:** Swift 6.2
 * **UI Framework:** SwiftUI
-* **Architettura:** MVVM (Model-View-ViewModel) per una chiara separazione delle responsabilità.
-* **Concurrency:** Async/Await per la gestione delle chiamate di rete asincrone.
-* **Networking:** URLSession nativo (nessuna dipendenza esterna pesante) con gestione custom degli errori API.
-* **Persistenza Dati:** FileManager/UserDefaults per il salvataggio locale sicuro delle configurazioni dei gruppi.
-* **Servizi:** CoreLocation per la geolocalizzazione e il fetch dei dati meteo contestuali.
+* **Architettura:** MVVM (Model-View-ViewModel) con separazione della logica di business in un Functional Core dedicato.
+* **Concurrency Ibrida:**
+    * Adozione di **Async/Await** per l'integrazione asincrona dei servizi moderni (come *WeatherKit* e *OpenMeteo*).
+    * Utilizzo strategico di **Grand Central Dispatch (DispatchGroup)** per orchestrare e sincronizzare chiamate parallele verso provider multipli (Italo/Trenitalia).
+* **Networking & Data:**
+    * Integrazione REST API eterogenee tramite `URLSession`.
+    * **Parsing Resiliente:** Utilizzo di `JSONSerialization` per la manipolazione manuale di strutture dati complesse e non standardizzate.
+    * **Database Locale:** Lettura ottimizzata di file **CSV** per la risoluzione offline di coordinate e nomi stazioni.
+* **Servizi Apple:** Integrazione profonda con `CoreLocation`, `MapKit` e `WeatherKit`.
 
 ### Sfide Tecniche Risolte
-* **Parsing Complesso:** Gestione e normalizzazione di dati ferroviari spesso frammentati o incompleti provenienti da API legacy.
-* **Stati UI Dinamici:** Gestione fluida degli stati di caricamento, errore e "empty state" (scheletri di caricamento) per migliorare la percezione di velocità dell'app.
-* **Privacy First:** Architettura progettata per processare i dati sensibili (nomi, posizioni) esclusivamente on-device.
+* **Normalizzazione Multi-Provider:** Implementazione di un layer di astrazione (Logic) che unifica le risposte JSON strutturalmente diverse di provider differenti in un unico modello dati coerente per l'UI.
+* **Algoritmi Custom:** Sviluppo di logiche proprietarie per la conversione e normalizzazione dei binari (es. conversione numeri Romani/Arabi) e calcolo delle distanze geospaziali.
+* **Ottimizzazione Performance:** Gestione di richieste multiple simultanee senza bloccare il thread principale, garantendo un'interfaccia sempre reattiva anche durante il fetch dei dati.
 
 ## 📄 Licenza
 
@@ -53,6 +56,7 @@ Sarei felice di discutere le scelte architetturali o ricevere feedback sul codic
 
 🌐 **Website:** [francescoparadiso.com](https://www.francescoparadiso.com)
 
+🔗 **LinkedIn:** [Francesco Pio Paradiso](https://www.linkedin.com/in/francescopioparadiso)
 
 ## 🚀 Download
 
