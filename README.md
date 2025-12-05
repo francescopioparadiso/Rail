@@ -1,9 +1,9 @@
 # Rail - Il tuo viaggio, semplificato.
 
-[![iOS 17+](https://img.shields.io/badge/iOS-17.0%2B-blue.svg?style=flat)](https://developer.apple.com/ios/)
+[![iOS 26+](https://img.shields.io/badge/iOS-17.0%2B-blue.svg?style=flat)](https://developer.apple.com/ios/)
 [![Swift 5.9](https://img.shields.io/badge/Swift-5.9-orange.svg?style=flat)](https://developer.apple.com/swift/)
 [![SwiftUI](https://img.shields.io/badge/UI-SwiftUI-3F88F9.svg?style=flat&logo=swift&logoColor=white)](https://developer.apple.com/xcode/swiftui/)
-[![App Store](https://img.shields.io/badge/Download_on_the-App_Store-black.svg?logo=apple&logoColor=white)](LINK_ALLA_TUA_APP_SULL_STORE)
+[![App Store](https://img.shields.io/badge/Download_on_the-App_Store-black.svg?logo=apple&logoColor=white)](https://apps.apple.com/us/app/rail/id6755895103)
 
 **Rail** è l'applicazione definitiva per il pendolare moderno. Nata dall'esigenza di avere informazioni chiare e precise, Rail unisce il monitoraggio dei treni in tempo reale con funzionalità social uniche per i viaggi di gruppo, il tutto racchiuso in un design nativo ed essenziale.
 
@@ -56,8 +56,8 @@ Poiché l'applicazione è attualmente pubblicata e attiva sull'App Store, il cod
 **Sei un recruiter o un technical lead?**
 Sarei felice di mostrarti l'architettura del progetto, discutere le scelte tecniche o fornirti accesso a parti del codice durante un colloquio tecnico.
 
-📧 **Contattami:** [Tua Email]
-🔗 **LinkedIn:** [Tuo Profilo LinkedIn]
+📧 **Contattami:** [francescopara2003@icloud.com]
+🔗 **LinkedIn:** [https://www.linkedin.com/in/francescopioparadiso]
 
 ---
 
@@ -65,7 +65,7 @@ Sarei felice di mostrarti l'architettura del progetto, discutere le scelte tecni
 
 Scarica Rail direttamente dall'App Store e inizia a viaggiare meglio.
 
-[<img src="https://upload.wikimedia.org/wikipedia/commons/3/3c/Download_on_the_App_Store_Badge.svg" width="200">](LINK_ALLA_TUA_APP_SULL_STORE)
+[<img src="https://upload.wikimedia.org/wikipedia/commons/3/3c/Download_on_the_App_Store_Badge.svg" width="200">](https://apps.apple.com/us/app/rail/id6755895103)
 
 ---
 *Developed with ❤️ in Italy.*
