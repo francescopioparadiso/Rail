@@ -1,9 +1,8 @@
 # Rail - Il tuo viaggio, semplificato.
 
-[![iOS 17+](https://img.shields.io/badge/iOS-17.0%2B-blue.svg?style=flat)](https://developer.apple.com/ios/)
-[![Swift 5.9](https://img.shields.io/badge/Swift-5.9-orange.svg?style=flat)](https://developer.apple.com/swift/)
-[![SwiftUI](https://img.shields.io/badge/UI-SwiftUI-3F88F9.svg?style=flat&logo=swift&logoColor=white)](https://developer.apple.com/xcode/swiftui/)
-[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
+[![iOS 26+](https://img.shields.io/badge/iOS-26.0%2B-blue.svg?style=flat)](https://developer.apple.com/ios/)
+[![Swift 6.2](https://img.shields.io/badge/Swift-6.2-blue.svg?style=flat)](https://developer.apple.com/swift/)
+[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-orange.svg)](https://www.gnu.org/licenses/gpl-3.0)
 
 **Rail** è l'applicazione definitiva per il pendolare moderno. Nata dall'esigenza di avere informazioni chiare e precise, Rail unisce il monitoraggio dei treni in tempo reale con funzionalità social uniche per i viaggi di gruppo, il tutto racchiuso in un design nativo ed essenziale.
 
@@ -33,7 +32,7 @@
 
 Il progetto è stato sviluppato con un approccio moderno, privilegiando la pulizia del codice e le performance.
 
-* **Linguaggio:** Swift 5.9 (con supporto a concorrenza Swift 6)
+* **Linguaggio:** Swift 6.2 (con supporto a concorrenza Swift 6)
 * **UI Framework:** SwiftUI
 * **Architettura:** MVVM (Model-View-ViewModel) per una chiara separazione delle responsabilità.
 * **Concurrency:** Async/Await per la gestione delle chiamate di rete asincrone.
@@ -60,8 +59,7 @@ Sei libero di studiare, modificare e utilizzare il codice, ma qualsiasi lavoro d
 Sei un recruiter o uno sviluppatore interessato al progetto?
 Sarei felice di discutere le scelte architetturali o ricevere feedback sul codice.
 
-📧 **Email:** [francescopara2003@icloud.com](mailto:francescopara2003@icloud.com)
-🔗 **LinkedIn:** [Francesco Pio Paradiso](https://www.linkedin.com/in/francescopioparadiso)
+🌐 **Website:** [francescoparadiso.com](https://www.francescoparadiso.com)
 
 ---
 
@@ -70,6 +68,3 @@ Sarei felice di discutere le scelte architetturali o ricevere feedback sul codic
 Scarica Rail direttamente dall'App Store e inizia a viaggiare meglio.
 
 [<img src="https://upload.wikimedia.org/wikipedia/commons/3/3c/Download_on_the_App_Store_Badge.svg" width="200">](https://apps.apple.com/us/app/rail/id6755895103)
-
----
-*Developed with ❤️ in Italy.*
