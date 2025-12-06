@@ -46,9 +46,9 @@ struct PastView: View {
     var body: some View {
         NavigationStack {
             if past_trains.isEmpty {
-                ContentUnavailableView("Nessun viaggio passato",
+                ContentUnavailableView("No past journeys",
                                        systemImage: "exclamationmark.magnifyingglass",
-                                       description: Text("Aggiungi un nuovo viaggio dal pulsante in alto."))
+                                       description: Text("Add a new journey by tapping the above button."))
                 .padding()
                 .fontDesign(appFontDesign)
                 .foregroundColor(Color.primary)

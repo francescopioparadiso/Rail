@@ -20,14 +20,14 @@ struct ContentView: View {
         TabView(selection: $selectedTab) {
             PastView()
                 .tabItem {
-                    Label("Passati", systemImage: "calendar.badge.clock")
+                    Label("Past", systemImage: "tray.full")
                 }
                 .tag(Tab.passati)
             
             
             TodayView()
                 .tabItem {
-                    Label("Oggi", systemImage: "calendar.circle")
+                    Label("Today", systemImage: "calendar.day.timeline.leading")
                 }
                 .tag(Tab.oggi)
         }

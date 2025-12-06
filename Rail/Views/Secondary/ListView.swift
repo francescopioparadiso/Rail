@@ -154,13 +154,13 @@ struct ListView: View {
                             
                             let time_string: String = {
                                 if day > 0 {
-                                    return "Partenza il \(first_stop.dep_time_id.formatted(date: .abbreviated, time: .omitted))"
+                                    return "\(NSLocalizedString("Departure in", comment: ""))  \(first_stop.dep_time_id.formatted(date: .abbreviated, time: .omitted))"
                                 } else if hour > 0 {
-                                    return "Partenza in \(hour)h\(minute)m"
+                                    return "\(NSLocalizedString("Departure in", comment: ""))  \(hour)h\(minute)m"
                                 } else if minute > 0 {
-                                    return "Partenza in \(minute)m"
+                                    return "\(NSLocalizedString("Departure in", comment: "")) \(minute)m"
                                 } else {
-                                    return "Partenza imminente"
+                                    return "\(NSLocalizedString("Departure in moments", comment: "")) "
                                 }
                             }()
                             
@@ -199,18 +199,18 @@ struct ListView: View {
                                     if delay >= 60 {
                                         let hours = delay / 60
                                         let minutes = delay % 60
-                                        return "In anticipo di \(hours)h \(minutes)m"
+                                        return "\(NSLocalizedString("Early of", comment: "")) \(hours)h \(minutes)m"
                                     }
-                                    return "In anticipo di \(delay)m"
+                                    return "\(NSLocalizedString("Early of", comment: "")) \(delay)m"
                                 } else if train.delay == 0 {
-                                    return "In orario"
+                                    return "\(NSLocalizedString("On time", comment: ""))"
                                 } else {
                                     if train.delay >= 60 {
                                         let hours = train.delay / 60
                                         let minutes = train.delay % 60
-                                        return "In ritardo di \(hours)h \(minutes)m"
+                                        return "\(NSLocalizedString("Late of", comment: "")) \(hours)h \(minutes)m"
                                     }
-                                    return "In ritardo di \(train.delay)m"
+                                    return "\(NSLocalizedString("Late of", comment: "")) \(train.delay)m"
                                 }
                             }()
                             
@@ -377,18 +377,18 @@ struct ListView: View {
                                     if delay >= 60 {
                                         let hours = delay / 60
                                         let minutes = delay % 60
-                                        return "In anticipo di \(hours)h \(minutes)m"
+                                        return "\(NSLocalizedString("Early of", comment: "")) \(hours)h \(minutes)m"
                                     }
-                                    return "In anticipo di \(delay)m"
+                                    return "\(NSLocalizedString("Early of", comment: "")) \(delay)m"
                                 } else if last_stop_no_issues.arr_delay == 0 {
-                                    return "In orario"
+                                    return "\(NSLocalizedString("On time", comment: "")) "
                                 } else {
                                     if last_stop_no_issues.arr_delay >= 60 {
                                         let hours = last_stop_no_issues.arr_delay / 60
                                         let minutes = last_stop_no_issues.arr_delay % 60
-                                        return "In ritardo di \(hours)h \(minutes)m"
+                                        return "\(NSLocalizedString("Late of", comment: "")) \(hours)h \(minutes)m"
                                     }
-                                    return "In ritardo di \(last_stop_no_issues.arr_delay)m"
+                                    return "\(NSLocalizedString("Late of", comment: "")) \(last_stop_no_issues.arr_delay)m"
                                 }
                             }()
                             

@@ -45,9 +45,9 @@ struct TodayView: View {
     var body: some View {
         NavigationStack {
             if today_trains.isEmpty {
-                ContentUnavailableView("Nessun viaggio in corso",
+                ContentUnavailableView("No ongoing journeys",
                                        systemImage: "exclamationmark.magnifyingglass",
-                                       description: Text("Aggiungi un nuovo viaggio dal pulsante in alto."))
+                                       description: Text("Add a new journey by tapping the above button."))
                 .padding()
                 .foregroundColor(Color.primary)
                 .fontDesign(appFontDesign)
@@ -101,8 +101,8 @@ struct TodayView: View {
                                 let hours = Int(interval) / 3600
                                 let minutes = (Int(interval) % 3600) / 60
                                 let timeString = hours > 0
-                                    ? "Attesa di \(hours)h \(minutes)m"
-                                    : "Attesa di \(minutes)m"
+                                    ? "\(NSLocalizedString("Waiting for", comment: "")) \(hours)h \(minutes)m"
+                                    : "\(NSLocalizedString("Waiting for", comment: "")) \(minutes)m"
                                 
                                 Text(timeString)
                                     .font(.footnote)
@@ -140,6 +140,7 @@ struct TodayView: View {
             AddJourneyView()
         }
         .onAppear {
+            print("Actual iPhone language: \(Locale.current)")
             update_today_trains()
             
             Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { _ in
