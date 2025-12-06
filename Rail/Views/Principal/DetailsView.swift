@@ -182,13 +182,13 @@ struct DetailsView: View {
                         
                         let time_string: String = {
                             if day > 0 {
-                                return "Partenza il \(dep_time.formatted(date: .abbreviated, time: .omitted))"
+                                return "\(NSLocalizedString("Departure on", comment: "")) \(dep_time.formatted(date: .abbreviated, time: .omitted))"
                             } else if hour > 0 && minute > 0 {
-                                return "Partenza in \(hour)h\(minute)m"
+                                return "\(NSLocalizedString("Departure in", comment: "")) \(hour)h\(minute)m"
                             } else if hour > 0 && minute == 0 {
-                                return "Partenza in \(hour)h"
+                                return "\(NSLocalizedString("Departure in", comment: "")) \(hour)h"
                             } else if minute > 0 {
-                                return "Partenza in \(minute)m"
+                                return "\(NSLocalizedString("Departure in", comment: "")) \(minute)m"
                             } else {
                                 return "Partenza imminente"
                             }
@@ -206,7 +206,7 @@ struct DetailsView: View {
                 } else if Date() > last_stop.arr_time_eff {
                     HStack (spacing: 8) {
                         ZStack {
-                            Text("Arrivato il \(last_stop_no_issues.arr_time_eff.formatted(date: .abbreviated, time: .omitted))")
+                            Text("\(NSLocalizedString("Arrived on", comment: "")) \(last_stop_no_issues.arr_time_eff.formatted(date: .abbreviated, time: .omitted))")
                                 .font(.subheadline)
                                 .fontDesign(appFontDesign)
                                 .padding(.vertical, 8).padding(.horizontal)
@@ -230,7 +230,7 @@ struct DetailsView: View {
                                         }
                                         return "\(delay)m"
                                     } else if last_stop_no_issues.arr_delay == 0 {
-                                        return "In orario"
+                                        return "\(NSLocalizedString("On time", comment: ""))"
                                     } else {
                                         if last_stop_no_issues.arr_delay >= 60 {
                                             let hours = last_stop_no_issues.arr_delay / 60
@@ -260,18 +260,18 @@ struct DetailsView: View {
                                 if delay >= 60 {
                                     let hours = delay / 60
                                     let minutes = delay % 60
-                                    return "In anticipo di \(hours)h \(minutes)m"
+                                    return "\(NSLocalizedString("Early of", comment: "")) \(hours)h \(minutes)m"
                                 }
-                                return "In anticipo di \(delay)m"
+                                return "\(NSLocalizedString("Early of", comment: "")) \(delay)m"
                             } else if train.delay == 0 {
-                                return "In orario"
+                                return "\(NSLocalizedString("On time", comment: ""))"
                             } else {
                                 if train.delay >= 60 {
                                     let hours = train.delay / 60
                                     let minutes = train.delay % 60
-                                    return "In ritardo di \(hours)h \(minutes)m"
+                                    return "\(NSLocalizedString("Late of", comment: "")) \(hours)h \(minutes)m"
                                 }
-                                return "In ritardo di \(train.delay)m"
+                                return "\(NSLocalizedString("Late of", comment: "")) \(train.delay)m"
                             }
                         }()
                         
@@ -353,7 +353,7 @@ struct DetailsView: View {
                 
                 VStack(alignment: .leading, spacing: 8) {
                     HStack {
-                        Text("\(stops_to_show.count) fermate")
+                        Text("\(stops_to_show.count) \(NSLocalizedString("stops", comment: "")) ")
                             .font(.footnote)
                             .fontDesign(appFontDesign)
                             .foregroundStyle(.secondary)
@@ -368,7 +368,7 @@ struct DetailsView: View {
                                     Image(systemName: showAllStops ? "eye.slash" : "eye" )
                                         .fontWeight(.semibold)
                                     
-                                    Text(showAllStops ? "Mostra meno" : "Mostra tutte")
+                                    Text(showAllStops ? "Show less" : "Show all")
                                 }
                                 .font(.footnote)
                                 .fontDesign(appFontDesign)
@@ -599,19 +599,19 @@ struct DetailsView: View {
                     HStack (spacing: 8) {
                         HStack (spacing: 2) {
                             Image(systemName: "circle.fill")
-                            Text("Regolare")
+                            Text("Scheduled")
                         }
                         .foregroundStyle(Color.blue)
                         
                         HStack (spacing: 2) {
                             Image(systemName: "circle.fill")
-                            Text("Non programmato")
+                            Text("Not scheduled")
                         }
                         .foregroundStyle(Color.orange)
                         
                         HStack (spacing: 2) {
                             Image(systemName: "circle.fill")
-                            Text("Cancellato")
+                            Text("Cancelled")
                         }
                         .foregroundStyle(Color.red)
                     }
@@ -622,7 +622,7 @@ struct DetailsView: View {
                     .padding(.top, 32)
                     
                     // last updated time
-                    Text("Ultimo aggiornamento: \(train.last_upadate_time.formatted(date: .abbreviated, time: .shortened))")
+                    Text("\(NSLocalizedString("Last update", comment: "")): \(train.last_upadate_time.formatted(date: .abbreviated, time: .shortened))")
                         .font(.system(size: 10))
                         .fontDesign(appFontDesign)
                         .foregroundStyle(Color.secondary)
@@ -643,7 +643,7 @@ struct DetailsView: View {
                             Image(systemName: "figure.seated.seatbelt")
                                 .fontWeight(.semibold)
                             
-                            Text(train.seats.isEmpty ? "Aggiungi" : train.seats.first!.split(separator: "-").prefix(2).joined(separator: "-"))
+                            Text(train.seats.isEmpty ? "\(NSLocalizedString("Add", comment: ""))" : train.seats.first!.split(separator: "-").prefix(2).joined(separator: "-"))
                         }
                         .fontDesign(appFontDesign)
                         .foregroundStyle(Color.secondary)
@@ -819,7 +819,7 @@ struct DetailsView: View {
                 }
                 .fontDesign(appFontDesign)
             }
-            .navigationTitle("I tuoi Posti")
+            .navigationTitle("Your Seats")
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button {
@@ -830,10 +830,17 @@ struct DetailsView: View {
                 }
                 
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("Salva") {
-                        addNewSeat()
+                    if newCarriage.isEmpty || newSeat.isEmpty || newName.isEmpty {
+                        Button("Save") {
+                            addNewSeat()
+                        }
+                        .disabled(newCarriage.isEmpty || newSeat.isEmpty || newName.isEmpty)
+                    } else {
+                        Button("Save") {
+                            addNewSeat()
+                        }
+                        .buttonStyle(.glassProminent)
                     }
-                    .disabled(newCarriage.isEmpty || newSeat.isEmpty || newName.isEmpty)
                 }
             }
         }

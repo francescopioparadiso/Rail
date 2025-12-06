@@ -9,10 +9,10 @@ enum Field {
 }
 
 enum Views: String {
-    case add_number = "Aggiungi numero"
-    case choose_train = "Scegli treno"
-    case choose_stops = "Scegli fermate"
-    case choose_date = "Scegli data"
+    case add_number = "Add train number"
+    case choose_train = "Choose train"
+    case choose_stops = "Choose stops"
+    case choose_date = "Choose date"
 }
 
 struct AddJourneyView: View {
@@ -52,7 +52,7 @@ struct AddJourneyView: View {
                     DateView()
                 }
             }
-            .navigationTitle(actualView.rawValue)
+            .navigationTitle(NSLocalizedString(actualView.rawValue, comment: ""))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 // back or dismiss button
@@ -73,9 +73,13 @@ struct AddJourneyView: View {
                                 stop_selected.removeValue(forKey: lastStopID)
                             }
                             
+                            id_selected = ""
+                            
                             actualView = .add_number
                             focusedField = .number
                         case .choose_stops:
+                            stop_selected.removeAll()
+                            
                             actualView = .choose_train
                         case .choose_date:
                             actualView = .choose_stops
@@ -89,90 +93,169 @@ struct AddJourneyView: View {
                         }
                     }
                 }
-
+                
                 // next or save button
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button {
-                        switch actualView {
-                        case .add_number:
-                            train_results = [:]
-                            stop_results = [:]
-                            is_loading = true
+                    switch actualView {
+                    case .add_number:
+                        if train_number.count >= 2 {
+                            Button {
+                                train_results = [:]
+                                stop_results = [:]
+                                is_loading = true
 
-                            let start = CFAbsoluteTimeGetCurrent()
-                            let timeoutInterval: Double = 4.0
+                                let start = CFAbsoluteTimeGetCurrent()
+                                let timeoutInterval: Double = 4.0
 
-                            DispatchQueue.main.asyncAfter(deadline: .now() + timeoutInterval) {
-                                if self.is_loading {
-                                    self.is_loading = false
-                                    print("🚨 Fetching timed out after \(timeoutInterval) seconds.")
+                                DispatchQueue.main.asyncAfter(deadline: .now() + timeoutInterval) {
+                                    if self.is_loading {
+                                        self.is_loading = false
+                                        print("🚨 Fetching timed out after \(timeoutInterval) seconds.")
+                                    }
                                 }
-                            }
 
-                            fetch_train_list(number: train_number) { trains in
-                                DispatchQueue.global(qos: .userInitiated).async {
+                                fetch_train_list(number: train_number) { trains in
+                                    DispatchQueue.global(qos: .userInitiated).async {
 
-                                    var newTrainResults = [UUID: [String: Any]]()
-                                    var newStopResults = [UUID: [[String: Any]]]()
+                                        var newTrainResults = [UUID: [String: Any]]()
+                                        var newStopResults = [UUID: [[String: Any]]]()
 
-                                    for train in trains {
-                                        if train["number"] as? String == train_number {
-                                            let id = UUID()
-                                            newTrainResults[id] = train
-                                            if let stops = train["stops"] as? [[String: Any]] {
-                                                newStopResults[id] = stops
+                                        for train in trains {
+                                            if train["number"] as? String == train_number {
+                                                let id = UUID()
+                                                newTrainResults[id] = train
+                                                if let stops = train["stops"] as? [[String: Any]] {
+                                                    newStopResults[id] = stops
+                                                }
+                                            }
+                                        }
+
+                                        DispatchQueue.main.async {
+                                            if self.is_loading {
+                                                self.train_results = newTrainResults
+                                                self.stop_results = newStopResults
+                                                self.is_loading = false
+
+                                                let diff = CFAbsoluteTimeGetCurrent() - start
+                                                print("⏱️ Fetching train list took \(Int(diff))s \(Int((diff - Double(Int(diff))) * 1000))ms")
                                             }
                                         }
                                     }
+                                }
 
-                                    DispatchQueue.main.async {
-                                        if self.is_loading {
-                                            self.train_results = newTrainResults
-                                            self.stop_results = newStopResults
-                                            self.is_loading = false
+                                actualView = .choose_train
+                            } label: {
+                                Image(systemName: "chevron.right")
+                            }
+                            .buttonStyle(.glassProminent)
+                        } else {
+                            Button {
+                                train_results = [:]
+                                stop_results = [:]
+                                is_loading = true
 
-                                            let diff = CFAbsoluteTimeGetCurrent() - start
-                                            print("⏱️ Fetching train list took \(Int(diff))s \(Int((diff - Double(Int(diff))) * 1000))ms")
+                                let start = CFAbsoluteTimeGetCurrent()
+                                let timeoutInterval: Double = 4.0
+
+                                DispatchQueue.main.asyncAfter(deadline: .now() + timeoutInterval) {
+                                    if self.is_loading {
+                                        self.is_loading = false
+                                        print("🚨 Fetching timed out after \(timeoutInterval) seconds.")
+                                    }
+                                }
+
+                                fetch_train_list(number: train_number) { trains in
+                                    DispatchQueue.global(qos: .userInitiated).async {
+
+                                        var newTrainResults = [UUID: [String: Any]]()
+                                        var newStopResults = [UUID: [[String: Any]]]()
+
+                                        for train in trains {
+                                            if train["number"] as? String == train_number {
+                                                let id = UUID()
+                                                newTrainResults[id] = train
+                                                if let stops = train["stops"] as? [[String: Any]] {
+                                                    newStopResults[id] = stops
+                                                }
+                                            }
+                                        }
+
+                                        DispatchQueue.main.async {
+                                            if self.is_loading {
+                                                self.train_results = newTrainResults
+                                                self.stop_results = newStopResults
+                                                self.is_loading = false
+
+                                                let diff = CFAbsoluteTimeGetCurrent() - start
+                                                print("⏱️ Fetching train list took \(Int(diff))s \(Int((diff - Double(Int(diff))) * 1000))ms")
+                                            }
                                         }
                                     }
                                 }
-                            }
 
-                            actualView = .choose_train
-                        case .choose_train:
-                            if let id = UUID(uuidString: id_selected), let selected = train_results[id] {
-                                train_selected[id] = selected
+                                actualView = .choose_train
+                            } label: {
+                                Image(systemName: "chevron.right")
                             }
-                            actualView = .choose_stops
-                        case .choose_stops:
-                            if stop_selected_count >= 2 {
+                            .disabled(train_number.count < 2)
+                        }
+                    case .choose_train:
+                        if id_selected != "" {
+                            Button {
+                                if let id = UUID(uuidString: id_selected), let selected = train_results[id] {
+                                    train_selected[id] = selected
+                                }
+                                actualView = .choose_stops
+                            } label: {
+                                Image(systemName: "chevron.right")
+                            }
+                            .buttonStyle(.glassProminent)
+                        } else {
+                            Button {
+                                if let id = UUID(uuidString: id_selected), let selected = train_results[id] {
+                                    train_selected[id] = selected
+                                }
+                                actualView = .choose_stops
+                            } label: {
+                                Image(systemName: "chevron.right")
+                            }
+                            .disabled(id_selected == "")
+                        }
+                    case .choose_stops:
+                        if stop_selected_count >= 2 {
+                            Button {
                                 if let id = UUID(uuidString: id_selected), let selected = stop_selected[id], !selected.isEmpty {
                                     stop_selected[id] = selected
                                 }
+                                actualView = .choose_date
+                            } label: {
+                                Image(systemName: "chevron.right")
                             }
-                            actualView = .choose_date
-                        case .choose_date:
+                            .buttonStyle(.glassProminent)
+                        } else {
+                            Button {
+                                if let id = UUID(uuidString: id_selected), let selected = stop_selected[id], !selected.isEmpty {
+                                    stop_selected[id] = selected
+                                }
+                                actualView = .choose_date
+                            } label: {
+                                Image(systemName: "chevron.right")
+                            }
+                            .disabled(stop_selected_count < 2)
+                        }
+                    case .choose_date:
+                        Button {
                             add_to_database()
                             dismiss()
                             train_results.removeAll()
                             stop_results.removeAll()
-                        }
-                    } label: {
-                        switch actualView {
-                        case .add_number, .choose_train, .choose_stops:
-                            Image(systemName: "chevron.right")
-                        case .choose_date:
-                            Text("Salva")
+                        } label: {
+                            Text("Save")
                                 .fontDesign(appFontDesign)
                         }
+                        .buttonStyle(.glassProminent)
                     }
-                    .disabled(
-                        (actualView == .add_number && train_number.count < 2) ||
-                        (actualView == .choose_train && id_selected == "") ||
-                        (actualView == .choose_stops && stop_selected_count < 2)
-                    )
                 }
-                
             }
             .onChange(of: actualView) { _, newValue in
                 print("\n🟩 ACTUAL VIEW: \(newValue)----------------------------------------------------------------------")
@@ -217,7 +300,7 @@ struct AddJourneyView: View {
             if is_loading {
                 ContentUnavailableView {
                     Label {
-                        Text("Cerco il numero del treno...")
+                        Text("Searching train number...")
                             .foregroundColor(Color.primary)
                     } icon: {
                         Image(systemName: "text.magnifyingglass")
@@ -228,9 +311,9 @@ struct AddJourneyView: View {
                 .padding()
             } else if train_results.isEmpty {
                 ContentUnavailableView(
-                    "Nessun treno trovato",
+                    "No trains found",
                     systemImage: "exclamationmark.triangle.fill",
-                    description: Text("Prova a inserire un altro numero di treno.")
+                    description: Text("Try checking the train number and your internet connection.")
                 )
                 .padding()
                 .foregroundColor(Color.red)
