@@ -154,7 +154,7 @@ struct ListView: View {
                             
                             let time_string: String = {
                                 if day > 0 {
-                                    return "\(NSLocalizedString("Departure in", comment: ""))  \(first_stop.dep_time_id.formatted(date: .abbreviated, time: .omitted))"
+                                    return "\(NSLocalizedString("Departure on", comment: ""))  \(first_stop.dep_time_id.formatted(date: .abbreviated, time: .omitted))"
                                 } else if hour > 0 {
                                     return "\(NSLocalizedString("Departure in", comment: ""))  \(hour)h\(minute)m"
                                 } else if minute > 0 {
