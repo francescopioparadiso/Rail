@@ -2,7 +2,7 @@
 
 [![iOS 26+](https://img.shields.io/badge/iOS-26.0%2B-blue.svg?style=flat)](https://developer.apple.com/ios/)
 [![Swift 6.2](https://img.shields.io/badge/Swift-6.2-orange.svg?style=flat)](https://developer.apple.com/swift/)
-[![SwiftUI](https://img.shields.io/badge/UI-SwiftUI-3F88F9.svg?style=flat&logo=swift&logoColor=white)](https://developer.apple.com/xcode/swiftui/)
+[![SwiftUI](https://img.shields.io/badge/UI-SwiftUI-3F88F9.svg?style=flat&logo=swift&logoColor=white)](https://developer.apple.com/swiftui/)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 
 **Rail** è l'applicazione definitiva per il pendolare moderno. Nata dall'esigenza di avere informazioni chiare e precise, Rail unisce il monitoraggio dei treni in tempo reale con funzionalità social uniche per i viaggi di gruppo, il tutto racchiuso in un design nativo ed essenziale.
