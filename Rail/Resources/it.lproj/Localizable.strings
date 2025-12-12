@@ -7,6 +7,7 @@
 "Not scheduled" = "Non programmata";
 "Cancelled" = "Cancellata";
 "Save" = "Salva";
+"Cancel" = "Annulla";
 "On time" = "In orario";
 "Early of" = "In anticipo di";
 "Late of" = "In ritardo di";
@@ -28,3 +29,4 @@
 "Choose train" = "Scegli treno";
 "Choose stops" = "Scegli fermate";
 "Choose date" = "Scegli data";
+"Scanned from Photo" = "Scansionato dalle foto";

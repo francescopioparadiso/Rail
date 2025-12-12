@@ -54,6 +54,7 @@ struct TodayView: View {
                 .toolbar {
                     ToolbarItem(placement: .navigationBarTrailing) {
                         Button {
+                            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
                             add_journey_sheet = true
                         } label: {
                             Image(systemName: "plus")
@@ -127,6 +128,7 @@ struct TodayView: View {
                 .toolbar {
                     ToolbarItem(placement: .navigationBarTrailing) {
                         Button {
+                            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
                             add_journey_sheet = true
                         } label: {
                             Image(systemName: "plus")
@@ -226,12 +228,37 @@ struct TodayView: View {
                 stop.arr_time_eff = fetched["arr_time_eff"] as? Date ?? .distantPast
             }
         }
+        
+        // --- ADD THIS BLOCK ---
+            // 1. Determine if this train is currently the "active" one
+            let isTraveling = checkIfTraveling(train) // You'll need a simple logic for this
+            
+            if isTraveling {
+                // 2. Find the next stop (simplified logic)
+                let nextStopName = stops.first(where: { $0.id == train.id && !$0.is_completed })?.name ?? "End"
+                
+                // 3. Send to Watch
+                ConnectivityManager.shared.sendTrainUpdate(
+                    isTraveling: true,
+                    trainNumber: train.number,
+                    delay: train.delay,
+                    nextStop: nextStopName
+                )
+            }
+            // ----------------------
 
         do {
             try modelContext.save()
         } catch {
             print("⚠️ Failed to save modelContext after applying result for train \(train.identifier):", error)
         }
+    }
+    
+    // Helper function to define "Traveling"
+    private func checkIfTraveling(_ train: Train) -> Bool {
+        // Example logic: active if it started but hasn't finished
+        // You can refine this based on your exact 'stops' data
+        return true // Placeholder: Implement your specific time check here
     }
     
     // MARK: - Performance functions

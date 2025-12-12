@@ -8,10 +8,26 @@
 
 /* Begin PBXFileReference section */
 		2C0E47A32ED8D7330024EF08 /* Rail.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Rail.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		2C1595492EE7260D005800EB /* Rail Watch App.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Rail Watch App.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
-		2C0E47B02ED8D7340024EF08 /* Exceptions for "Rail" folder in "Rail" target */ = {
+		2C1595572EE7290A005800EB /* Exceptions for "Rail Watch App" folder in "Rail" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				ConnectivityManager.swift,
+			);
+			target = 2C0E47A22ED8D7330024EF08 /* Rail */;
+		};
+		2C15955A2EE7295D005800EB /* Exceptions for "Rail" folder in "Rail Watch App" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Data/Stop.swift,
+				Data/Train.swift,
+			);
+			target = 2C1595482EE7260D005800EB /* Rail Watch App */;
+		};
+		2CF7290F2EE87320002B8235 /* Exceptions for "Rail" folder in "Rail" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				Info.plist,
@@ -24,15 +40,31 @@
 		2C0E47A52ED8D7330024EF08 /* Rail */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
-				2C0E47B02ED8D7340024EF08 /* Exceptions for "Rail" folder in "Rail" target */,
+				2CF7290F2EE87320002B8235 /* Exceptions for "Rail" folder in "Rail" target */,
+				2C15955A2EE7295D005800EB /* Exceptions for "Rail" folder in "Rail Watch App" target */,
 			);
 			path = Rail;
+			sourceTree = "<group>";
+		};
+		2C15954A2EE7260D005800EB /* Rail Watch App */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				2C1595572EE7290A005800EB /* Exceptions for "Rail Watch App" folder in "Rail" target */,
+			);
+			path = "Rail Watch App";
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		2C0E47A02ED8D7330024EF08 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		2C1595462EE7260D005800EB /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -46,6 +78,7 @@
 			isa = PBXGroup;
 			children = (
 				2C0E47A52ED8D7330024EF08 /* Rail */,
+				2C15954A2EE7260D005800EB /* Rail Watch App */,
 				2C0E47A42ED8D7330024EF08 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -54,6 +87,7 @@
 			isa = PBXGroup;
 			children = (
 				2C0E47A32ED8D7330024EF08 /* Rail.app */,
+				2C1595492EE7260D005800EB /* Rail Watch App.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -83,6 +117,28 @@
 			productReference = 2C0E47A32ED8D7330024EF08 /* Rail.app */;
 			productType = "com.apple.product-type.application";
 		};
+		2C1595482EE7260D005800EB /* Rail Watch App */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 2C1595532EE7260E005800EB /* Build configuration list for PBXNativeTarget "Rail Watch App" */;
+			buildPhases = (
+				2C1595452EE7260D005800EB /* Sources */,
+				2C1595462EE7260D005800EB /* Frameworks */,
+				2C1595472EE7260D005800EB /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				2C15954A2EE7260D005800EB /* Rail Watch App */,
+			);
+			name = "Rail Watch App";
+			packageProductDependencies = (
+			);
+			productName = "Rail Watch App";
+			productReference = 2C1595492EE7260D005800EB /* Rail Watch App.app */;
+			productType = "com.apple.product-type.application";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -94,6 +150,9 @@
 				LastUpgradeCheck = 2600;
 				TargetAttributes = {
 					2C0E47A22ED8D7330024EF08 = {
+						CreatedOnToolsVersion = 26.0.1;
+					};
+					2C1595482EE7260D005800EB = {
 						CreatedOnToolsVersion = 26.0.1;
 					};
 				};
@@ -114,6 +173,7 @@
 			projectRoot = "";
 			targets = (
 				2C0E47A22ED8D7330024EF08 /* Rail */,
+				2C1595482EE7260D005800EB /* Rail Watch App */,
 			);
 		};
 /* End PBXProject section */
@@ -126,10 +186,24 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		2C1595472EE7260D005800EB /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		2C0E479F2ED8D7330024EF08 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		2C1595452EE7260D005800EB /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -381,6 +455,77 @@
 			};
 			name = Release;
 		};
+		2C1595512EE7260E005800EB /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = "Rail Watch App/Rail Watch App.entitlements";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 7QM8T4XA98;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "Rail-Watch-App-Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = Rail;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
+				INFOPLIST_KEY_WKCompanionAppBundleIdentifier = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.francescoparadis.Rail.watchkitapp;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = watchos;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 4;
+				WATCHOS_DEPLOYMENT_TARGET = 26.0;
+			};
+			name = Debug;
+		};
+		2C1595522EE7260E005800EB /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = "Rail Watch App/Rail Watch App.entitlements";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 7QM8T4XA98;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "Rail-Watch-App-Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = Rail;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
+				INFOPLIST_KEY_WKCompanionAppBundleIdentifier = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.francescoparadis.Rail.watchkitapp;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = watchos;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 4;
+				VALIDATE_PRODUCT = YES;
+				WATCHOS_DEPLOYMENT_TARGET = 26.0;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -398,6 +543,15 @@
 			buildConfigurations = (
 				2C0E47B22ED8D7340024EF08 /* Debug */,
 				2C0E47B32ED8D7340024EF08 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		2C1595532EE7260E005800EB /* Build configuration list for PBXNativeTarget "Rail Watch App" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				2C1595512EE7260E005800EB /* Debug */,
+				2C1595522EE7260E005800EB /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

@@ -1,10 +1,11 @@
 import SwiftUI
 import SwiftData
+import PhotosUI
+import Vision
+import CoreImage.CIFilterBuiltins
 
-enum seats_input_type {
-    case carriage
-    case seat
-    case name
+extension String: @retroactive Identifiable {
+    public var id: String { self }
 }
 
 struct DetailsView: View {
@@ -16,12 +17,6 @@ struct DetailsView: View {
     
     @State private var seats_sheet: Bool = false
     @State private var showAllStops: Bool = false
-    
-    @State private var newCarriage: String = ""
-    @State private var newSeat: String = ""
-    @State private var newName: String = ""
-    
-    @FocusState private var seats_focus: seats_input_type?
     
     var first_stop: Stop {
         showAllStops ?
@@ -362,6 +357,7 @@ struct DetailsView: View {
                         
                         if (stops.filter{ $0.is_selected }).count != stops.count {
                             Button {
+                                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
                                 showAllStops.toggle()
                             } label: {
                                 HStack {
@@ -637,13 +633,31 @@ struct DetailsView: View {
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
+                        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
                         seats_sheet = true
                     } label: {
                         HStack {
                             Image(systemName: "figure.seated.seatbelt")
                                 .fontWeight(.semibold)
                             
-                            Text(train.seats.isEmpty ? "\(NSLocalizedString("Add", comment: ""))" : train.seats.first!.split(separator: "-").prefix(2).joined(separator: "-"))
+                            let textString = {
+                                if train.seats.isEmpty {
+                                    return "\(NSLocalizedString("Add", comment: ""))"
+                                } else {
+                                    let firstUser = train.seats.first
+                                    let carriageString = firstUser?.split(separator: "-")[0] ?? ""
+                                    let seatString = firstUser?.split(separator: "-")[1] ?? ""
+                                    let nameString = firstUser?.split(separator: "-")[2] ?? ""
+                                    
+                                    if carriageString != "NaN" && seatString != "NaN" {
+                                        return "\(carriageString)-\(seatString)"
+                                    } else {
+                                        return "\(nameString)"
+                                    }
+                                }
+                            }()
+                            
+                            Text(textString)
                         }
                         .fontDesign(appFontDesign)
                         .foregroundStyle(Color.secondary)
@@ -653,7 +667,7 @@ struct DetailsView: View {
                 }
             }
             .sheet(isPresented: $seats_sheet) {
-                seatsView(seatsFocus: $seats_focus)
+                SeatsView(train: train, stops: stops, seats_sheet: $seats_sheet)
                     .presentationDetents([.large])
             }
             
@@ -692,216 +706,6 @@ struct DetailsView: View {
                 Task { await update_train_details() }
             }
         }
-    }
-    
-    
-    // MARK: - seat view and functions
-    @ViewBuilder
-    func seatsView(seatsFocus: FocusState<seats_input_type?>.Binding) -> some View {
-         NavigationStack {
-            List {
-                let sortedSeats = train.seats.sorted { seat1, seat2 in
-                    let parts1 = seat1.split(separator: "-")
-                    let parts2 = seat2.split(separator: "-")
-                    
-                    guard parts1.count == 3 && parts2.count == 3 else {
-                        return seat1 < seat2
-                    }
-                    
-                    let carriage1 = Int(parts1[0]) ?? 0
-                    let carriage2 = Int(parts2[0]) ?? 0
-                    
-                    if carriage1 != carriage2 {
-                        return carriage1 < carriage2
-                    }
-                    
-                    let seatNum1 = Int(parts1[1].filter { $0.isNumber }) ?? 0
-                    let seatNum2 = Int(parts2[1].filter { $0.isNumber }) ?? 0
-                    
-                    if seatNum1 != seatNum2 {
-                        return seatNum1 < seatNum2
-                    }
-                    
-                    let seatLetter1 = parts1[1].filter { $0.isLetter }
-                    let seatLetter2 = parts2[1].filter { $0.isLetter }
-                    
-                    if seatLetter1 != seatLetter2 {
-                        return seatLetter1 < seatLetter2
-                    }
-                    
-                    let name1 = parts1[2]
-                    let name2 = parts2[2]
-                    
-                    return name1 < name2
-                }
-                
-                ForEach(sortedSeats, id: \.self) { seat in
-                    HStack(spacing: 16) {
-                        HStack(spacing: 8) {
-                            Image(systemName: "train.side.rear.car")
-                            Text(seat.split(separator: "-").first ?? "")
-                            Spacer(minLength: 0)
-                        }
-                        .frame(maxWidth: 72)
-                        
-                        HStack(spacing: 8) {
-                            Image(systemName: "carseat.left.fill")
-                            Text(seat.split(separator: "-").dropFirst().first ?? "")
-                            Spacer(minLength: 0)
-                        }
-                        .frame(maxWidth: 72)
-                        
-                        HStack(spacing: 8) {
-                            Image(systemName: "person.fill")
-                            Text(seat.split(separator: "-").last ?? "")
-                                .lineLimit(1)
-                                .truncationMode(.tail)
-                            Spacer(minLength: 0)
-                        }
-                        .frame(maxWidth: .infinity)
-                    }
-                    .fontDesign(appFontDesign)
-                }
-                .onDelete(perform: deleteSeat)
-                
-                HStack(spacing: 16) {
-                    HStack(spacing: 8) {
-                        Image(systemName: "train.side.rear.car")
-                        TextField("10", text: $newCarriage)
-                            .keyboardType(.numbersAndPunctuation)
-                            .focused(seatsFocus, equals: .carriage)
-                            .onSubmit {
-                                seatsFocus.wrappedValue = .seat
-                            }
-                            .onChange(of: newCarriage) { _, newValue in
-                                if newValue.count > 2 {
-                                    newCarriage = String(newValue.prefix(2))
-                                } else if newValue.count == 2 {
-                                    seatsFocus.wrappedValue = .seat
-                                }
-                            }
-                        Spacer(minLength: 0)
-                    }
-                    .frame(maxWidth: 72)
-
-                    HStack(spacing: 8) {
-                        Image(systemName: "carseat.left.fill")
-                        TextField("15A", text: $newSeat)
-                            .keyboardType(.numbersAndPunctuation)
-                            .focused($seats_focus, equals: .seat)
-                            .onSubmit {
-                                seatsFocus.wrappedValue = .name
-                            }
-                            .onChange(of: newSeat) { _, newValue in
-                                if newValue.count > 3 {
-                                    newSeat = String(newValue.prefix(3))
-                                } else if newValue.count == 3 {
-                                    seatsFocus.wrappedValue = .name
-                                }
-                            }
-                        Spacer(minLength: 0)
-                    }
-                    .frame(maxWidth: 72)
-                    
-                    HStack(spacing: 8) {
-                        Image(systemName: "person.fill")
-                        TextField("Francesco", text: $newName)
-                            .keyboardType(.default)
-                            .focused($seats_focus, equals: .name)
-                            .onSubmit {
-                                addNewSeat()
-                            }
-                        Spacer(minLength: 0)
-                    }
-                    .frame(maxWidth: .infinity)
-                    
-                    Spacer()
-                }
-                .fontDesign(appFontDesign)
-            }
-            .navigationTitle("Your Seats")
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button {
-                        seats_sheet = false
-                    } label: {
-                        Image(systemName: "xmark")
-                    }
-                }
-                
-                ToolbarItem(placement: .topBarTrailing) {
-                    if newCarriage.isEmpty || newSeat.isEmpty || newName.isEmpty {
-                        Button("Save") {
-                            addNewSeat()
-                        }
-                        .disabled(newCarriage.isEmpty || newSeat.isEmpty || newName.isEmpty)
-                    } else {
-                        Button("Save") {
-                            addNewSeat()
-                        }
-                        .buttonStyle(.glassProminent)
-                    }
-                }
-            }
-        }
-    }
-    
-    func deleteSeat(offsets: IndexSet) {
-        let sortedSeats = train.seats.sorted { seat1, seat2 in
-            let parts1 = seat1.split(separator: "-")
-            let parts2 = seat2.split(separator: "-")
-            
-            guard parts1.count == 3 && parts2.count == 3 else {
-                return seat1 < seat2
-            }
-            
-            let carriage1 = Int(parts1[0]) ?? 0
-            let carriage2 = Int(parts2[0]) ?? 0
-            
-            if carriage1 != carriage2 {
-                return carriage1 < carriage2
-            }
-            
-            let seatNum1 = Int(parts1[1].filter { $0.isNumber }) ?? 0
-            let seatNum2 = Int(parts2[1].filter { $0.isNumber }) ?? 0
-            
-            if seatNum1 != seatNum2 {
-                return seatNum1 < seatNum2
-            }
-            
-            let seatLetter1 = parts1[1].filter { $0.isLetter }
-            let seatLetter2 = parts2[1].filter { $0.isLetter }
-            
-            if seatLetter1 != seatLetter2 {
-                return seatLetter1 < seatLetter2
-            }
-            
-            let name1 = parts1[2]
-            let name2 = parts2[2]
-            
-            return name1 < name2
-        }
-        
-        let seatsToDelete = offsets.map { sortedSeats[$0] }
-        
-        for seat in seatsToDelete {
-            if let index = train.seats.firstIndex(of: seat) {
-                train.seats.remove(at: index)
-            }
-        }
-    }
-    
-    func addNewSeat() {
-        guard !newCarriage.isEmpty && !newSeat.isEmpty && !newName.isEmpty else { return }
-        
-        let formattedName = newName.prefix(1).uppercased() + newName.dropFirst().lowercased()
-        
-        let newSeatString = "\(newCarriage)-\(newSeat.uppercased())-\(formattedName)"
-        train.seats.append(newSeatString)
-        
-        newCarriage = ""
-        newSeat = ""
-        newName = ""
     }
     
     // MARK: - update function

@@ -65,6 +65,7 @@ func fetch_train_list(number: String, completion: @escaping ([[String: Any]]) ->
 func fetch_trenitalia_train_info(identifier: String, completion: @escaping ([String: Any]) -> Void) {
     
     let urlString = "https://www.viaggiatreno.it/infomobilita/resteasy/viaggiatreno/andamentoTreno/\(identifier)"
+    print(urlString)
     
     guard let url = URL(string: urlString) else { return }
     
