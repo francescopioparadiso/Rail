@@ -55,6 +55,7 @@ struct PastView: View {
                 .toolbar {
                     ToolbarItem(placement: .navigationBarTrailing) {
                         Button {
+                            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
                             add_journey_sheet = true
                         } label: {
                             Image(systemName: "plus")
@@ -88,6 +89,7 @@ struct PastView: View {
                 .toolbar {
                     ToolbarItem(placement: .navigationBarTrailing) {
                         Button {
+                            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
                             add_journey_sheet = true
                         } label: {
                             Image(systemName: "plus")

@@ -154,13 +154,15 @@ struct ListView: View {
                             
                             let time_string: String = {
                                 if day > 0 {
-                                    return "\(NSLocalizedString("Departure on", comment: ""))  \(first_stop.dep_time_id.formatted(date: .abbreviated, time: .omitted))"
-                                } else if hour > 0 {
-                                    return "\(NSLocalizedString("Departure in", comment: ""))  \(hour)h\(minute)m"
+                                    return "\(NSLocalizedString("Departure on", comment: "")) \(first_stop.dep_time_id.formatted(date: .abbreviated, time: .omitted))"
+                                } else if hour > 0 && minute > 0 {
+                                    return "\(NSLocalizedString("Departure in", comment: "")) \(hour)h\(minute)m"
+                                } else if hour > 0 && minute == 0 {
+                                    return "\(NSLocalizedString("Departure in", comment: "")) \(hour)h"
                                 } else if minute > 0 {
                                     return "\(NSLocalizedString("Departure in", comment: "")) \(minute)m"
                                 } else {
-                                    return "\(NSLocalizedString("Departure in moments", comment: "")) "
+                                    return "Partenza imminente"
                                 }
                             }()
                             

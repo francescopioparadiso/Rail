@@ -57,11 +57,22 @@ struct AddJourneyView: View {
             .toolbar {
                 // back or dismiss button
                 ToolbarItem(placement: .navigationBarLeading) {
+                    let icon =  {
+                        switch actualView {
+                        case .add_number:
+                            return "xmark"
+                        case .choose_train, .choose_stops, .choose_date:
+                            return "chevron.left"
+                        }
+                    }()
+                    
                     Button {
                         switch actualView {
                         case .add_number:
+                            UIImpactFeedbackGenerator(style: .heavy).impactOccurred()
                             dismiss()
                         case .choose_train:
+                            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
                             train_results = [:]
                             stop_results = [:]
                             
@@ -78,19 +89,17 @@ struct AddJourneyView: View {
                             actualView = .add_number
                             focusedField = .number
                         case .choose_stops:
+                            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
                             stop_selected.removeAll()
                             
                             actualView = .choose_train
                         case .choose_date:
+                            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
                             actualView = .choose_stops
                         }
                     } label: {
-                        switch actualView {
-                        case .add_number:
-                            Image(systemName: "xmark")
-                        default:
-                            Image(systemName: "chevron.left")
-                        }
+                        Image(systemName: icon)
+                            .contentTransition(.symbolEffect(.replace.downUp.wholeSymbol, options: .nonRepeating))
                     }
                 }
                 
@@ -100,12 +109,13 @@ struct AddJourneyView: View {
                     case .add_number:
                         if train_number.count >= 2 {
                             Button {
+                                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
                                 train_results = [:]
                                 stop_results = [:]
                                 is_loading = true
 
                                 let start = CFAbsoluteTimeGetCurrent()
-                                let timeoutInterval: Double = 4.0
+                                let timeoutInterval: Double = 10.0
 
                                 DispatchQueue.main.asyncAfter(deadline: .now() + timeoutInterval) {
                                     if self.is_loading {
@@ -202,6 +212,7 @@ struct AddJourneyView: View {
                     case .choose_train:
                         if id_selected != "" {
                             Button {
+                                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
                                 if let id = UUID(uuidString: id_selected), let selected = train_results[id] {
                                     train_selected[id] = selected
                                 }
@@ -224,6 +235,7 @@ struct AddJourneyView: View {
                     case .choose_stops:
                         if stop_selected_count >= 2 {
                             Button {
+                                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
                                 if let id = UUID(uuidString: id_selected), let selected = stop_selected[id], !selected.isEmpty {
                                     stop_selected[id] = selected
                                 }
@@ -245,6 +257,7 @@ struct AddJourneyView: View {
                         }
                     case .choose_date:
                         Button {
+                            UIImpactFeedbackGenerator(style: .heavy).impactOccurred()
                             add_to_database()
                             dismiss()
                             train_results.removeAll()
@@ -282,7 +295,6 @@ struct AddJourneyView: View {
                 .font(.system(size: 64))
                 .fontDesign(appFontDesign)
                 .fontWeight(.bold)
-                .fontDesign(.rounded)
                 .focused($focusedField, equals: .number)
                 .onSubmit {
                     focusedField = .train

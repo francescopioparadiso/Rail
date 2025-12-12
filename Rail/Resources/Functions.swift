@@ -2,6 +2,8 @@ import Foundation
 import MapKit
 import WeatherKit
 import CoreLocation
+import Vision
+import CoreImage.CIFilterBuiltins
 
 func romanToArabic(platform: String) -> String {
     let roman = ["XX", "XIX", "XVIII", "XVII", "XVI", "XV", "XIV", "XIII", "XII", "XI", "X", "IX", "VIII", "VII", "VI", "V", "IV", "III", "II", "I"]
@@ -238,7 +240,6 @@ func getAppleWeather(lat: Double, lon: Double, date: Date) async throws -> Strin
     return "\(emoji) \(temp)°C"
 }
 
-
 func weatherEmoji(from condition: WeatherCondition) -> String {
     switch condition {
     case .clear: return "☀️"
@@ -301,7 +302,6 @@ func getOpenMeteoWeather(lat: Double, lon: Double, date: Date) async throws -> S
     return "\(emoji) \(temp)°C"
 }
 
-// Helper to convert WMO codes (used by Open-Meteo) to Emojis
 func wmoToEmoji(code: Int) -> String {
     switch code {
     case 0: return "☀️" // Clear sky
@@ -313,4 +313,37 @@ func wmoToEmoji(code: Int) -> String {
     case 95, 96, 99: return "⛈️" // Thunderstorm
     default: return "🌡️"
     }
+}
+
+// MARK: - Ticket Image functions
+func symbolToString(_ code: VNBarcodeSymbology) -> String {
+    switch code {
+    case .aztec:
+        return "aztec"
+    case .qr:
+        return "qr"
+    default:
+        return "aztec"
+    }
+}
+
+func stringToSymbol(_ string: String) -> VNBarcodeSymbology {
+    switch string {
+    case "aztec":
+        return .aztec
+    case "qr":
+        return .qr
+    default:
+        return .aztec
+    }
+}
+
+func fixOrientation(img: UIImage) -> UIImage? {
+    if img.imageOrientation == .up { return img }
+    
+    UIGraphicsBeginImageContextWithOptions(img.size, false, img.scale)
+    img.draw(in: CGRect(origin: .zero, size: img.size))
+    let normalizedImage = UIGraphicsGetImageFromCurrentImageContext()
+    UIGraphicsEndImageContext()
+    return normalizedImage
 }
