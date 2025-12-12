@@ -290,6 +290,8 @@ struct SeatsView: View {
             }
             .sheet(item: $seatToView) { seatString in
                 TicketView(seatString: seatString)
+                    .presentationDetents([.medium, .large])
+                    .presentationDragIndicator(.visible)
             }
         }
     }
