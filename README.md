@@ -14,6 +14,7 @@
   <img src="Thumbnails/screen2.png" width="200" />
   <img src="Thumbnails/screen3.png" width="200" />
   <img src="Thumbnails/screen4.png" width="200" />
+  <img src="Thumbnails/screen5.png" width="200" />
 </p>
 
 ## ✨ Funzionalità Chiave
