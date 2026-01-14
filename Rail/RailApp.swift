@@ -6,7 +6,8 @@ struct RailApp: App {
     var sharedModelContainer: ModelContainer = {
         let schema = Schema([
             Train.self,
-            Stop.self
+            Stop.self,
+            Seat.self
         ])
         let modelConfiguration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
 
