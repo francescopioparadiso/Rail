@@ -10,20 +10,20 @@ final class Train {
     var identifier: String = ""
     var provider: String = ""
 
-    var last_upadate_time: Date = Date()
+    var last_update_time: Date = Date()
     var delay: Int = 0
     var direction: String = ""
 
     var seats: [String] = []
     var issue: String = ""
 
-    init(id: UUID, logo: String, number: String, identifier: String, provider: String, last_upadate_time: Date, delay: Int, direction: String, seats: [String], issue: String) {
+    init(id: UUID, logo: String, number: String, identifier: String, provider: String, last_update_time: Date, delay: Int, direction: String, seats: [String], issue: String) {
         self.id = id
         self.logo = logo
         self.number = number
         self.identifier = identifier
         self.provider = provider
-        self.last_upadate_time = last_upadate_time
+        self.last_update_time = last_update_time
         self.delay = delay
         self.direction = direction
         self.seats = seats
