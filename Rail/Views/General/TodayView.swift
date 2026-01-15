@@ -171,10 +171,10 @@ struct TodayView: View {
             
             print("Actual iPhone language: \(Locale.current)")
             
-            print("🔄 Updating today trains data...\(today_trains.count)/\(trains.count)")
+            print("🔄 Updating today trains data...\(today_trains.count)/\(trains.count) at \(Date().formatted(date: .abbreviated, time: .standard))")
             Task { await update_today_trains() }
             Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { _ in
-                print("🔄 Updating today trains data...\(today_trains.count)/\(trains.count)")
+                print("🔄 Updating today trains data...\(today_trains.count)/\(trains.count) at \(Date().formatted(date: .abbreviated, time: .standard))")
                 Task { await update_today_trains() }
             }
         }
@@ -242,7 +242,6 @@ struct TodayView: View {
             }
             
         }
-        
     }
     
     private func hasInterval(from sourceIndex: Int, to targetIndex: Int) -> Bool {

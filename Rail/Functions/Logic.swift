@@ -444,505 +444,124 @@ class ItaloAPI {
         do {
             let (data, _) = try await URLSession.shared.data(from: url)
             guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
-            guard (json["IsEmpty"] as? Int ?? 1) == 0 else { return nil }
-
-            guard let trainSchedule = json["TrainSchedule"] as? [String: Any] else { return nil }
-            let trainNumber = trainSchedule["TrainNumber"] as? String ?? ""
-            let direction = (trainSchedule["Leg"] as? [String: Any])?["TrainOrientation"] as? String ?? ""
-            let mainDelay = (trainSchedule["Distruption"] as? [String: Any])?["DelayAmount"] as? Int ?? 0
-            let issue = (trainSchedule["Distruption"] as? [String: Any])?["Warning"] as? String ?? ""
-
-            var fermate: [[String: Any]] = []
-            fermate.append(trainSchedule["StazionePartenza"] as? [String: Any] ?? [:])
-            fermate.append(contentsOf: trainSchedule["StazioniFerme"] as? [[String: Any]] ?? [])
-            fermate.append(contentsOf: trainSchedule["StazioniNonFerme"] as? [[String: Any]] ?? [])
-
-            var stops: [[String: Any]] = []
-
-            for (_, each) in fermate.enumerated() {
-                let name = (each["LocationDescription"] as? String ?? "").capitalized
-                let platform = each["ActualArrivalPlatform"] as? String ?? "-"
-                let depTime = Date() // You can parse actual/estimated times here
-                let arrTime = Date()
-                let isCompleted = Date() >= arrTime
-                let isInStation = Date() >= depTime && Date() < arrTime
-                let depDelay = 0
-                let arrDelay = 0
-
-                stops.append([
-                    "name": name,
-                    "platform": platform,
-                    "is_completed": isCompleted,
-                    "is_in_station": isInStation,
-                    "dep_delay": depDelay,
-                    "arr_delay": arrDelay,
-                    "dep_time_id": depTime,
-                    "arr_time_id": arrTime
-                ])
+            
+            if let trainSchedule = json["TrainSchedule"] as? [String:Any] {
+                let train_number = trainSchedule["TrainNumber"] as? String ?? ""
+                
+                let last_update_time = time_to_date(timeString: json["LastUpdate"] as? String ?? "") ?? .distantPast
+                
+                let main_delay = (trainSchedule["Distruption"] as? [String: Any])?["DelayAmount"] as? Int ?? 0
+                
+                let direction = (trainSchedule["Leg"] as? [String: Any])?["TrainOrientation"] as? String ?? ""
+                
+                let issue = (trainSchedule["Distruption"] as? [String: Any])?["Warning"] as? String ?? ""
+                
+                var stops: [[String: Any]] = []
+                var fermate: [[String: Any]] = []
+                fermate.append(trainSchedule["StazionePartenza"] as? [String: Any] ?? [:])
+                fermate.append(contentsOf: trainSchedule["StazioniFerme"] as? [[String: Any]] ?? [])
+                fermate.append(contentsOf: trainSchedule["StazioniNonFerme"] as? [[String: Any]] ?? [])
+                
+                for (i,each) in fermate.enumerated() {
+                    let name = (each["LocationDescription"] as? String ?? "").capitalized
+                    let platform = romanToArabic(platform: each["ActualArrivalPlatform"] as? String ?? "-")
+                    
+                    let status = 0
+                    var is_completed = false
+                    var is_in_station = false
+                    var dep_delay = 0
+                    var arr_delay = 0
+                    
+                    let dep_time_id = Calendar.current.date(bySetting: .second, value: 0, of: time_to_date(timeString: each["EstimatedDepartureTime"] as? String ?? "")!)!
+                    let arr_time_id = Calendar.current.date(bySetting: .second, value: 0, of: time_to_date(timeString: each["EstimatedArrivalTime"] as? String ?? "")!)!
+                    var dep_time_eff = Calendar.current.date(bySetting: .second, value: 0, of: time_to_date(timeString: each["ActualDepartureTime"] as? String ?? "")!)!
+                    let arr_time_eff = Calendar.current.date(bySetting: .second, value: 0, of: time_to_date(timeString: each["ActualArrivalTime"] as? String ?? "")!)!
+                    let ref_time = i == 0 ? dep_time_id : arr_time_id
+                    
+                    let weather = try await getOpenMeteoWeather(lat: get_latitude(for: name), lon: get_longitude(for: name), date: ref_time)
+                    
+                    if i == 0 {
+                        // first station
+                        if Date() < dep_time_id {
+                            is_completed = false
+                            is_in_station = true
+                        } else {
+                            dep_delay = Calendar.current.dateComponents([.minute], from: dep_time_id, to: dep_time_eff).minute!
+                            is_completed = true
+                            is_in_station = false
+                        }
+                    } else if i == fermate.count - 1 {
+                        // last station
+                        arr_delay = main_delay
+                        
+                        if Date() < arr_time_eff {
+                            is_completed = false
+                            is_in_station = false
+                        } else {
+                            is_completed = true
+                            is_in_station = true
+                        }
+                    } else {
+                        // middle stations
+                        dep_time_eff = Calendar.current.date(byAdding: .minute, value: main_delay, to: dep_time_id)!
+                        
+                        if Date() < arr_time_eff {
+                            is_completed = false
+                            is_in_station = false
+                        } else if Date() >= arr_time_eff && Date() < dep_time_eff {
+                            is_completed = false
+                            is_in_station = true
+                        } else if Date() >= dep_time_eff {
+                            if time_to_date(timeString: each["ActualDepartureTime"] as? String ?? "")! != .distantPast {
+                                dep_time_eff = time_to_date(timeString: each["ActualDepartureTime"] as? String ?? "")!
+                            }
+                            arr_delay = Calendar.current.dateComponents([.minute], from: arr_time_id, to: arr_time_eff).minute!
+                            dep_delay = Calendar.current.dateComponents([.minute], from: dep_time_id, to: dep_time_eff).minute!
+                            is_completed = true
+                            is_in_station = true
+                        }
+                    }
+                    
+                    stops.append([
+                        "name": name,
+                        "platform": platform,
+                        "weather": weather,
+                        
+                        "status": status,
+                        "is_completed": is_completed,
+                        "is_in_station": is_in_station,
+                        
+                        "dep_delay": dep_delay,
+                        "arr_delay": arr_delay,
+                        
+                        "dep_time_id": dep_time_id,
+                        "arr_time_id": arr_time_id,
+                        "dep_time_eff": dep_time_eff,
+                        "arr_time_eff": arr_time_eff,
+                        "ref_time": ref_time
+                    ])
+                }
+                
+                return [
+                    "logo": "ITALO",
+                    "number": train_number,
+                    "identifier": identifier,
+                    "provider": "italo",
+                    
+                    "last_update_time": last_update_time,
+                    "delay": main_delay,
+                    "direction": direction,
+                    
+                    "issue": issue,
+                    
+                    "stops": stops
+                ]
             }
-
-            return [
-                "logo": "ITALO",
-                "number": trainNumber,
-                "identifier": identifier,
-                "provider": "italo",
-                "delay": mainDelay,
-                "direction": direction,
-                "issue": issue,
-                "stops": stops
-            ]
-
+            return nil
+            
         } catch {
             print("Italo JSON error \(identifier): \(error)")
             return nil
         }
     }
-}
-
-
-
-
-
-
-// MARK: - delete functions below
-func fetchTrenitaliaInfo(identifier: String, completion: @escaping ([String: Any]?) -> Void) {
-    
-    let urlString = "https://www.viaggiatreno.it/infomobilita/resteasy/viaggiatreno/andamentoTreno/\(identifier)"
-    print(urlString)
-    
-    guard let url = URL(string: urlString) else { return }
-    
-    URLSession.shared.dataTask(with: url) { data, response, error in
-        guard let data = data else { return }
-        
-        Task {
-            do {
-                if let json = try JSONSerialization.jsonObject(with: data, options: []) as? [String: Any] {
-                    
-                    let compNumeroTreno = json["compNumeroTreno"] as? String ?? ""
-                    let number = String(compNumeroTreno.split(separator: " ")[1])
-                    let logo = String(compNumeroTreno.split(separator: " ")[0])
-                    
-                    let last_update_time = Date(timeIntervalSince1970: TimeInterval(json["ultimoRilev"] as? Int ?? 0) / 1000)
-                    var main_delay = json["ritardo"] as? Int ?? 0
-                    let direction = ((json["compOrientamento"] as? [String])?.first == "" ? "" : (json["compOrientamento"] as? [String])?.first) ?? ""
-                    
-                    let issue = json["subTitle"] as? String ?? ""
-                    
-                    var stops: [[String: Any]] = []
-                    let fermate = json["fermate"] as? [[String: Any]] ?? []
-                    for (i,each) in fermate.enumerated() {
-                        let name = String(each["stazione"] as? String ?? "").capitalized
-                        let platform = await romanToArabic(platform: String(each["binarioEffettivoArrivoDescrizione"] as? String ?? (each["binarioProgrammatoArrivoDescrizione"] as? String ?? (each["binarioEffettivoPartenzaDescrizione"] as? String ?? (each["binarioProgrammatoPartenzaDescrizione"] as? String ?? "-")))))
-                        
-                        let status = each["actualFermataType"] as? Int ?? 0
-                        var is_completed = false
-                        var is_in_station = false
-                        var dep_delay = each["ritardoPartenza"] as? Int ?? 0
-                        var arr_delay = each["ritaardoArrivo"] as? Int ?? 0
-                        
-                        let dep_time_id = Calendar.current.date(bySetting: .second, value: 0, of: Date(timeIntervalSince1970: TimeInterval(each["partenza_teorica"] as? Int ?? 0) / 1000))!
-                        let arr_time_id = Calendar.current.date(bySetting: .second, value: 0, of: Date(timeIntervalSince1970: TimeInterval(each["arrivo_teorico"] as? Int ?? 0) / 1000))!
-                        var dep_time_eff = Date(timeIntervalSince1970: TimeInterval(each["partenzaReale"] as? Int ?? 0) / 1000) == Date(timeIntervalSince1970: 0) ? dep_time_id : Calendar.current.date(bySetting: .second, value: 0, of: Date(timeIntervalSince1970: TimeInterval(each["partenzaReale"] as? Int ?? 0) / 1000))!
-                        var arr_time_eff = Date(timeIntervalSince1970: TimeInterval(each["arrivoReale"] as? Int ?? 0) / 1000) == Date(timeIntervalSince1970: 0) ? arr_time_id : Calendar.current.date(bySetting: .second, value: 0, of: Date(timeIntervalSince1970: TimeInterval(each["arrivoReale"] as? Int ?? 0) / 1000))!
-                        let ref_time = i == 0 ? dep_time_id : arr_time_id
-                        
-                        let weather: Any? = try? await getOpenMeteoWeather(lat: get_latitude(for: name), lon: get_longitude(for: name), date: ref_time)
-                        
-                        if i == 0 {
-                            // first station
-                            if Date() < dep_time_id {
-                                is_completed = false
-                                is_in_station = true
-                            } else {
-                                dep_delay = Calendar.current.dateComponents([.minute], from: dep_time_id, to: dep_time_eff).minute!
-                                is_completed = true
-                                is_in_station = false
-                            }
-                        } else if i == fermate.count - 1 {
-                            // last station
-                            arr_time_eff = Calendar.current.date(byAdding: .minute, value: main_delay, to: arr_time_id) ?? .distantPast
-                            
-                            arr_delay = Calendar.current.dateComponents([.minute], from: arr_time_id, to: arr_time_eff).minute!
-                            
-                            if Date() < arr_time_eff {
-                                is_completed = false
-                                is_in_station = false
-                            } else {
-                                arr_delay = Calendar.current.dateComponents([.minute], from: arr_time_id, to: arr_time_eff).minute!
-                                main_delay = each["ritardoArrivo"] as? Int ?? 0
-                                is_completed = true
-                                is_in_station = true
-                            }
-                        } else {
-                            // middle stations
-                            arr_time_eff = Date(timeIntervalSince1970: TimeInterval(each["arrivoReale"] as? Int ?? 0) / 1000) == Date(timeIntervalSince1970: 0) ? Calendar.current.date(byAdding: .minute, value: main_delay, to: arr_time_id) ?? .distantPast : arr_time_eff
-                            dep_time_eff = Date(timeIntervalSince1970: TimeInterval(each["partenzaReale"] as? Int ?? 0) / 1000) == Date(timeIntervalSince1970: 0) ? Calendar.current.date(byAdding: .minute, value: main_delay, to: dep_time_id) ?? .distantPast : dep_time_eff
-                            
-                            arr_delay = Calendar.current.dateComponents([.minute], from: arr_time_id, to: arr_time_eff).minute!
-                            dep_delay = Calendar.current.dateComponents([.minute], from: dep_time_id, to: dep_time_eff).minute!
-                            
-                            if Date() < arr_time_eff {
-                                is_completed = false
-                                is_in_station = false
-                            } else if Date() >= arr_time_eff && Date() < dep_time_eff {
-                                is_completed = false
-                                is_in_station = true
-                            } else if Date() >= dep_time_eff {
-                                arr_delay = Calendar.current.dateComponents([.minute], from: arr_time_id, to: arr_time_eff).minute!
-                                dep_delay = Calendar.current.dateComponents([.minute], from: dep_time_id, to: dep_time_eff).minute!
-                                is_completed = true
-                                is_in_station = true
-                            }
-                        }
-                        
-                        stops.append([
-                            "name": name,
-                            "platform": platform,
-                            "weather": weather ?? "",
-                            
-                            "status": status,
-                            "is_completed": is_completed,
-                            "is_in_station": is_in_station,
-                            
-                            "dep_delay": dep_delay,
-                            "arr_delay": arr_delay,
-                            
-                            "dep_time_id": dep_time_id,
-                            "arr_time_id": arr_time_id,
-                            "dep_time_eff": dep_time_eff,
-                            "arr_time_eff": arr_time_eff,
-                            "ref_time": ref_time
-                        ])
-                    }
-                    
-                    let result = [
-                        "logo": logo,
-                        "number": number,
-                        "identifier": identifier,
-                        "provider": "trenitalia",
-                        
-                        "last_update_time": last_update_time,
-                        "delay": main_delay,
-                        "direction": direction,
-                        
-                        "issue": issue,
-                        
-                        "stops": stops
-                    ]
-                    
-                    completion(result)
-                }
-            } catch {
-                // 2. CATCH THE ERROR: Print what the server actually sent
-                if let responseString = String(data: data, encoding: .utf8) {
-                    print("\n❌ JSON Parsing Failed for: \(identifier)")
-                    print("📄 Server Response: \(responseString)")
-                } else {
-                    print("❌ JSON Parsing Failed. Data could not be converted to text.")
-                }
-            }
-        }
-    }.resume()
-}
-
-func fetchSolutions(departureStation_id: Int, arrivalStation_id: Int) -> [String] {
-    let url = URL(string: "https://www.lefrecce.it/Channels.Website.BFF.WEB/website/ticket/solutions")!
-    
-    var trains = [String]()
-    
-    let group = DispatchGroup()
-    let timestamp = Int(Date().timeIntervalSince1970) * 1000
-    for hourOffset in stride(from: 0, to: 24, by: 3) {
-        group.enter()
-        let todayStart = Calendar.current.startOfDay(for: Date())
-        let departureTime = Calendar.current.date(byAdding: .hour, value: hourOffset, to: Calendar.current.startOfDay(for: todayStart))!
-        let departureTimeFormatted = ISO8601DateFormatter().string(from: departureTime)
-        
-        let payload: [String: Any] = [
-            "departureLocationId": departureStation_id,
-            "arrivalLocationId": arrivalStation_id,
-            "departureTime": departureTimeFormatted,
-            "adults": 1,
-            "children": 0,
-            "criteria": [
-                "frecceOnly": false,
-                "regionalOnly": false,
-                "noChanges": false,
-                "order": "DEPARTURE_DATE",
-                "limit": 10,
-                "offset": 0
-            ],
-            "advancedSearchRequest": [
-                "bestFare": false
-            ]
-        ]
-        
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try? JSONSerialization.data(withJSONObject: payload, options: [])
-        
-        URLSession.shared.dataTask(with: request) { data, response, error in
-            defer { group.leave() }
-            guard let data = data else { return }
-            
-            if let json = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
-               let solutions = json["solutions"] as? [[String: Any]] {
-                for solutionDict in solutions {
-                    if let solution = solutionDict["solution"] as? [String: Any],
-                       let nodes = solution["nodes"] as? [[String: Any]] {
-                        
-                        let formatterISO8601 = ISO8601DateFormatter()
-                        formatterISO8601.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-                        
-                        var multiple_trains: String = ""
-                        
-                        for node in nodes {
-                            let departureLocation = node["origin"] as? String ?? ""
-                            let arrivalLocation = node["destination"] as? String ?? ""
-                            let departureDate = node["departureTime"] as? String ?? ""
-                            let arrivalDate = node["arrivalTime"] as? String ?? ""
-                            let logo = (node["train"] as? [String: Any])?["acronym"] as? String ?? ""
-                            let trainNumber = (node["train"] as? [String: Any])?["name"] as? String ?? ""
-                            let stationCode = node["bdoOrigin"] as? String ?? ""
-                            
-                            guard trainNumber != "" else { continue }
-                            guard stationCode != "" else { continue }
-
-                            guard let departureDateFormatted = formatterISO8601.date(from: departureDate)?.timeIntervalSince1970 else { continue }
-                            guard let arrivalDateFormatted = formatterISO8601.date(from: arrivalDate)?.timeIntervalSince1970 else { continue }
-                            
-                            let identifier = "\(stationCode)/\(trainNumber)/\(timestamp)"
-                            print("fetchSolution identifier: \(identifier)")
-                            let payload = "\(Int(departureDateFormatted)),\(Int(arrivalDateFormatted)),\(departureLocation),\(arrivalLocation),\(logo),\(trainNumber),\(identifier)"
-                            
-                            guard payload != "" else { continue }
-                            
-                            if multiple_trains == "" {
-                                multiple_trains = payload
-                            } else {
-                                multiple_trains += ";\(payload)"
-                            }
-                        }
-                        
-                        let departureTimestamp = Int(multiple_trains.components(separatedBy: ",")[0]) ?? 0
-                        let departureDate = Date(timeIntervalSince1970: TimeInterval(departureTimestamp))
-                        guard Calendar.current.isDateInToday(departureDate) else { continue }
-                        
-                        // avoid duplicates
-                        guard trains.contains(multiple_trains) == false && multiple_trains != "" else { continue }
-                        trains.append(multiple_trains)
-                    }
-                }
-            }
-        }.resume()
-    }
-        
-    group.wait()
-    
-    return Set(trains).sorted()
-}
-
-func fetchItaloInfo(identifier: String, completion: @escaping ([String: Any]) -> Void) {
-    
-    let urlString = "https://italoinviaggio.italotreno.it/api/RicercaTrenoService?TrainNumber=\(identifier)"
-    
-    guard let url = URL(string: urlString) else { return }
-    
-    URLSession.shared.dataTask(with: url) { data, response, error in
-        guard let data = data else { return }
-        
-        Task {
-            do {
-                if let json = try JSONSerialization.jsonObject(with: data, options: []) as? [String: Any] {
-                    if let isEmpty = json["IsEmpty"] as? Int, isEmpty == 1 {
-                        return
-                    } else {
-                        if let trainSchedule = json["TrainSchedule"] as? [String:Any] {
-                            let train_number = trainSchedule["TrainNumber"] as? String ?? ""
-                            
-                            let last_update_time = await time_to_date(timeString: json["LastUpdate"] as? String ?? "") ?? .distantPast
-                            
-                            let main_delay = (trainSchedule["Distruption"] as? [String: Any])?["DelayAmount"] as? Int ?? 0
-                            
-                            let direction = (trainSchedule["Leg"] as? [String: Any])?["TrainOrientation"] as? String ?? ""
-                            
-                            let issue = (trainSchedule["Distruption"] as? [String: Any])?["Warning"] as? String ?? ""
-                            
-                            var stops: [[String: Any]] = []
-                            var fermate: [[String: Any]] = []
-                            fermate.append(trainSchedule["StazionePartenza"] as? [String: Any] ?? [:])
-                            fermate.append(contentsOf: trainSchedule["StazioniFerme"] as? [[String: Any]] ?? [])
-                            fermate.append(contentsOf: trainSchedule["StazioniNonFerme"] as? [[String: Any]] ?? [])
-                            
-                            for (i,each) in fermate.enumerated() {
-                                let name = (each["LocationDescription"] as? String ?? "").capitalized
-                                let platform = await romanToArabic(platform: each["ActualArrivalPlatform"] as? String ?? "-")
-                                
-                                let status = 0
-                                var is_completed = false
-                                var is_in_station = false
-                                var dep_delay = 0
-                                var arr_delay = 0
-                                
-                                let dep_time_id = await Calendar.current.date(bySetting: .second, value: 0, of: time_to_date(timeString: each["EstimatedDepartureTime"] as? String ?? "")!)!
-                                let arr_time_id = await Calendar.current.date(bySetting: .second, value: 0, of: time_to_date(timeString: each["EstimatedArrivalTime"] as? String ?? "")!)!
-                                var dep_time_eff = await Calendar.current.date(bySetting: .second, value: 0, of: time_to_date(timeString: each["ActualDepartureTime"] as? String ?? "")!)!
-                                let arr_time_eff = await Calendar.current.date(bySetting: .second, value: 0, of: time_to_date(timeString: each["ActualArrivalTime"] as? String ?? "")!)!
-                                let ref_time = i == 0 ? dep_time_id : arr_time_id
-                                
-                                let weather = try await getOpenMeteoWeather(lat: get_latitude(for: name), lon: get_longitude(for: name), date: ref_time)
-                                
-                                if i == 0 {
-                                    // first station
-                                    if Date() < dep_time_id {
-                                        is_completed = false
-                                        is_in_station = true
-                                    } else {
-                                        dep_delay = Calendar.current.dateComponents([.minute], from: dep_time_id, to: dep_time_eff).minute!
-                                        is_completed = true
-                                        is_in_station = false
-                                    }
-                                } else if i == fermate.count - 1 {
-                                    // last station
-                                    arr_delay = main_delay
-                                    
-                                    if Date() < arr_time_eff {
-                                        is_completed = false
-                                        is_in_station = false
-                                    } else {
-                                        is_completed = true
-                                        is_in_station = true
-                                    }
-                                } else {
-                                    // middle stations
-                                    dep_time_eff = Calendar.current.date(byAdding: .minute, value: main_delay, to: dep_time_id)!
-                                    
-                                    if Date() < arr_time_eff {
-                                        is_completed = false
-                                        is_in_station = false
-                                    } else if Date() >= arr_time_eff && Date() < dep_time_eff {
-                                        is_completed = false
-                                        is_in_station = true
-                                    } else if Date() >= dep_time_eff {
-                                        if await time_to_date(timeString: each["ActualDepartureTime"] as? String ?? "")! != .distantPast {
-                                            dep_time_eff = await time_to_date(timeString: each["ActualDepartureTime"] as? String ?? "")!
-                                        }
-                                        arr_delay = Calendar.current.dateComponents([.minute], from: arr_time_id, to: arr_time_eff).minute!
-                                        dep_delay = Calendar.current.dateComponents([.minute], from: dep_time_id, to: dep_time_eff).minute!
-                                        is_completed = true
-                                        is_in_station = true
-                                    }
-                                }
-                                
-                                stops.append([
-                                    "name": name,
-                                    "platform": platform,
-                                    "weather": weather,
-                                    
-                                    "status": status,
-                                    "is_completed": is_completed,
-                                    "is_in_station": is_in_station,
-                                    
-                                    "dep_delay": dep_delay,
-                                    "arr_delay": arr_delay,
-                                    
-                                    "dep_time_id": dep_time_id,
-                                    "arr_time_id": arr_time_id,
-                                    "dep_time_eff": dep_time_eff,
-                                    "arr_time_eff": arr_time_eff,
-                                    "ref_time": ref_time
-                                ])
-                            }
-                            
-                            let result = [
-                                "logo": "ITALO",
-                                "number": train_number,
-                                "identifier": identifier,
-                                "provider": "italo",
-                                
-                                "last_update_time": last_update_time,
-                                "delay": main_delay,
-                                "direction": direction,
-                                
-                                "issue": issue,
-                                
-                                "stops": stops
-                            ]
-                            
-                            completion(result)
-                        }
-                    }
-                }
-            } catch {
-                print("JSON decoding error: \(error)")
-            }
-        }
-    }.resume()
-}
-
-func fetchTrainLists(number: String, completion: @escaping ([[String: Any]]) -> Void) {
-    var resultsArray: [[String: Any]] = []
-
-    let urlString = "http://www.viaggiatreno.it/infomobilita/resteasy/viaggiatreno/cercaNumeroTrenoTrenoAutocomplete/\(String(number))"
-
-    guard let url = URL(string: urlString) else {
-        return
-    }
-    
-    URLSession.shared.dataTask(with: url) { data, response, error in
-        if let error = error {
-            print("Error fetching train data: \(error)")
-            return
-        }
-        
-        guard let data = data, let resultString = String(data: data, encoding: .utf8) else {
-            return
-        }
-        
-        DispatchQueue.main.async {
-            let results = resultString.split(separator: "\n")
-            
-            let dispatchGroup = DispatchGroup()
-            
-            for each in results {
-                guard each.split(separator: "|").dropFirst().first != nil else {
-                    print("Access denied error: Missing '|' separator or element after it.")
-                    break
-                }
-                
-                let code = each.split(separator: "|")[1].split(separator: "-")[1]
-                let timestamp = Int(each.split(separator: "|")[1].split(separator: "-")[2]) ?? 0
-                
-                let today_timestamp = Int(Calendar.current.startOfDay(for: Date()).timeIntervalSince1970) * 1000
-                
-                if timestamp >= today_timestamp {
-                    let identifier = "\(code)/\(number)/\(timestamp)"
-                    
-                    dispatchGroup.enter()
-                    fetchTrenitaliaInfo(identifier: identifier) { result in
-                        guard let result = result else {
-                            return
-                        }
-                        
-                        resultsArray.append(result)
-                        dispatchGroup.leave()
-                    }
-                }
-            }
-            if !number.isEmpty {
-                dispatchGroup.enter()
-                fetchItaloInfo(identifier: number) { result in
-                    resultsArray.append(result)
-                    dispatchGroup.leave()
-                }
-            }
-            
-            // Wait for all fetches to complete
-            dispatchGroup.notify(queue: .main) {
-                completion(resultsArray)
-            }
-        }
-    }.resume()
 }
