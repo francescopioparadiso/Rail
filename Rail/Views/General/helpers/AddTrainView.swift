@@ -419,6 +419,9 @@ struct AddTrainView: View {
             /// haptic feedback
             UIImpactFeedbackGenerator(style: .medium).impactOccurred()
             
+            /// update focus
+            is_focused = true
+            
             /// change view
             current_view = .add_train
             
@@ -521,7 +524,6 @@ struct AddTrainView: View {
         let stops = train?.value["stops"] as? [[String: Any]] ?? []
         for stop in stops {
             stops_fetched.append(stop)
-            print("stop fetched: \(stop)")
         }
     }
     private func select_stops(stopsFetched: [[String: Any]], currentSelection: [[String: Any]], tappedIndex: Int) -> [[String: Any]] {
@@ -580,10 +582,10 @@ struct AddTrainView: View {
         /// get details
         let logo = train_selected?.value["logo"] as? String ?? ""
         let number = train_selected?.value["number"] as? String ?? ""
-        var identifier = train_selected?.value["identifier"] as? String ?? ""
+        let identifier = train_selected?.value["identifier"] as? String ?? ""
         let provider = train_selected?.value["provider"] as? String ?? ""
         
-        let last_upadate_time = train_selected?.value["last_upadate_time"] as? Date ?? Date()
+        let last_update_time = train_selected?.value["last_update_time"] as? Date ?? Date()
         let delay = train_selected?.value["delay"] as? Int ?? 0
         let direction = train_selected?.value["direction"] as? String ?? ""
         
@@ -591,20 +593,25 @@ struct AddTrainView: View {
         let issue = train_selected?.value["issue"] as? String ?? ""
 
         /// adjust identifier timestamp based on day difference
-        let components = identifier.split(separator: "/").map { String($0) }
-        var timestamp = Int(components.last ?? "") ?? 0
-        let adjustedDate = Date(timeIntervalSince1970: TimeInterval(timestamp)).addingTimeInterval(TimeInterval(day_difference) * 86_400)
-        timestamp = Int(adjustedDate.timeIntervalSince1970)
-        identifier = components.dropLast().joined(separator: "/") + "/\(timestamp)"
+        let identifier_string: String = {
+            guard provider != "italo" else { return train_number }
+            
+            let components = identifier.split(separator: "/").map { String($0) }
+            var timestamp = Int(components.last ?? "") ?? 0
+            let adjustedDate = Date(timeIntervalSince1970: TimeInterval(timestamp)).addingTimeInterval(TimeInterval(day_difference) * 86_400)
+            timestamp = Int(adjustedDate.timeIntervalSince1970)
+            return components.dropLast().joined(separator: "/") + "/\(timestamp)"
+        }()
+        print(identifier_string)
         
         /// save to database
         let train_to_add = Train(
             id: id,
             logo: logo,
             number: number,
-            identifier: identifier,
+            identifier: identifier_string,
             provider: provider,
-            last_update_time: last_upadate_time,
+            last_update_time: last_update_time,
             delay: delay,
             direction: direction,
             seats: seats,

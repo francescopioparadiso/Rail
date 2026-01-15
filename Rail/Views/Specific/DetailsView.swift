@@ -716,76 +716,54 @@ struct DetailsView: View {
     }
     
     // MARK: - update function
-    func update_train_details() async {
-        let result: [String: Any]
-        
-        // get first stop ref_time to use as reference
-        let first_stop_ref_time = stops
-            .filter { $0.id == train.id }
+    private func update_train_details() async {
+        // condition to update
+        /// get the first stop ref time
+        let firstStop_refTime = stops
+            .filter({ $0.id == train.id })
             .sorted(by: { $0.ref_time < $1.ref_time })
-            .first?.ref_time ?? Date()
+            .first?.ref_time ?? .distantPast
+        /// check if the first stop ref time is today
+        guard Calendar.current.isDateInToday(firstStop_refTime) else { return }
         
-        // update only if the train is for today
-        guard Calendar.current.isDateInToday(first_stop_ref_time) else { return }
         
-        if train.provider == "trenitalia" {
-            result = await fetch_trenitalia_train_info_async(identifier: train.identifier)
-        } else {
-            result = await fetch_italo_train_info_async(identifier: train.identifier)
-        }
+        // fetch new data
+        let results: [String:Any] = await {
+            switch train.provider {
+                case "trenitalia":
+                    return await TrenitaliaAPI().info(identifier: train.identifier, should_fetch_weather: true) ?? [:]
+                case "italo":
+                    return await ItaloAPI().info(identifier: train.identifier) ?? [:]
+                default:
+                    return [:]
+            }
+        }()
         
-        await MainActor.run {
-            apply_result(result, to: train)
-        }
-    }
-    
-    func fetch_trenitalia_train_info_async(identifier: String) async -> [String: Any] {
-        await withCheckedContinuation { continuation in
-            fetchTrenitaliaInfo(identifier: identifier) { result in
-                guard let result = result else {
-                    return
-                }
-                continuation.resume(returning: result)
-            }
-        }
-    }
-    
-    func fetch_italo_train_info_async(identifier: String) async -> [String: Any] {
-        await withCheckedContinuation { continuation in
-            fetchItaloInfo(identifier: identifier) { result in
-                continuation.resume(returning: result)
-            }
-        }
-    }
-    
-    @MainActor
-    private func apply_result(_ result: [String: Any], to train: Train) {
-        train.last_update_time = result["last_update_time"] as? Date ?? .distantPast
-        train.delay = result["delay"] as? Int ?? 0
-        train.direction = result["direction"] as? String ?? ""
-        train.issue = result["issue"] as? String ?? ""
-
-        if let fetchedStops = result["stops"] as? [[String: Any]] {
-            for stop in stops {
-                guard let fetched = fetchedStops.first(where: { ($0["name"] as? String) == stop.name }) else { continue }
-                
-                stop.platform = fetched["platform"] as? String ?? ""
-                stop.weather = fetched["weather"] as? String ?? ""
-                stop.status = fetched["status"] as? Int ?? 0
-                stop.is_completed = fetched["is_completed"] as? Bool ?? false
-                stop.is_in_station = fetched["is_in_station"] as? Bool ?? false
-                stop.dep_delay = fetched["dep_delay"] as? Int ?? 0
-                stop.arr_delay = fetched["arr_delay"] as? Int ?? 0
-                stop.dep_time_eff = fetched["dep_time_eff"] as? Date ?? .distantPast
-                stop.arr_time_eff = fetched["arr_time_eff"] as? Date ?? .distantPast
-            }
-        }
-
-        do {
-            try modelContext.save()
-            print("✅ Train details updated successfully at \(Date().formatted(date: .abbreviated, time: .standard))")
-        } catch {
-            print("⚠️ Failed to save modelContext in DetailsView:", error)
+        // update train data
+        train.last_update_time = results["last_update_time"] as? Date ?? .distantPast
+        train.delay = results["delay"] as? Int ?? 0
+        train.direction = results["direction"] as? String ?? ""
+        train.issue = results["issue"] as? String ?? ""
+        
+        // update stops data
+        let today_stops = stops.filter { $0.id == train.id }
+        for stop in today_stops {
+            /// get all the stops updated
+            let stops_updated = results["stops"] as? [[String:Any]] ?? []
+            
+            /// get the stop updated whose name correspond to the today stops
+            guard let stop_updated = stops_updated.first(where: { ($0["name"] as? String) == stop.name }) else { continue }
+            
+            /// update only the necessary fields
+            stop.platform = stop_updated["platform"] as? String ?? ""
+            stop.weather = stop_updated["weather"] as? String ?? ""
+            stop.status = stop_updated["status"] as? Int ?? 0
+            stop.is_completed = stop_updated["is_completed"] as? Bool ?? false
+            stop.is_in_station = stop_updated["is_in_station"] as? Bool ?? false
+            stop.dep_delay = stop_updated["dep_delay"] as? Int ?? 0
+            stop.arr_delay = stop_updated["arr_delay"] as? Int ?? 0
+            stop.dep_time_eff = stop_updated["dep_time_eff"] as? Date ?? .distantPast
+            stop.arr_time_eff = stop_updated["arr_time_eff"] as? Date ?? .distantPast
         }
     }
 }
