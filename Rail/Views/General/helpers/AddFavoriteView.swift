@@ -220,7 +220,6 @@ struct AddFavoriteView: View {
         let delay = favorite_selected?.value["delay"] as? Int ?? 0
         let direction = favorite_selected?.value["direction"] as? String ?? ""
         
-        let seats = favorite_selected?.value["seats"] as? [String] ?? []
         let issue = favorite_selected?.value["issue"] as? String ?? ""
         
         /// save to database
@@ -233,7 +232,6 @@ struct AddFavoriteView: View {
             last_update_time: last_update_time,
             delay: delay,
             direction: direction,
-            seats: seats,
             issue: issue
         )
         modelContext.insert(train_to_add)

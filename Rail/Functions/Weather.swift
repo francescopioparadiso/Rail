@@ -121,6 +121,7 @@ func getOpenMeteoWeather(lat: Double, lon: Double, date: Date) async throws -> S
     guard let url = URL(string: "\(baseUrl)?latitude=\(lat)&longitude=\(lon)&start_date=\(dateString)&end_date=\(dateString)&hourly=temperature_2m,weathercode") else {
         return "—"
     }
+    print("Fetching weather from URL: \(url.absoluteString)")
     
     // 4. Fetch Data
     let (data, _) = try await URLSession.shared.data(from: url)
@@ -140,6 +141,7 @@ func getOpenMeteoWeather(lat: Double, lon: Double, date: Date) async throws -> S
     let code = decoded.hourly.weathercode[targetHour]
     let emoji = getWeatherEmoji(code: code)
     
+    print("\(lat), \(lon) at \(date): Code \(code), Temp \(temp)°C")
     return "\(emoji) \(temp)°C"
 }
 

@@ -59,10 +59,19 @@ class trains:
         data1 = [row for row in response.text.split("\n") if row]
 
         data2 = []
+        data2 = []
         for datum in data1:
-            parts = datum.split("|")[1].split("-")
-            if len(parts) == 3:
-                data2.append(f"{parts[1]}/{parts[0]}/{parts[2]}")
+            # Split by pipe first
+            pipe_parts = datum.split("|")
+            
+            # Ensure there is actually a second part after the pipe
+            if len(pipe_parts) > 1:
+                # parts[1] is the "ID-STATION-CODE" part
+                sub_parts = pipe_parts[1].split("-")
+                
+                # Ensure the sub_parts has exactly what you expect (Origin/ID/Destination)
+                if len(sub_parts) == 3:
+                    data2.append(f"{sub_parts[1]}/{sub_parts[0]}/{sub_parts[2]}")
 
         parameterList = {}
         for v in data2:
@@ -105,4 +114,4 @@ class trains:
 if __name__ == "__main__":
     model = trains()
     model.create_database()
-    model.trenitalia_issues_parallel(600, 30000, workers=50)
+    model.trenitalia_issues_parallel(600, 2000, workers=5)

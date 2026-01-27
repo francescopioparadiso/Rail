@@ -302,6 +302,7 @@ class TrenitaliaAPI {
                     guard let weatherData = try? await get_weather(lat: get_latitude(for: name), lon: get_longitude(for: name), date: refTime) else { return "" }
                     return weatherData
                 }()
+                print("\(logo) \(number) - Fetched weather for \(name) at \(refTime): \(weather)")
 
                 // Logic for first, last, middle stations
                 if i == 0 {
