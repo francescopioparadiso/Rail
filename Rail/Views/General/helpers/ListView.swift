@@ -25,29 +25,30 @@ extension Stop {
 
 
 struct ListView: View {
+    // MARK: - variables
+    // data variables
     let train: Train
     let stops: [Stop]
     
+    // computed variables
     var first_stop: Stop {
         stops.first(where: { $0.is_selected }) ?? stops.first ?? Stop.placeholder()
     }
-    
     var last_stop: Stop {
         stops.last(where: { $0.is_selected }) ?? Stop.placeholder()
     }
-    
     var first_stop_no_issues: Stop {
         stops.first(where: { $0.status != 3 && $0.is_selected }) ?? stops.first ?? Stop.placeholder()
     }
-    
     var last_stop_no_issues: Stop {
         stops.last(where: { $0.status != 3 && $0.is_selected }) ?? stops.last ?? Stop.placeholder()
     }
-
+    
+    // MARK: - main view
     var body: some View {
         if Date() < last_stop_no_issues.arr_time_eff {
             VStack(spacing: 8) {
-                // logo + number
+                // MARK: - logo + number
                 HStack(spacing: 4) {
                     Image(train.logo)
                         .resizable()
@@ -56,7 +57,7 @@ struct ListView: View {
                     
                     Text(train.number)
                         .font(.title3)
-                        .fontDesign(appFontDesign)
+                        .fontDesign(app_font_design)
                         .fontWeight(.semibold)
                         .foregroundStyle(Color.primary)
                     
@@ -64,12 +65,12 @@ struct ListView: View {
                 }
                 .padding(.horizontal).padding(.top)
                 
-                // departure and arrival stops with time
+                // MARK: - departure and arrival stops
                 VStack(alignment: .leading, spacing: 4) {
                     HStack {
                         Text(first_stop_no_issues.name)
                             .font(.subheadline)
-                            .fontDesign(appFontDesign)
+                            .fontDesign(app_font_design)
                             .foregroundStyle(Color.primary)
                             .lineLimit(1)
                             .truncationMode(.tail)
@@ -80,17 +81,17 @@ struct ListView: View {
                         if train.issue == "Treno cancellato" {
                             Text(first_stop_no_issues.dep_time_eff.formatted(.dateTime.hour().minute()))
                                 .font(.subheadline)
-                                .fontDesign(appFontDesign)
+                                .fontDesign(app_font_design)
                                 .foregroundStyle(Color.red)
                         } else if Date() >= stops.first?.dep_time_id ?? Date() && first_stop_no_issues.dep_delay != 0 {
                             Text(first_stop_no_issues.dep_time_eff.formatted(.dateTime.hour().minute()))
                                 .font(.subheadline)
-                                .fontDesign(appFontDesign)
+                                .fontDesign(app_font_design)
                                 .foregroundStyle(first_stop_no_issues.dep_delay > 0 ? Color.red : Color.green)
                         } else {
                             Text(first_stop_no_issues.dep_time_id.formatted(.dateTime.hour().minute()))
                                 .font(.subheadline)
-                                .fontDesign(appFontDesign)
+                                .fontDesign(app_font_design)
                                 .foregroundStyle(Date() >= first_stop.dep_time_id && first_stop_no_issues.dep_delay == 0 ? Color.green : Color.primary)
                         }
                     }
@@ -98,7 +99,7 @@ struct ListView: View {
                     HStack {
                         Text(last_stop_no_issues.name)
                             .font(.subheadline)
-                            .fontDesign(appFontDesign)
+                            .fontDesign(app_font_design)
                             .foregroundStyle(Color.primary)
                             .lineLimit(1)
                             .truncationMode(.tail)
@@ -109,34 +110,34 @@ struct ListView: View {
                         if train.issue == "Treno cancellato" {
                             Text(last_stop_no_issues.arr_time_eff.formatted(.dateTime.hour().minute()))
                                 .font(.subheadline)
-                                .fontDesign(appFontDesign)
+                                .fontDesign(app_font_design)
                                 .foregroundStyle(Color.red)
                         } else if Date() >= stops.first?.dep_time_id ?? Date() && last_stop_no_issues.arr_delay != 0 {
                             Text(last_stop_no_issues.arr_time_eff.formatted(.dateTime.hour().minute()))
                                 .font(.subheadline)
-                                .fontDesign(appFontDesign)
+                                .fontDesign(app_font_design)
                                 .foregroundStyle(last_stop_no_issues.arr_delay > 0 ? Color.red : Color.green)
                         } else if Date() >= first_stop.dep_time_id && last_stop_no_issues.arr_delay == 0 {
                             Text(last_stop_no_issues.arr_time_eff.formatted(.dateTime.hour().minute()))
                                 .font(.subheadline)
-                                .fontDesign(appFontDesign)
+                                .fontDesign(app_font_design)
                                 .foregroundStyle(Color.green)
                         } else {
                             Text(last_stop_no_issues.arr_time_id.formatted(.dateTime.hour().minute()))
                                 .font(.subheadline)
-                                .fontDesign(appFontDesign)
+                                .fontDesign(app_font_design)
                                 .foregroundStyle(Color.primary)
                         }
                     }
                 }
                 .padding(.horizontal).padding(.top, 8)
                 
-                // bottom bar
+                // MARK: - bottom bar
                 if train.issue == "Treno cancellato" {
                     ZStack {
                         Text(train.issue)
                             .font(.subheadline)
-                            .fontDesign(appFontDesign)
+                            .fontDesign(app_font_design)
                             .foregroundStyle(Color.red)
                             .padding(.vertical, 8)
                     }
@@ -176,7 +177,7 @@ struct ListView: View {
                             
                             Text(time_string)
                                 .font(.subheadline)
-                                .fontDesign(appFontDesign)
+                                .fontDesign(app_font_design)
                                 .padding(.vertical, 8).padding(.horizontal)
                         }
                         .frame(maxWidth: .infinity)
@@ -190,7 +191,7 @@ struct ListView: View {
                                 Image(systemName: "arrow.up.right")
                                     .padding(.vertical, 8).padding(.leading)
                                 Text(first_stop.platform)
-                                    .fontDesign(appFontDesign)
+                                    .fontDesign(app_font_design)
                                     .padding(.vertical, 8).padding(.trailing)
                             }
                             .font(.subheadline)
@@ -226,7 +227,7 @@ struct ListView: View {
                             
                             Text(delay_string)
                                 .font(.subheadline)
-                                .fontDesign(appFontDesign)
+                                .fontDesign(app_font_design)
                                 .foregroundStyle(train.delay > 0 ? .red : .green)
                                 .padding(.vertical, 8)
                         }
@@ -241,7 +242,7 @@ struct ListView: View {
                                 Image(systemName: "arrow.down.right")
                                     .padding(.vertical, 8).padding(.leading)
                                 Text(last_stop.platform)
-                                    .fontDesign(appFontDesign)
+                                    .fontDesign(app_font_design)
                                     .padding(.vertical, 8).padding(.trailing)
                             }
                             .font(.subheadline)
@@ -264,15 +265,15 @@ struct ListView: View {
                 VStack {
                     Text("\(last_stop_no_issues.arr_time_eff.formatted(.dateTime.day()))")
                         .font(.title)
-                        .fontDesign(appFontDesign)
+                        .fontDesign(app_font_design)
                         .fontWeight(.semibold)
                     Text("\(last_stop_no_issues.arr_time_eff.formatted(.dateTime.month()))")
                         .font(.title)
-                        .fontDesign(appFontDesign)
+                        .fontDesign(app_font_design)
                         .fontWeight(.semibold)
                     Text("\(last_stop_no_issues.arr_time_eff.formatted(.dateTime.year()))")
                         .font(.title)
-                        .fontDesign(appFontDesign)
+                        .fontDesign(app_font_design)
                         .fontWeight(.semibold)
                 }
                 .frame(maxHeight: .infinity)
@@ -291,7 +292,7 @@ struct ListView: View {
                         
                         Text(train.number)
                             .font(.title3)
-                            .fontDesign(appFontDesign)
+                            .fontDesign(app_font_design)
                             .fontWeight(.semibold)
                             .foregroundStyle(Color.primary)
                         
@@ -304,7 +305,7 @@ struct ListView: View {
                         HStack {
                             Text(first_stop_no_issues.name)
                                 .font(.subheadline)
-                                .fontDesign(appFontDesign)
+                                .fontDesign(app_font_design)
                                 .foregroundStyle(Color.primary)
                                 .lineLimit(1)
                                 .truncationMode(.tail)
@@ -315,17 +316,17 @@ struct ListView: View {
                             if train.issue == "Treno cancellato" {
                                 Text(first_stop_no_issues.dep_time_eff.formatted(.dateTime.hour().minute()))
                                     .font(.subheadline)
-                                    .fontDesign(appFontDesign)
+                                    .fontDesign(app_font_design)
                                     .foregroundStyle(Color.red)
                             } else if Date() >= first_stop.dep_time_id && first_stop_no_issues.dep_delay != 0 {
                                 Text(first_stop_no_issues.dep_time_eff.formatted(.dateTime.hour().minute()))
                                     .font(.subheadline)
-                                    .fontDesign(appFontDesign)
+                                    .fontDesign(app_font_design)
                                     .foregroundStyle(first_stop_no_issues.dep_delay > 0 ? Color.red : Color.green)
                             } else {
                                 Text(first_stop_no_issues.dep_time_id.formatted(.dateTime.hour().minute()))
                                     .font(.subheadline)
-                                    .fontDesign(appFontDesign)
+                                    .fontDesign(app_font_design)
                                     .foregroundStyle(Date() >= first_stop.dep_time_id && first_stop_no_issues.dep_delay == 0 ? Color.green : Color.primary)
                             }
                         }
@@ -333,7 +334,7 @@ struct ListView: View {
                         HStack {
                             Text(last_stop_no_issues.name)
                                 .font(.subheadline)
-                                .fontDesign(appFontDesign)
+                                .fontDesign(app_font_design)
                                 .foregroundStyle(Color.primary)
                                 .lineLimit(1)
                                 .truncationMode(.tail)
@@ -344,22 +345,22 @@ struct ListView: View {
                             if train.issue == "Treno cancellato" {
                                 Text(last_stop_no_issues.arr_time_eff.formatted(.dateTime.hour().minute()))
                                     .font(.subheadline)
-                                    .fontDesign(appFontDesign)
+                                    .fontDesign(app_font_design)
                                     .foregroundStyle(Color.red)
                             } else if Date() >= first_stop.dep_time_id && last_stop_no_issues.arr_delay != 0 {
                                 Text(last_stop_no_issues.arr_time_eff.formatted(.dateTime.hour().minute()))
                                     .font(.subheadline)
-                                    .fontDesign(appFontDesign)
+                                    .fontDesign(app_font_design)
                                     .foregroundStyle(last_stop_no_issues.arr_delay > 0 ? Color.red : Color.green)
                             } else if Date() >= first_stop.dep_time_id && last_stop_no_issues.arr_delay == 0 {
                                 Text(last_stop_no_issues.arr_time_eff.formatted(.dateTime.hour().minute()))
                                     .font(.subheadline)
-                                    .fontDesign(appFontDesign)
+                                    .fontDesign(app_font_design)
                                     .foregroundStyle(Color.green)
                             } else {
                                 Text(last_stop_no_issues.arr_time_id.formatted(.dateTime.hour().minute()))
                                     .font(.subheadline)
-                                    .fontDesign(appFontDesign)
+                                    .fontDesign(app_font_design)
                                     .foregroundStyle(Color.primary)
                             }
                         }
@@ -371,7 +372,7 @@ struct ListView: View {
                         ZStack {
                             Text(train.issue)
                                 .font(.subheadline)
-                                .fontDesign(appFontDesign)
+                                .fontDesign(app_font_design)
                                 .foregroundStyle(Color.red)
                                 .padding(.vertical, 8)
                         }
@@ -404,7 +405,7 @@ struct ListView: View {
                             
                             Text(delay_string)
                                 .font(.subheadline)
-                                .fontDesign(appFontDesign)
+                                .fontDesign(app_font_design)
                                 .foregroundStyle(last_stop_no_issues.arr_delay > 0 ? .red : .green)
                                 .padding(.vertical, 8)
                         }
@@ -424,152 +425,3 @@ struct ListView: View {
         }
     }
 }
-
-/*
-#Preview {
-    // MARK: - 1️⃣ Not Yet Departed Train
-    let upcomingStops = [
-        Stop(
-            id: UUID(),
-            name: "Napoli Centrale",
-            platform: "5",
-            status: 0,
-            is_completed: false,
-            is_in_station: false,
-            delay: 0,
-            dep_time_id: Calendar.current.date(byAdding: .minute, value: 125, to: Date())!,
-            arr_time_id: .distantPast,
-            dep_time_eff: Calendar.current.date(byAdding: .minute, value: 125, to: Date())!,
-            arr_time_eff: .distantPast,
-            ref_time: Date()
-        ),
-        Stop(
-            id: UUID(),
-            name: "Bologna Centrale",
-            platform: "2",
-            status: 0,
-            is_completed: false,
-            is_in_station: false,
-            delay: 0,
-            dep_time_id: Calendar.current.date(byAdding: .hour, value: 1, to: Date())!,
-            arr_time_id: Calendar.current.date(byAdding: .hour, value: 1, to: Date())!,
-            dep_time_eff: Calendar.current.date(byAdding: .hour, value: 1, to: Date())!,
-            arr_time_eff: Calendar.current.date(byAdding: .hour, value: 1, to: Date())!,
-            ref_time: Date()
-        )
-    ]
-
-    let upcomingTrain = Train(
-        id: UUID(),
-        logo: "FR",
-        number: "9513",
-        identifier: "9513_MI-FI",
-        provider: "Trenitalia",
-        last_update_time: Date(),
-        delay: 0,
-        direction: "Firenze S.M.N.",
-        seats: [],
-        issue: ""
-    )
-
-    // MARK: - 2️⃣ Running Train
-    let runningStops = [
-        Stop(
-            id: UUID(),
-            name: "Roma Termini",
-            platform: "3",
-            status: 0,
-            is_completed: true,
-            is_in_station: false,
-            delay: 3,
-            dep_time_id: Calendar.current.date(byAdding: .minute, value: -30, to: Date())!,
-            arr_time_id: .distantPast,
-            dep_time_eff: Calendar.current.date(byAdding: .minute, value: -27, to: Date())!,
-            arr_time_eff: .distantPast,
-            ref_time: Date()
-        ),
-        Stop(
-            id: UUID(),
-            name: "Napoli Centrale",
-            platform: "4",
-            status: 0,
-            is_completed: false,
-            is_in_station: false,
-            delay: 3,
-            dep_time_id: Calendar.current.date(byAdding: .hour, value: 1, to: Date())!,
-            arr_time_id: Calendar.current.date(byAdding: .hour, value: 1, to: Date())!,
-            dep_time_eff: Calendar.current.date(byAdding: .minute, value: 63, to: Date())!,
-            arr_time_eff: Calendar.current.date(byAdding: .minute, value: 63, to: Date())!,
-            ref_time: Date()
-        )
-    ]
-
-    let runningTrain = Train(
-        id: UUID(),
-        logo: "FR",
-        number: "9520",
-        identifier: "9520_RM-NA",
-        provider: "Trenitalia",
-        last_update_time: Date(),
-        delay: 3,
-        direction: "Napoli Centrale",
-        seats: ["Carriage 7 - Seat 32A"],
-        issue: ""
-    )
-
-    // MARK: - 3️⃣ Arrived Train
-    let arrivedStops = [
-        Stop(
-            id: UUID(),
-            name: "Torino Porta Nuova",
-            platform: "8",
-            status: 0,
-            is_completed: true,
-            is_in_station: false,
-            delay: 0,
-            dep_time_id: Calendar.current.date(byAdding: .hour, value: -3, to: Date())!,
-            arr_time_id: .distantPast,
-            dep_time_eff: Calendar.current.date(byAdding: .hour, value: -3, to: Date())!,
-            arr_time_eff: .distantPast,
-            ref_time: Date()
-        ),
-        Stop(
-            id: UUID(),
-            name: "Milano Centrale",
-            platform: "6",
-            status: 0,
-            is_completed: true,
-            is_in_station: true,
-            delay: 2,
-            dep_time_id: Calendar.current.date(byAdding: .hour, value: -1, to: Date())!,
-            arr_time_id: Calendar.current.date(byAdding: .hour, value: -1, to: Date())!,
-            dep_time_eff: Calendar.current.date(byAdding: .minute, value: -58, to: Date())!,
-            arr_time_eff: Calendar.current.date(byAdding: .minute, value: -58, to: Date())!,
-            ref_time: Date()
-        )
-    ]
-
-    let arrivedTrain = Train(
-        id: UUID(),
-        logo: "FR",
-        number: "9501",
-        identifier: "9501_TO-MI",
-        provider: "trenitalia",
-        last_update_time: Date(),
-        delay: 2,
-        direction: "Milano Centrale",
-        seats: [],
-        issue: ""
-    )
-
-    // MARK: - Combine All Three
-    ScrollView {
-        VStack(spacing: 24) {
-            ListView(train: runningTrain, stops: runningStops)
-            ListView(train: upcomingTrain, stops: upcomingStops)
-            ListView(train: arrivedTrain, stops: arrivedStops)
-        }
-        .padding()
-    }
-}
-*/

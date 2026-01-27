@@ -7,9 +7,27 @@ struct RailApp: App {
         let schema = Schema([
             Train.self,
             Stop.self,
-            Seat.self
+            Seat.self,
+            Favorite.self,
+            Pass.self
         ])
-        let modelConfiguration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
+        
+        let groupIdentifier = "group.com.francescoparadis.Rail"
+        
+        let modelConfiguration: ModelConfiguration
+        
+        if let groupURL = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: groupIdentifier) {
+            let databaseURL = groupURL.appendingPathComponent("default.store")
+            
+            modelConfiguration = ModelConfiguration(
+                groupIdentifier,
+                schema: schema,
+                url: databaseURL,
+                allowsSave: true
+            )
+        } else {
+            modelConfiguration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
+        }
 
         do {
             return try ModelContainer(for: schema, configurations: [modelConfiguration])

@@ -18,27 +18,27 @@ struct TodayView: View {
     // computed variables
     private var today_trains: [Train] {
         trains
+            .filter { train in
+                let train_stops = stops
+                    .filter { $0.id == train.id && $0.is_selected }
+                    .sorted(by: { $0.ref_time < $1.ref_time })
+                
+                guard let last_stop = train_stops.last else { return false }
+                return Date() <= last_stop.arr_time_eff || Calendar.current.isDateInToday(last_stop.arr_time_eff)
+            }
             .sorted { lhs, rhs in
                 guard
-                    let lhsFirstStop = stops
+                    let lhs_first_stop = stops
                         .filter({ $0.id == lhs.id && $0.is_selected })
                         .sorted(by: { $0.ref_time < $1.ref_time })
                         .first,
-                    let rhsFirstStop = stops
+                    let rhs_first_stop = stops
                         .filter({ $0.id == rhs.id && $0.is_selected })
                         .sorted(by: { $0.ref_time < $1.ref_time })
                         .first
                 else { return false }
                 
-                return lhsFirstStop.dep_time_eff < rhsFirstStop.dep_time_eff
-            }
-            .filter { train in
-                let trainStops = stops
-                    .filter { $0.id == train.id && $0.is_selected}
-                    .sorted(by: { $0.ref_time < $1.ref_time })
-                
-                guard let lastStop = trainStops.last else { return false }
-                return Date() <= lastStop.arr_time_eff || Calendar.current.isDateInToday(lastStop.arr_time_eff)
+                return lhs_first_stop.dep_time_eff < rhs_first_stop.dep_time_eff
             }
     }
     
@@ -51,18 +51,7 @@ struct TodayView: View {
                                        description: Text("Add a new journey by tapping the above button."))
                 .padding()
                 .foregroundColor(Color.primary)
-                .fontDesign(appFontDesign)
-                .toolbar {
-                    ToolbarItem(placement: .navigationBarTrailing) {
-                        Button {
-                            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                            add_journey_sheet = true
-                        } label: {
-                            Image(systemName: "plus")
-                        }
-                        .buttonStyle(.glassProminent)
-                    }
-                }
+                .fontDesign(app_font_design)
             } else {
                 List {
                     ForEach(Array(today_trains.enumerated()), id: \.element.id) { index, train in
@@ -99,7 +88,7 @@ struct TodayView: View {
                                 ListView(train: train, stops: trainStops)
                                     .padding(.top, topPadding)
                                     .padding(.bottom, bottomPadding)
-
+                                
                                 NavigationLink(destination: DetailsView(train: train, stops: trainStops, seats: trainSeats)) {
                                     EmptyView()
                                 }
@@ -131,7 +120,7 @@ struct TodayView: View {
                                     
                                     Text(timeString)
                                         .font(.footnote)
-                                        .fontDesign(appFontDesign)
+                                        .fontDesign(app_font_design)
                                         .foregroundColor(.gray)
                                         .frame(maxWidth: .infinity, alignment: .center)
                                         .padding(.vertical, 4)
@@ -150,21 +139,10 @@ struct TodayView: View {
                 .refreshable {
                     Task { await update_today_trains() }
                 }
-                .toolbar {
-                    ToolbarItem(placement: .navigationBarTrailing) {
-                        Button {
-                            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                            add_journey_sheet = true
-                        } label: {
-                            Image(systemName: "plus")
-                        }
-                        .buttonStyle(.glassProminent)
-                    }
-                }
             }
         }
         .sheet(isPresented: $add_journey_sheet) {
-            AddTrainView()
+            AddTrainView(add_favorite_sheet: false)
         }
         .onAppear {
             ReviewManager.shared.requestReviewIfAppropriate(action: requestReview)

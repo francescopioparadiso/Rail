@@ -9,56 +9,87 @@ extension String: @retroactive Identifiable {
 }
 
 struct DetailsView: View {
-    @Environment(\.requestReview) var requestReview
-    @Environment(\.modelContext) private var modelContext
-    @Environment(\.scenePhase) private var scenePhase
+    // MARK: - variables
+    // enviroment variables
+    @Environment(\.colorScheme) var color_scheme
+    @Environment(\.requestReview) var request_review
+    @Environment(\.modelContext) private var model_context
+    @Environment(\.scenePhase) private var scene_phase
     
+    // data variables
     let train: Train
     let stops: [Stop]
     let seats: [Seat]
+    @Query private var favorites: [Favorite]
     
+    // state variables
     @State private var seats_sheet: Bool = false
-    @State private var showAllStops: Bool = false
+    @State private var show_all_stops: Bool = false
     
-    var first_stop: Stop {
-        showAllStops ?
+    // computed variables
+    private var is_favorite: Bool {
+        let stop_names = stops.filter { $0.is_selected }.map { $0.name }
+        
+        let stop_ref_times = stops.filter { $0.is_selected }
+            .map { $0.ref_time.formatted(date: .omitted, time: .shortened) }
+        
+        let identifier = train.identifier.contains("/") ?
+            String(train.identifier.split(separator: "/").dropLast().joined(separator: "/")) :
+            train.identifier
+        
+        return favorites.contains { fav in
+            guard fav.identifier == identifier else { return false }
+            
+            guard fav.stop_names == stop_names else { return false }
+            
+            let fav_ref_times = fav.stop_ref_times.map {
+                $0.formatted(date: .omitted, time: .shortened)
+            }
+            
+            return fav_ref_times == stop_ref_times
+        }
+    }
+    
+    private var first_stop: Stop {
+        show_all_stops ?
         stops.first ?? Stop.placeholder() :
         stops.first(where: { $0.is_selected }) ?? stops.first ?? Stop.placeholder()
     }
-    var last_stop: Stop {
-        showAllStops ?
+    private var last_stop: Stop {
+        show_all_stops ?
         stops.last ?? Stop.placeholder() :
         stops.last(where: { $0.is_selected }) ?? stops.last ?? Stop.placeholder()
     }
-    var first_stop_no_issues: Stop {
-        showAllStops ?
+    private var first_stop_no_issues: Stop {
+        show_all_stops ?
         stops.first(where: { $0.status != 3 }) ?? stops.first ?? Stop.placeholder() :
         stops.first(where: { $0.status != 3 && $0.is_selected }) ?? Stop.placeholder()
     }
-    var last_stop_no_issues: Stop {
-        showAllStops ?
+    private var last_stop_no_issues: Stop {
+        show_all_stops ?
         stops.last(where: { $0.status != 3 }) ?? stops.last ?? Stop.placeholder() :
         stops.last(where: { $0.status != 3 && $0.is_selected}) ?? stops.last ?? Stop.placeholder()
     }
     
-    var first_index: Int {
+    private var first_index: Int {
         stops.startIndex
     }
-    var last_index: Int {
+    private var last_index: Int {
         stops.endIndex
     }
-    var first_index_no_issues: Int {
+    private var first_index_no_issues: Int {
         stops.firstIndex(where: { $0.status != 3 }) ?? (stops.indices.first ?? 0)
     }
-    var last_index_no_issues: Int {
+    private var last_index_no_issues: Int {
         stops.lastIndex(where: { $0.status != 3 }) ?? (stops.indices.last ?? 0)
     }
     
+    // MARK: - main view
     var body: some View {
         ZStack(alignment: .bottom) {
             // MARK: - main content
             ScrollView(.vertical, showsIndicators: false) {
-                // MARK: - train logo and number
+                // train logo and number
                 HStack(spacing: 4) {
                     Image(train.logo)
                         .resizable()
@@ -67,7 +98,7 @@ struct DetailsView: View {
                     
                     Text(train.number)
                         .font(.title3)
-                        .fontDesign(appFontDesign)
+                        .fontDesign(app_font_design)
                         .fontWeight(.semibold)
                         .fontDesign(.rounded)
                         .foregroundStyle(Color.primary)
@@ -76,12 +107,12 @@ struct DetailsView: View {
                 }
                 .padding(.horizontal).padding(.top)
                 
-                // MARK: - departure and arrival
+                // departure and arrival
                 VStack(alignment: .leading, spacing: 4) {
                     HStack {
                         Text(first_stop_no_issues.name)
                             .font(.subheadline)
-                            .fontDesign(appFontDesign)
+                            .fontDesign(app_font_design)
                             .foregroundStyle(train.issue == "Treno cancellato" ? Color.red : Color.primary)
                             .strikethrough(train.issue == "Treno cancellato")
                         
@@ -90,7 +121,7 @@ struct DetailsView: View {
                         if train.issue == "Treno cancellato" {
                             Text(first_stop_no_issues.dep_time_id.formatted(.dateTime.hour().minute()))
                                 .font(.subheadline)
-                                .fontDesign(appFontDesign)
+                                .fontDesign(app_font_design)
                                 .strikethrough()
                                 .foregroundStyle(Color.red)
                         } else if Date() >= first_stop.dep_time_id || Calendar.current.isDateInToday(first_stop.dep_time_id) {
@@ -98,20 +129,20 @@ struct DetailsView: View {
                                 if first_stop_no_issues.dep_delay != 0 {
                                     Text(first_stop_no_issues.dep_time_id.formatted(.dateTime.hour().minute()))
                                         .font(.subheadline)
-                                        .fontDesign(appFontDesign)
+                                        .fontDesign(app_font_design)
                                         .strikethrough()
                                         .foregroundStyle(Color.secondary)
                                 }
                                 
                                 Text(first_stop_no_issues.dep_time_eff.formatted(.dateTime.hour().minute()))
                                     .font(.subheadline)
-                                    .fontDesign(appFontDesign)
+                                    .fontDesign(app_font_design)
                                     .foregroundStyle(first_stop_no_issues.dep_delay > 0 ? Color.red : Color.green)
                             }
                         } else {
                             Text(first_stop_no_issues.dep_time_id.formatted(.dateTime.hour().minute()))
                                 .font(.subheadline)
-                                .fontDesign(appFontDesign)
+                                .fontDesign(app_font_design)
                                 .foregroundStyle(Date() >= first_stop_no_issues.dep_time_id && first_stop_no_issues.dep_delay == 0 ? Color.green : Color.primary)
                         }
                     }
@@ -119,7 +150,7 @@ struct DetailsView: View {
                     HStack {
                         Text(last_stop_no_issues.name)
                             .font(.subheadline)
-                            .fontDesign(appFontDesign)
+                            .fontDesign(app_font_design)
                             .foregroundStyle(train.issue == "Treno cancellato" ? Color.red : Color.primary)
                             .strikethrough(train.issue == "Treno cancellato")
                         
@@ -128,7 +159,7 @@ struct DetailsView: View {
                         if train.issue == "Treno cancellato" {
                             Text(last_stop_no_issues.arr_time_id.formatted(.dateTime.hour().minute()))
                                 .font(.subheadline)
-                                .fontDesign(appFontDesign)
+                                .fontDesign(app_font_design)
                                 .strikethrough()
                                 .foregroundStyle(Color.red)
                         } else if Date() >= first_stop.dep_time_id || Calendar.current.isDateInToday(first_stop.dep_time_id) {
@@ -136,37 +167,37 @@ struct DetailsView: View {
                                 if last_stop_no_issues.arr_delay != 0 {
                                     Text(last_stop_no_issues.arr_time_id.formatted(.dateTime.hour().minute()))
                                         .font(.subheadline)
-                                        .fontDesign(appFontDesign)
+                                        .fontDesign(app_font_design)
                                         .strikethrough()
                                         .foregroundStyle(Color.secondary)
                                 }
                                 
                                 Text(last_stop_no_issues.arr_time_eff.formatted(.dateTime.hour().minute()))
                                     .font(.subheadline)
-                                    .fontDesign(appFontDesign)
+                                    .fontDesign(app_font_design)
                                     .foregroundStyle(last_stop_no_issues.arr_delay > 0 ? Color.red : Color.green)
                             }
                         } else if Date() >= first_stop.dep_time_id && last_stop.arr_delay == 0 {
                             Text(last_stop_no_issues.arr_time_id.formatted(.dateTime.hour().minute()))
                                 .font(.subheadline)
-                                .fontDesign(appFontDesign)
+                                .fontDesign(app_font_design)
                                 .foregroundStyle(Color.green)
                         } else {
                             Text(last_stop_no_issues.arr_time_id.formatted(.dateTime.hour().minute()))
                                 .font(.subheadline)
-                                .fontDesign(appFontDesign)
+                                .fontDesign(app_font_design)
                                 .foregroundStyle(Color.primary)
                         }
                     }
                 }
                 .padding(.horizontal).padding(.top, 8)
                 
-                // MARK: - delay bar
+                // delay bar
                 if train.issue == "Treno cancellato" {
                     ZStack {
                         Text(train.issue)
                             .font(.subheadline)
-                            .fontDesign(appFontDesign)
+                            .fontDesign(app_font_design)
                             .foregroundStyle(Color.red)
                             .padding(.vertical, 8)
                     }
@@ -191,21 +222,21 @@ struct DetailsView: View {
                         
                         let time_string: String = {
                             if day > 0 {
-                                return "\(NSLocalizedString("Departure on", comment: "")) \(dep_time.formatted(date: .abbreviated, time: .omitted))"
+                                return String(localized: "Departure on \(dep_time.formatted(date: .abbreviated, time: .omitted))")
                             } else if hour > 0 && minute > 0 {
-                                return "\(NSLocalizedString("Departure in", comment: "")) \(hour)h\(minute)m"
+                                return String(localized: "Departure in \(hour)h\(minute)m")
                             } else if hour > 0 && minute == 0 {
-                                return "\(NSLocalizedString("Departure in", comment: "")) \(hour)h"
+                                return String(localized: "Departure in \(hour)h")
                             } else if minute > 0 {
-                                return "\(NSLocalizedString("Departure in", comment: "")) \(minute)m"
+                                return String(localized: "Departure in \(minute)m")
                             } else {
-                                return "Partenza imminente \(dep_time.formatted(date: .abbreviated, time: .shortened))"
+                                return String(localized: "About to depart")
                             }
                         }()
                         
                         Text(time_string)
                             .font(.subheadline)
-                            .fontDesign(appFontDesign)
+                            .fontDesign(app_font_design)
                             .padding(.vertical, 8).padding(.horizontal)
                     }
                     .frame(maxWidth: .infinity)
@@ -215,9 +246,9 @@ struct DetailsView: View {
                 } else if Date() > last_stop.arr_time_eff {
                     HStack (spacing: 8) {
                         ZStack {
-                            Text("\(NSLocalizedString("Arrived on", comment: "")) \(last_stop_no_issues.arr_time_eff.formatted(date: .abbreviated, time: .omitted))")
+                            Text("Arrived on \(last_stop_no_issues.arr_time_eff.formatted(date: .abbreviated, time: .omitted))")
                                 .font(.subheadline)
-                                .fontDesign(appFontDesign)
+                                .fontDesign(app_font_design)
                                 .padding(.vertical, 8).padding(.horizontal)
                         }
                         .frame(maxWidth: .infinity)
@@ -239,7 +270,7 @@ struct DetailsView: View {
                                         }
                                         return "\(delay)m"
                                     } else if last_stop_no_issues.arr_delay == 0 {
-                                        return "\(NSLocalizedString("On time", comment: ""))"
+                                        return String(localized: "On time")
                                     } else {
                                         if last_stop_no_issues.arr_delay >= 60 {
                                             let hours = last_stop_no_issues.arr_delay / 60
@@ -252,7 +283,7 @@ struct DetailsView: View {
                                 
                                 Text(delay_string)
                                     .font(.subheadline)
-                                    .fontDesign(appFontDesign)
+                                    .fontDesign(app_font_design)
                                     .foregroundStyle(last_stop_no_issues.arr_delay > 0 ? .red : .green)
                                     .padding(.vertical, 8).padding(.horizontal)
                             }
@@ -269,24 +300,24 @@ struct DetailsView: View {
                                 if delay >= 60 {
                                     let hours = delay / 60
                                     let minutes = delay % 60
-                                    return "\(NSLocalizedString("Early of", comment: "")) \(hours)h \(minutes)m"
+                                    return String(localized: "Early of \(hours)h \(minutes)m")
                                 }
-                                return "\(NSLocalizedString("Early of", comment: "")) \(delay)m"
+                                return String(localized: "Early of \(delay)m")
                             } else if train.delay == 0 {
-                                return "\(NSLocalizedString("On time", comment: ""))"
+                                return String(localized: "On time")
                             } else {
                                 if train.delay >= 60 {
                                     let hours = train.delay / 60
                                     let minutes = train.delay % 60
-                                    return "\(NSLocalizedString("Late of", comment: "")) \(hours)h \(minutes)m"
+                                    return String(localized: "Late of \(hours)h \(minutes)m")
                                 }
-                                return "\(NSLocalizedString("Late of", comment: "")) \(train.delay)m"
+                                return String(localized: "Late of \(train.delay)m")
                             }
                         }()
                         
                         Text(delay_string)
                             .font(.subheadline)
-                            .fontDesign(appFontDesign)
+                            .fontDesign(app_font_design)
                             .foregroundStyle(train.delay > 0 ? .red : .green)
                             .padding(.vertical, 8)
                     }
@@ -296,7 +327,7 @@ struct DetailsView: View {
                     .padding(.vertical, 8).padding(.horizontal, 16)
                 }
                 
-                // MARK: - other info
+                // other info
                 HStack(spacing: 16) {
                     if !train.direction.isEmpty && train.direction != "--" {
                         HStack(spacing: 2) {
@@ -304,7 +335,7 @@ struct DetailsView: View {
                             Text(train.direction)
                         }
                         .font(.caption)
-                        .fontDesign(appFontDesign)
+                        .fontDesign(app_font_design)
                         .foregroundStyle(Color.secondary)
                     }
                     
@@ -314,7 +345,7 @@ struct DetailsView: View {
                             Text("\(distance_between_stations(from: first_stop.name, to: last_stop.name) ?? 0) km")
                         }
                         .font(.caption)
-                        .fontDesign(appFontDesign)
+                        .fontDesign(app_font_design)
                         .foregroundStyle(Color.secondary)
                     }
                     
@@ -351,31 +382,30 @@ struct DetailsView: View {
                         }()
                         
                         Text(time_string)
-                            .fontDesign(appFontDesign)
+                            .fontDesign(app_font_design)
                     }
                     .font(.caption)
                     .foregroundStyle(Color.secondary)
                 }
                 
-                // MARK: - stops list
-                let stops_to_show = showAllStops ? stops : stops.filter { $0.is_selected }
+                // stops list
+                let stops_to_show = show_all_stops ? stops : stops.filter { $0.is_selected }
                 VStack(alignment: .leading, spacing: 8) {
                     HStack {
-                        Text("\(stops_to_show.count) \(NSLocalizedString("stops", comment: "")) ")
+                        Text("\(stops_to_show.count) stops")
                             .font(.footnote)
-                            .fontDesign(appFontDesign)
+                            .fontDesign(app_font_design)
                             .foregroundStyle(.secondary)
                         
                         Spacer()
                         
-                        // use a toggle to show all stops or only selected stops
                         if (stops.filter{ $0.is_selected }).count != stops.count {
-                            Text(NSLocalizedString("Show all stops", comment: ""))
+                            Text("Show all stops")
                                 .font(.footnote)
-                                .fontDesign(appFontDesign)
+                                .fontDesign(app_font_design)
                                 .foregroundStyle(Color.secondary)
                             
-                            Toggle("", isOn: $showAllStops)
+                            Toggle("", isOn: $show_all_stops)
                                 .labelsHidden()
                                 .tint(Color.accentColor)
                         }
@@ -388,7 +418,7 @@ struct DetailsView: View {
                             let stop = stops_to_show[index]
                             
                             HStack(spacing: 8) {
-                                // MARK: - Stop status
+                                /// stop status
                                 let stop_status_emoji: (String, Color) = {
                                     if Date() < first_stop_no_issues.dep_time_id {
                                         return ("circle.dashed", Color.blue)
@@ -429,14 +459,13 @@ struct DetailsView: View {
                                     .font(Date() >= first_stop_no_issues.dep_time_id || Calendar.current.isDateInToday(first_stop_no_issues.dep_time_id) ? .system(size: 40) : .largeTitle)
                                     .foregroundStyle(stop_status_emoji.1)
                                 
-                                // MARK: - Stop info
+                                /// stop info
                                 HStack {
-                                    // MARK: - Time
                                     VStack(alignment: .leading, spacing: 4) {
                                         if Date() >= first_stop_no_issues.dep_time_id || Calendar.current.isDateInToday(first_stop_no_issues.dep_time_id) {
                                             Text(stop.weather)
                                                 .font(.caption)
-                                                .fontDesign(appFontDesign)
+                                                .fontDesign(app_font_design)
                                                 .strikethrough((stop.status == 3 || train.issue == "Treno cancellato") && Date() >= first_stop_no_issues.ref_time)
                                                 .foregroundStyle(
                                                     Date() < first_stop_no_issues.dep_time_id
@@ -454,7 +483,7 @@ struct DetailsView: View {
                                             .truncationMode(.tail)
                                             .minimumScaleFactor(0.5)
                                             .font(.caption)
-                                            .fontDesign(appFontDesign)
+                                            .fontDesign(app_font_design)
                                             .strikethrough((stop.status == 3 || train.issue == "Treno cancellato") && Date() >= first_stop_no_issues.ref_time)
                                             .foregroundStyle(
                                                 Date() < first_stop_no_issues.dep_time_id
@@ -472,7 +501,7 @@ struct DetailsView: View {
                                                 Text(index == first_index ? stop.dep_time_id.formatted(.dateTime.hour().minute()) : stop.arr_time_id.formatted(.dateTime.hour().minute()))
                                             }
                                             .font(.caption2)
-                                            .fontDesign(appFontDesign)
+                                            .fontDesign(app_font_design)
                                             .foregroundStyle(Date() >= first_stop_no_issues.dep_time_id ? Color.red : Color.primary)
                                             .strikethrough(Date() >= first_stop_no_issues.dep_time_id)
                                         } else {
@@ -492,7 +521,7 @@ struct DetailsView: View {
                                                 }
                                             }
                                             .font(.caption2)
-                                            .fontDesign(appFontDesign)
+                                            .fontDesign(app_font_design)
                                             .foregroundStyle(Date() < (first_stop_no_issues.dep_time_id) ? Color.primary : stop.status == 2 ? Color.orange : Color.primary)
                                         }
                                     }
@@ -525,7 +554,7 @@ struct DetailsView: View {
                                                     
                                                     Text(delay_string)
                                                         .font(.footnote)
-                                                        .fontDesign(appFontDesign)
+                                                        .fontDesign(app_font_design)
                                                         .foregroundStyle(delay_type > 0 ? Color.red : Color.green)
                                                         .padding(.vertical, 8).padding(.horizontal)
                                                 }
@@ -533,9 +562,9 @@ struct DetailsView: View {
                                                 .cornerRadius(16)
                                             } else if stop.is_completed {
                                                 ZStack {
-                                                    Text("In stazione")
+                                                    Text("At the station")
                                                         .font(.footnote)
-                                                        .fontDesign(appFontDesign)
+                                                        .fontDesign(app_font_design)
                                                         .foregroundStyle(Color.blue)
                                                         .padding(.vertical, 8).padding(.horizontal)
                                                 }
@@ -548,7 +577,7 @@ struct DetailsView: View {
                                                 
                                                 let time_string: String = {
                                                     if hours == 0 && minutes == 0 {
-                                                        return "In stazione"
+                                                        return String(localized: "At the station")
                                                     } else if hours > 0 {
                                                         return "\(hours)h\(minutes % 60)m"
                                                     } else {
@@ -559,7 +588,7 @@ struct DetailsView: View {
                                                 ZStack {
                                                     Text(time_string)
                                                         .font(.footnote)
-                                                        .fontDesign(appFontDesign)
+                                                        .fontDesign(app_font_design)
                                                         .foregroundStyle(Color.blue)
                                                         .padding(.vertical, 8).padding(.horizontal)
                                                 }
@@ -579,7 +608,7 @@ struct DetailsView: View {
                                             }
                                             .frame(minWidth: 64)
                                             .font(.footnote)
-                                            .fontDesign(appFontDesign)
+                                            .fontDesign(app_font_design)
                                             .fontWeight(.medium)
                                             .background(Color.yellow.opacity(0.5))
                                             .cornerRadius(16)
@@ -618,15 +647,15 @@ struct DetailsView: View {
                         .foregroundStyle(Color.red)
                     }
                     .font(.system(size: 10))
-                    .fontDesign(appFontDesign)
+                    .fontDesign(app_font_design)
                     .fontWeight(.medium)
                     .frame(maxWidth: .infinity)
                     .padding(.top, 32)
                     
                     // last updated time
-                    Text("\(NSLocalizedString("Last update", comment: "")): \(train.last_update_time.formatted(date: .abbreviated, time: .shortened))")
+                    Text("Last udpate: \(train.last_update_time.formatted(date: .abbreviated, time: .shortened))")
                         .font(.system(size: 10))
-                        .fontDesign(appFontDesign)
+                        .fontDesign(app_font_design)
                         .foregroundStyle(Color.secondary)
                         .frame(maxWidth: .infinity)
                         .padding(8).padding(.bottom, !train.issue.isEmpty ? 120 : 8)
@@ -638,6 +667,62 @@ struct DetailsView: View {
                 await update_train_details()
             }
             .toolbar {
+                /// favorite button
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                        
+                        let stop_names = stops.filter { $0.is_selected }.map { $0.name }
+                        
+                        let stop_ref_times_strings = stops.filter { $0.is_selected }
+                            .map { $0.ref_time.formatted(date: .omitted, time: .shortened) }
+                        
+                        let identifier = {
+                            if train.identifier.contains("/") {
+                                return train.identifier.split(separator: "/").dropLast().joined(separator: "/")
+                            } else {
+                                return train.identifier
+                            }
+                        }()
+                        
+                        if is_favorite {
+                            // remove favorite
+                            let favorite_to_remove = favorites.filter { fav in
+                                let fav_times_strings = fav.stop_ref_times.map {
+                                    $0.formatted(date: .omitted, time: .shortened)
+                                }
+                                
+                                return fav.identifier == identifier &&
+                                       fav.stop_names == stop_names &&
+                                       fav_times_strings == stop_ref_times_strings
+                            }
+                            
+                            for favorite in favorite_to_remove {
+                                model_context.delete(favorite)
+                            }
+                        } else {
+                            // add favorite
+                            let stop_ref_times = stops.filter { $0.is_selected }.map { $0.ref_time }
+                            
+                            let favorite_to_add = Favorite(
+                                id: UUID(),
+                                index: 0,
+                                identifier: identifier,
+                                provider: train.provider,
+                                logo: train.logo,
+                                number: train.number,
+                                stop_names: stop_names,
+                                stop_ref_times: stop_ref_times
+                            )
+                            model_context.insert(favorite_to_add)
+                        }
+                    } label: {
+                        Image(systemName: is_favorite ? "heart.fill" : "heart")
+                    }
+                    .tint(is_favorite ? Color.red : Color.primary)
+                }
+                
+                /// seats button
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
                         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
@@ -651,25 +736,22 @@ struct DetailsView: View {
                                 if let first_user = seats.first {
                                     let carriage = first_user.carriage
                                     let number = first_user.number
-                                    let name = first_user.name
-                                    
                                     if !carriage.isEmpty && !number.isEmpty {
                                         return "\(carriage)-\(number)"
                                     } else {
-                                        return "\(name)"
+                                        return "\(first_user.name)"
                                     }
                                 }
-                                
-                                return NSLocalizedString("Add", comment: "")
+                                return String(localized: "Add")
                             }()
                             
                             Text(text_string)
                         }
-                        .fontDesign(appFontDesign)
-                        .foregroundStyle(Color.secondary)
+                        .fontDesign(app_font_design)
+                        .foregroundStyle(Color.primary)
                     }
                     .buttonStyle(.glassProminent)
-                    .tint(Color.gray.opacity(0.15))
+                    .tint(color_scheme == .dark ? Color.black.opacity(0.1) : Color.white)
                 }
             }
             .sheet(isPresented: $seats_sheet) {
@@ -692,7 +774,7 @@ struct DetailsView: View {
                         
                         Spacer(minLength: 0)
                     }
-                    .fontDesign(appFontDesign)
+                    .fontDesign(app_font_design)
                     .foregroundStyle(Color.red)
                 }
                 .frame(maxWidth: .infinity)
@@ -704,30 +786,27 @@ struct DetailsView: View {
         .ignoresSafeArea(edges: .bottom)
         .toolbar(.hidden, for: .tabBar)
         .onAppear {
-            ReviewManager.shared.requestReviewIfAppropriate(action: requestReview)
+            ReviewManager.shared.requestReviewIfAppropriate(action: request_review)
             Task { await update_train_details() }
         }
-        .onChange(of: scenePhase) { _, newPhase in
+        .onChange(of: scene_phase) { _, newPhase in
             if newPhase == .active {
-                print("📱 App returned to foreground, updating train details...")
                 Task { await update_train_details() }
             }
         }
     }
     
-    // MARK: - update function
+    // MARK: - functions
     private func update_train_details() async {
-        // condition to update
-        /// get the first stop ref time
+        /// condition to update
         let firstStop_refTime = stops
             .filter({ $0.id == train.id })
             .sorted(by: { $0.ref_time < $1.ref_time })
             .first?.ref_time ?? .distantPast
-        /// check if the first stop ref time is today
+        
         guard Calendar.current.isDateInToday(firstStop_refTime) else { return }
         
-        
-        // fetch new data
+        /// fetch new data
         let results: [String:Any] = await {
             switch train.provider {
                 case "trenitalia":
@@ -739,13 +818,13 @@ struct DetailsView: View {
             }
         }()
         
-        // update train data
+        /// update train data
         train.last_update_time = results["last_update_time"] as? Date ?? .distantPast
         train.delay = results["delay"] as? Int ?? 0
         train.direction = results["direction"] as? String ?? ""
         train.issue = results["issue"] as? String ?? ""
         
-        // update stops data
+        /// update stops data
         let today_stops = stops.filter { $0.id == train.id }
         for stop in today_stops {
             /// get all the stops updated
@@ -765,5 +844,55 @@ struct DetailsView: View {
             stop.dep_time_eff = stop_updated["dep_time_eff"] as? Date ?? .distantPast
             stop.arr_time_eff = stop_updated["arr_time_eff"] as? Date ?? .distantPast
         }
+    }
+}
+
+// MARK: - previews
+#Preview {
+    let container: ModelContainer = {
+        let schema = Schema([Train.self, Stop.self, Seat.self])
+        let config = ModelConfiguration(isStoredInMemoryOnly: true)
+        return try! ModelContainer(for: schema, configurations: config)
+    }()
+    
+    let trainId = UUID()
+    let now = Date()
+    
+    let mockTrain = Train(
+        id: trainId,
+        logo: "FR",
+        number: "9612",
+        identifier: "TS/9612/123456",
+        provider: "trenitalia",
+        last_update_time: now,
+        delay: 5,
+        direction: "Salerno",
+        seats: [],
+        issue: ""
+    )
+    
+    let mockStops = [
+        Stop(id: trainId, name: "Torino Porta Nuova", platform: "3", weather: "☀️ 2°C", is_selected: true, status: 0, is_completed: true, is_in_station: false, dep_delay: 0, arr_delay: 0, dep_time_id: now, arr_time_id: now, dep_time_eff: now, arr_time_eff: now, ref_time: now),
+        Stop(id: trainId, name: "Torino Porta Susa", platform: "1", weather: "☀️ 2°C", is_selected: true, status: 0, is_completed: true, is_in_station: false, dep_delay: 2, arr_delay: 1, dep_time_id: now.addingTimeInterval(600), arr_time_id: now.addingTimeInterval(600), dep_time_eff: now.addingTimeInterval(720), arr_time_eff: now.addingTimeInterval(660), ref_time: now.addingTimeInterval(600)),
+        Stop(id: trainId, name: "Vercelli", platform: "2", weather: "🌫️ 0°C", is_selected: false, status: 0, is_completed: true, is_in_station: false, dep_delay: 0, arr_delay: 0, dep_time_id: now.addingTimeInterval(1800), arr_time_id: now.addingTimeInterval(1800), dep_time_eff: now.addingTimeInterval(1800), arr_time_eff: now.addingTimeInterval(1800), ref_time: now.addingTimeInterval(1800)),
+        Stop(id: trainId, name: "Novara", platform: "3", weather: "🌫️ 0°C", is_selected: false, status: 0, is_completed: true, is_in_station: false, dep_delay: 0, arr_delay: 0, dep_time_id: now.addingTimeInterval(2400), arr_time_id: now.addingTimeInterval(2400), dep_time_eff: now.addingTimeInterval(2400), arr_time_eff: now.addingTimeInterval(2400), ref_time: now.addingTimeInterval(2400)),
+        Stop(id: trainId, name: "Milano Centrale", platform: "14", weather: "⛅️ 1°C", is_selected: true, status: 0, is_completed: false, is_in_station: true, dep_delay: 5, arr_delay: 4, dep_time_id: now.addingTimeInterval(3600), arr_time_id: now.addingTimeInterval(3600), dep_time_eff: now.addingTimeInterval(3900), arr_time_eff: now.addingTimeInterval(3840), ref_time: now.addingTimeInterval(3600)),
+        Stop(id: trainId, name: "Milano Rogoredo", platform: "6", weather: "⛅️ 1°C", is_selected: true, status: 0, is_completed: false, is_in_station: false, dep_delay: 0, arr_delay: 0, dep_time_id: now.addingTimeInterval(4500), arr_time_id: now.addingTimeInterval(4500), dep_time_eff: now.addingTimeInterval(4500), arr_time_eff: now.addingTimeInterval(4500), ref_time: now.addingTimeInterval(4500)),
+        Stop(id: trainId, name: "Reggio Emilia AV", platform: "1", weather: "☁️ 3°C", is_selected: false, status: 3, is_completed: false, is_in_station: false, dep_delay: 0, arr_delay: 0, dep_time_id: now.addingTimeInterval(6600), arr_time_id: now.addingTimeInterval(6600), dep_time_eff: now.addingTimeInterval(6600), arr_time_eff: now.addingTimeInterval(6600), ref_time: now.addingTimeInterval(6600)),
+        Stop(id: trainId, name: "Bologna Centrale", platform: "17", weather: "🌧️ 4°C", is_selected: true, status: 0, is_completed: false, is_in_station: false, dep_delay: 0, arr_delay: 0, dep_time_id: now.addingTimeInterval(8400), arr_time_id: now.addingTimeInterval(8400), dep_time_eff: now.addingTimeInterval(8400), arr_time_eff: now.addingTimeInterval(8400), ref_time: now.addingTimeInterval(8400)),
+        Stop(id: trainId, name: "Firenze S.M.N.", platform: "9", weather: "🌧️ 6°C", is_selected: true, status: 2, is_completed: false, is_in_station: false, dep_delay: 10, arr_delay: 8, dep_time_id: now.addingTimeInterval(12000), arr_time_id: now.addingTimeInterval(12000), dep_time_eff: now.addingTimeInterval(12600), arr_time_eff: now.addingTimeInterval(12480), ref_time: now.addingTimeInterval(12000)),
+        Stop(id: trainId, name: "Roma Tiburtina", platform: "13", weather: "☁️ 9°C", is_selected: false, status: 0, is_completed: false, is_in_station: false, dep_delay: 0, arr_delay: 0, dep_time_id: now.addingTimeInterval(17400), arr_time_id: now.addingTimeInterval(17400), dep_time_eff: now.addingTimeInterval(17400), arr_time_eff: now.addingTimeInterval(17400), ref_time: now.addingTimeInterval(17400)),
+        Stop(id: trainId, name: "Roma Termini", platform: "1", weather: "🌧️ 10°C", is_selected: true, status: 0, is_completed: false, is_in_station: false, dep_delay: 0, arr_delay: 0, dep_time_id: now.addingTimeInterval(18000), arr_time_id: now.addingTimeInterval(18000), dep_time_eff: now.addingTimeInterval(18000), arr_time_eff: now.addingTimeInterval(18000), ref_time: now.addingTimeInterval(18000)),
+        Stop(id: trainId, name: "Napoli Centrale", platform: "20", weather: "☀️ 12°C", is_selected: true, status: 0, is_completed: false, is_in_station: false, dep_delay: 0, arr_delay: 0, dep_time_id: now.addingTimeInterval(21600), arr_time_id: now.addingTimeInterval(21600), dep_time_eff: now.addingTimeInterval(21600), arr_time_eff: now.addingTimeInterval(21600), ref_time: now.addingTimeInterval(21600))
+    ]
+    
+    let mockSeats = [
+        // Added the missing 'id' parameter here
+        Seat(id: UUID(), trainID: trainId, name: "Marco", carriage: "5", number: "12A")
+    ]
+
+    NavigationStack {
+        DetailsView(train: mockTrain, stops: mockStops, seats: mockSeats)
+            .modelContainer(container)
     }
 }

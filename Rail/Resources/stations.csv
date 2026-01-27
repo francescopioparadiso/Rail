@@ -171,6 +171,7 @@ latitude,longitude,name
 40.83917,15.06324,bagnoli irpino
 45.428532,10.183617,bagnolo mella
 42.726238,12.663615,baiano di spoleto|baiano di s.|spoleto
+45.265905, 7.518968,balangero
 44.899204,8.091198,baldichieri|baldichieri-tigliole
 45.846953, 9.004586,balerna
 38.053364,13.007374,balestrate
@@ -1127,6 +1128,7 @@ latitude,longitude,name
 44.428467,8.758163,genova voltri
 37.473138,14.845822,gerbini
 45.645677, 9.001464,gerenzano - turate
+45.262463, 7.469964,germagnano
 45.409439,10.280506,ghedi
 45.595882,8.417135,ghemme
 45.526006,8.379453,ghislarengo
@@ -1264,6 +1266,7 @@ latitude,longitude,name
 45.710087,12.265663,lancenigo
 41.672211,12.690885,lanuvio
 40.769685,14.68115,lanzara fimiani
+45.272773, 7.480442, lanzo torinese
 41.80015,14.918226,larino
 46.618617,10.694828,lasa
 38.009836,13.924537,lascari
@@ -1435,6 +1438,7 @@ latitude,longitude,name
 44.448948,11.828068,massalombarda
 43.855652,10.352022,massarosa bozzano|massarosa bozzan
 43.25394,13.01509,matelica
+45.255266, 7.541594,mathi
 41.621321,14.699561,matrice montagano|matrice montag.
 37.652448,12.594565,mazara del vallo
 45.662262,9.147424,meda
@@ -1698,6 +1702,7 @@ latitude,longitude,name
 44.809934,10.147258,noceto
 45.179937,11.070572,nogara
 40.923652,14.525004,nola
+45.241234, 7.572008,nole
 42.706502,13.876365,notaresco
 36.88247,15.074523,noto
 40.130311,16.644044,nova siri rotondella|nova siri roton.
@@ -2985,6 +2990,7 @@ latitude,longitude,name
 44.810592,8.855655,villalvernia
 45.32045,9.190674,villamaggiore
 39.294811,8.641986,villamassargia domusnovas|villamassargia d
+45.248829, 7.555336,villanova canavese-grosso
 45.156965, 9.037236,villanova d'ardenghi
 45.028291,9.993291,villanova d`arda|villanova d'arda
 45.156982,9.037176,villanova d`ardenghi|villanova d'ard.

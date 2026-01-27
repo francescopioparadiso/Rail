@@ -11,8 +11,6 @@ final class Seat {
     var carriage: String = ""
     var number: String = ""
     
-    // ✅ CHANGED: External storage allows CloudKit to sync images efficiently
-    // We use Data? (optional) so seats without images don't take up space
     @Attribute(.externalStorage) var image: Data?
     
     init(id: UUID, trainID: UUID, name: String, carriage: String, number: String, image: Data? = nil) {

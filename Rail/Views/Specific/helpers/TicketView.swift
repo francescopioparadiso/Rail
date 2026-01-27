@@ -3,9 +3,11 @@ import SwiftData
 
 struct TicketView: View {
     // MARK: - variables
+    // environment variables
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.requestReview) var requestReview
+    @Environment(\.requestReview) var request_review
     
+    // data variables
     let seat: Seat
     
     // MARK: - main content
@@ -14,20 +16,23 @@ struct TicketView: View {
             Spacer(minLength: 0)
             
             VStack(spacing: 16) {
+                // code
                 if let imageData = seat.image, let uiImage = UIImage(data: imageData) {
                     Image(uiImage: uiImage)
                         .resizable()
                         .interpolation(.none)
                         .scaledToFit()
-                        .frame(width: 300, height: 300)
                         .padding()
                         .background(Color.white)
-                        .cornerRadius(28)
+                        .cornerRadius(24)
+                        
                 } else {
                     ContentUnavailableView("No Code", systemImage: "qrcode.viewfinder")
-                        .frame(width: 300, height: 300)
+                        .frame(maxWidth: .infinity)
+                        .padding()
                 }
                 
+                // info
                 HStack {
                     Text(seat.name)
                         .font(.headline)
@@ -51,14 +56,17 @@ struct TicketView: View {
                         .font(.body)
                     }
                 }
-                .fontDesign(appFontDesign)
-                .padding(.vertical).padding(.horizontal, 48)
+                .fontDesign(app_font_design)
+                .padding(.vertical, 8).padding(.horizontal, 12)
                 .foregroundStyle(.secondary)
             }
-            .padding(.top, 40)
+            .padding(32)
             
             Spacer(minLength: 0)
         }
         .presentationDetents([.medium, .large])
+        .onAppear {
+            ReviewManager.shared.requestReviewIfAppropriate(action: request_review)
+        }
     }
 }
