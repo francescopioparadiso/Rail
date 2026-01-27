@@ -3,43 +3,18 @@ import SwiftData
 import PhotosUI
 import Vision
 
-enum row_focus {
+enum seat_row_focus {
     case carriage
     case number
     case name
-}
-enum image_status: CaseIterable {
-    case empty
-    case saved
-    case error
-    
-    var icon: String {
-        switch self {
-        case .empty:
-            return "qrcode.viewfinder"
-        case .saved:
-            return "checkmark.circle.fill"
-        case .error:
-            return "xmark.circle.fill"
-        }
-    }
-
-    var color: Color {
-        switch self {
-        case .empty:
-            return Color.secondary
-        case .saved:
-            return Color.green
-        case .error:
-            return Color.red
-        }
-    }
 }
 
 struct SeatsView: View {
     // MARK: - variables
     // environment variables
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.colorScheme) private var color_scheme
+    @Environment(\.requestReview) var request_review
     
     // database variables
     @Environment(\.modelContext) private var modelContext
@@ -48,7 +23,7 @@ struct SeatsView: View {
     let seats: [Seat]
     
     // focus variables
-    @FocusState private var row_focus: row_focus?
+    @FocusState private var seat_row_focus: seat_row_focus?
     
     // image variables
     @State private var image_status: image_status = .empty
@@ -64,7 +39,7 @@ struct SeatsView: View {
     @State private var new_number: String = ""
     
     // computed variables
-    var name_placeholder: String {
+    private var name_placeholder: String {
         var name_count: [String: Int] = [:]
         for seat in all_seats {
             name_count[seat.name, default: 0] += 1
@@ -73,7 +48,7 @@ struct SeatsView: View {
     }
     
     // button variables
-    var topLeft_icon: String {
+    private var topLeft_icon: String {
         switch show_adding_row {
             case true:
                 return "arrow.uturn.left"
@@ -82,7 +57,32 @@ struct SeatsView: View {
                 return "xmark"
         }
     }
-    var topLeft_action: () -> Void {
+    private var topRight_icon: String {
+        switch show_adding_row {
+            case true:
+                return "checkmark"
+            
+            case false:
+                return "plus"
+        }
+    }
+    private var addNew_icon: String {
+        if seat_row_focus == nil {
+            return "plus"
+        } else {
+            return "checkmark"
+        }
+    }
+    
+    private var addNew_text: String {
+        if seat_row_focus == nil {
+            return NSLocalizedString("Add", comment: "")
+        } else {
+            return NSLocalizedString("Save", comment: "")
+        }
+    }
+    
+    private var topLeft_action: () -> Void {
         switch show_adding_row {
             case true:
                 return {
@@ -105,16 +105,7 @@ struct SeatsView: View {
                 }
         }
     }
-    var topRight_icon: String {
-        switch show_adding_row {
-            case true:
-                return "checkmark"
-            
-            case false:
-                return "plus"
-        }
-    }
-    var topRight_action: () -> Void {
+    private var addNew_action: () -> Void {
         switch show_adding_row {
             case true:
                 return {
@@ -135,18 +126,17 @@ struct SeatsView: View {
             case false:
                 return {
                     UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                    row_focus = .name
+                    seat_row_focus = .name
                     show_adding_row = true
                 }
         }
     }
-    var topRight_shoudBeActive: Bool {
-        if !show_adding_row {
+    
+    private var addNew_shouldBeActive: Bool {
+        if seat_row_focus == nil {
             return true
-            
         } else if !new_name.isEmpty && ((!new_number.isEmpty && !new_carriage.isEmpty) || (picked_image != nil)) {
             return true
-            
         } else {
             return false
         }
@@ -155,174 +145,207 @@ struct SeatsView: View {
     // MARK: - main content
     var body: some View {
         NavigationStack {
-            List {
-                // MARK: - empty view
-                if !show_adding_row && seats.isEmpty {
-                    ContentUnavailableView("No seats added",
-                                           systemImage: "airplaneseat",
-                                           description: Text("Add a new seat by tapping the above button."))
-                    .padding()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .foregroundColor(Color.secondary)
-                    .fontDesign(appFontDesign)
-                }
-                
-                // MARK: - add seat row
-                if show_adding_row {
-                    HStack {
-                        VStack(alignment: .leading, spacing: 8) {
-                            TextField("Francesco", text: $new_name)
-                                .font(.headline)
-                                .keyboardType(.default)
-                                .focused($row_focus, equals: .name)
-                                .onTapGesture {
-                                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                                }
-                                .onSubmit {
-                                    row_focus = .carriage
-                                }
-                                .onChange(of: new_name) { _, new_value in
-                                    if new_value.count >= 15 {
-                                        new_name = String(new_value.prefix(15))
-                                    }
-                                }
-                            
-                            HStack {
-                                HStack(spacing: 8) {
-                                    Image(systemName: "train.side.rear.car")
-                                    TextField("22", text: $new_carriage)
-                                        .keyboardType(.numbersAndPunctuation)
-                                        .focused($row_focus, equals: .carriage)
-                                        .onTapGesture {
-                                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                                        }
-                                        .onSubmit {
-                                            row_focus = .number
-                                        }
-                                        .onChange(of: new_carriage) { _, new_value in
-                                            if new_value.count >= 2 {
-                                                row_focus = .number
-                                                new_carriage = String(new_value.prefix(2))
-                                            }
-                                        }
-                                    Spacer(minLength: 0)
-                                }
-                                .frame(maxWidth: 64)
-                                
-                                HStack(spacing: 8) {
-                                    Image(systemName: "carseat.left.fill")
-                                    TextField("15A", text: $new_number)
-                                        .keyboardType(.numbersAndPunctuation)
-                                        .focused($row_focus, equals: .number)
-                                        .onTapGesture {
-                                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                                        }
-                                        .onChange(of: new_number) { _, new_value in
-                                            if new_value.count >= 3 {
-                                                new_number = String(new_value.prefix(3))
-                                            }
-                                        }
-                                }
-                            }
-                            .font(.body)
-                            .fontDesign(appFontDesign)
-                        }
-                        
-                        Spacer()
-                        
-                        PhotosPicker(selection: $picked_image, matching: .images) {
-                            Image(systemName: image_status.icon)
-                                .font(.title)
-                                .foregroundStyle(image_status.color)
-                                .contentTransition(
-                                    .symbolEffect(.replace.magic(fallback: .downUp.byLayer),
-                                                  options: .nonRepeating)
-                                )
-                        }
-                        .onChange(of: picked_image) { _, newItem in
-                            process_image(newItem: newItem)
-                        }
-                    }
-                    .foregroundStyle(Color.secondary)
-                }
-                
-                // MARK: - existing seats list
-                ForEach(seats, id: \.id) { seat in
-                    HStack {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text(seat.name)
-                                .font(.headline)
-                                .lineLimit(1)
-                                .truncationMode(.tail)
-                            
-                            if !seat.carriage.isEmpty && !seat.number.isEmpty {
+            ZStack(alignment: .bottom) {
+                VStack {
+                    if !show_adding_row && seats.isEmpty {
+                        // MARK: - empty view
+                        ContentUnavailableView("No seats added",
+                                               systemImage: "airplaneseat",
+                                               description: Text("Add a new seat by tapping the below button."))
+                        .foregroundColor(Color.secondary)
+                        .fontDesign(app_font_design)
+                        .padding(.bottom, 80)
+                    } else {
+                        // MARK: - add seat row
+                        List {
+                            // adding row
+                            if show_adding_row {
                                 HStack {
-                                    HStack(spacing: 8) {
-                                        Image(systemName: "train.side.rear.car")
-                                        Text(seat.carriage)
-                                        Spacer(minLength: 0)
+                                    VStack(alignment: .leading, spacing: 8) {
+                                        TextField("Francesco", text: $new_name)
+                                            .font(.headline)
+                                            .keyboardType(.default)
+                                            .focused($seat_row_focus, equals: .name)
+                                            .onTapGesture {
+                                                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                                            }
+                                            .onSubmit {
+                                                seat_row_focus = .carriage
+                                            }
+                                            .onChange(of: new_name) { _, new_value in
+                                                if new_value.count >= 15 {
+                                                    new_name = String(new_value.prefix(15))
+                                                }
+                                            }
+                                        
+                                        HStack {
+                                            HStack(spacing: 8) {
+                                                Image(systemName: "train.side.rear.car")
+                                                TextField("22", text: $new_carriage)
+                                                    .keyboardType(.numbersAndPunctuation)
+                                                    .focused($seat_row_focus, equals: .carriage)
+                                                    .onTapGesture {
+                                                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                                                    }
+                                                    .onSubmit {
+                                                        seat_row_focus = .number
+                                                    }
+                                                    .onChange(of: new_carriage) { _, new_value in
+                                                        if new_value.count >= 2 {
+                                                            seat_row_focus = .number
+                                                            new_carriage = String(new_value.prefix(2))
+                                                        }
+                                                    }
+                                                Spacer(minLength: 0)
+                                            }
+                                            .frame(maxWidth: 64)
+                                            
+                                            HStack(spacing: 8) {
+                                                Image(systemName: "carseat.left.fill")
+                                                TextField("15A", text: $new_number)
+                                                    .keyboardType(.numbersAndPunctuation)
+                                                    .focused($seat_row_focus, equals: .number)
+                                                    .onTapGesture {
+                                                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                                                    }
+                                                    .onChange(of: new_number) { _, new_value in
+                                                        if new_value.count >= 3 {
+                                                            new_number = String(new_value.prefix(3))
+                                                        }
+                                                    }
+                                            }
+                                        }
+                                        .font(.body)
+                                        .fontDesign(app_font_design)
                                     }
-                                    .frame(maxWidth: 64)
                                     
-                                    HStack(spacing: 8) {
-                                        Image(systemName: "carseat.left.fill")
-                                        Text(seat.number)
+                                    Spacer()
+                                    
+                                    PhotosPicker(selection: $picked_image, matching: .images) {
+                                        Image(systemName: image_status.icon)
+                                            .font(.title)
+                                            .foregroundStyle(image_status.color)
+                                            .contentTransition(
+                                                .symbolEffect(.replace.magic(fallback: .downUp.byLayer),
+                                                              options: .nonRepeating)
+                                            )
+                                    }
+                                    .onChange(of: picked_image) { _, newItem in
+                                        process_image(newItem: newItem)
                                     }
                                 }
-                                .font(.body)
+                                .foregroundStyle(Color.secondary)
                             }
-                        }
-                        .fontDesign(appFontDesign)
-                        
-                        Spacer()
-                        
-                        // Fixed condition: check if image data is not empty
-                        if let _ = seat.image {
-                            Button {
-                                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                                seat_to_view = seat
-                                show_ticket_view = true
-                            } label: {
-                                Image(systemName: "qrcode")
-                                    .font(.title)
+                            
+                            // existing seats list
+                            ForEach(seats, id: \.id) { seat in
+                                HStack {
+                                    VStack(alignment: .leading, spacing: 8) {
+                                        Text(seat.name)
+                                            .font(.headline)
+                                            .lineLimit(1)
+                                            .truncationMode(.tail)
+                                        
+                                        if !seat.carriage.isEmpty && !seat.number.isEmpty {
+                                            HStack {
+                                                HStack(spacing: 8) {
+                                                    Image(systemName: "train.side.rear.car")
+                                                    Text(seat.carriage)
+                                                    Spacer(minLength: 0)
+                                                }
+                                                .frame(maxWidth: 64)
+                                                
+                                                HStack(spacing: 8) {
+                                                    Image(systemName: "carseat.left.fill")
+                                                    Text(seat.number)
+                                                }
+                                            }
+                                            .font(.body)
+                                        }
+                                    }
+                                    .fontDesign(app_font_design)
+                                    
+                                    Spacer()
+                                    
+                                    // Fixed condition: check if image data is not empty
+                                    if let _ = seat.image {
+                                        Button {
+                                            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                                            seat_to_view = seat
+                                            show_ticket_view = true
+                                        } label: {
+                                            Image(systemName: "qrcode")
+                                                .font(.title)
+                                        }
+                                    }
+                                }
                             }
+                            .onDelete(perform: delete_seat)
                         }
+                        .safeAreaInset(edge: .bottom) {
+                            Color.clear.frame(height: 80)
+                        }
+                        .scrollIndicators(.hidden)
                     }
                 }
-                .onDelete(perform: delete_seat)
+                
+                HStack(spacing: 8) {
+                    if seat_row_focus != nil {
+                        Button {
+                            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                            show_adding_row = false
+                        } label: {
+                            HStack {
+                                Image(systemName: "arrow.uturn.backward")
+                                    .contentTransition(.symbolEffect(.replace.downUp.wholeSymbol, options: .nonRepeating))
+                            }
+                            .padding(.horizontal).padding(.vertical, seat_row_focus == nil ? 24 : 16)
+                        }
+                        .font(.title3)
+                        .fontWeight(.medium)
+                        .fontDesign(app_font_design)
+                        .buttonStyle(.glassProminent)
+                        .foregroundStyle(Color.accentColor)
+                        .tint(Color.accentColor.opacity(0.15))
+                        .transition(.asymmetric(
+                            insertion: .scale(scale: 0.8).combined(with: .opacity),
+                            removal: .scale(scale: 0.8).combined(with: .opacity)
+                        ))
+                    }
+                    
+                    Button {
+                        addNew_action()
+                    } label: {
+                        HStack {
+                            Image(systemName: addNew_icon)
+                                .contentTransition(.symbolEffect(.replace.downUp.wholeSymbol, options: .nonRepeating))
+                            
+                            Text(addNew_text)
+                                .contentTransition(.numericText(value: Double(addNew_text.hashValue)))
+                                .animation(.snappy, value: addNew_text)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, seat_row_focus == nil ? 24 : 16)
+                    }
+                    .font(.title3)
+                    .fontWeight(.medium)
+                    .fontDesign(app_font_design)
+                    .buttonStyle(.glassProminent)
+                    .disabled(!addNew_shouldBeActive)
+                    .foregroundStyle(addNew_shouldBeActive ? Color.accentColor : Color.primary)
+                    .tint(addNew_shouldBeActive ? Color.accentColor.opacity(0.15) : color_scheme == .dark ? Color.black.opacity(0.1) : Color.clear)
+                }
+                .padding()
             }
+            .ignoresSafeArea(edges: seat_row_focus == nil ? .bottom : [])
             .navigationTitle("Your Seats")
             .toolbar {
-                // MARK: - top left button
                 ToolbarItem(placement: .navigationBarLeading) {
                     Button {
                         topLeft_action()
                     } label: {
-                        Image(systemName: topLeft_icon)
+                        Image(systemName: "xmark")
                             .contentTransition(.symbolEffect(.replace.downUp.wholeSymbol, options: .nonRepeating))
-                    }
-                }
-                
-                // MARK: - top right button
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    switch topRight_shoudBeActive {
-                    case true:
-                        Button {
-                            topRight_action()
-                        } label: {
-                            Image(systemName: topRight_icon)
-                                .contentTransition(.symbolEffect(.replace.downUp.wholeSymbol, options: .nonRepeating))
-                        }
-                        .buttonStyle(.glassProminent)
-                        
-                    case false:
-                        Button {
-                            topRight_action()
-                        } label: {
-                            Image(systemName: topRight_icon)
-                                .contentTransition(.symbolEffect(.replace.downUp.wholeSymbol, options: .nonRepeating))
-                        }
-                        .disabled(true)
                     }
                 }
             }
@@ -331,6 +354,7 @@ struct SeatsView: View {
             }
             .onAppear {
                 new_name = name_placeholder
+                ReviewManager.shared.requestReviewIfAppropriate(action: request_review)
             }
         }
     }
@@ -416,114 +440,76 @@ struct SeatsView: View {
     }
 }
 
-// MARK: - Image Processing Extension
-extension SeatsView {
-    // crop code from image data
-    func cropCodeFromImage(originalData: Data) async -> Data? {
-        /// 1. Load the original image
-        guard let uiImage = UIImage(data: originalData) else { return nil }
-        
-        /// 2. Fix Orientation so Vision sees what we see
-        guard let fixedImage = fixOrientation(img: uiImage),
-              let cgImage = fixedImage.cgImage else {
-            return originalData
-        }
-        
-        return await withCheckedContinuation { continuation in
-            let request = VNDetectBarcodesRequest { request, error in
-                guard let results = request.results as? [VNBarcodeObservation],
-                      let code = results.first(where: { $0.symbology == .aztec || $0.symbology == .qr }) else {
-                    /// Fallback: If no code found, return original
-                    continuation.resume(returning: originalData)
-                    return
-                }
-                
-                /// 3. Calculate Crop Rect
-                let boundingBox = code.boundingBox
-                let width = CGFloat(cgImage.width)
-                let height = CGFloat(cgImage.height)
-                
-                let x = boundingBox.minX * width
-                let y = (1.0 - boundingBox.maxY) * height /// Flip Y for CoreGraphics
-                let w = boundingBox.width * width
-                let h = boundingBox.height * height
-                
-                /// Add a little padding (10%) so we don't cut off the edges of the code
-                let padding: CGFloat = 0.1
-                let paddedRect = CGRect(
-                    x: max(0, x - (w * padding)),
-                    y: max(0, y - (h * padding)),
-                    width: min(width, w * (1 + 2 * padding)),
-                    height: min(height, h * (1 + 2 * padding))
-                )
-                
-                if let croppedCG = cgImage.cropping(to: paddedRect) {
-                    /// 4. Enhance the image
-                    let enhancedData = self.enhanceImageQuality(cgImage: croppedCG)
-                    continuation.resume(returning: enhancedData)
-                } else {
-                    continuation.resume(returning: originalData)
-                }
-            }
-            
-            /// Use accurate revision no. 1
-            request.revision = VNDetectBarcodesRequestRevision1
-            try? VNImageRequestHandler(cgImage: cgImage, options: [:]).perform([request])
-        }
-    }
+// MARK: - previews
+#Preview("Populated List") {
+    // memory container
+    let schema = Schema([Train.self, Seat.self])
+    let config = ModelConfiguration(isStoredInMemoryOnly: true)
+    let container = try! ModelContainer(for: schema, configurations: config)
     
-    // enhance image quality
-    private func enhanceImageQuality(cgImage: CGImage) -> Data {
-        let ciImage = CIImage(cgImage: cgImage)
-        let context = CIContext()
-        
-        // A. Convert to Black & White (Removes color noise/tint)
-        let monoFilter = CIFilter.photoEffectMono()
-        monoFilter.inputImage = ciImage
-        var outputImage = monoFilter.outputImage ?? ciImage
-        
-        // B. Boost Contrast (Makes the code "pop" against background)
-        let contrastFilter = CIFilter.colorControls()
-        contrastFilter.inputImage = outputImage
-        contrastFilter.contrast = 1.5 // Significant boost
-        contrastFilter.brightness = 0.0
-        outputImage = contrastFilter.outputImage ?? outputImage
-        
-        // C. Sharpen (Defines the edges of the pixels)
-        let sharpenFilter = CIFilter.unsharpMask()
-        sharpenFilter.inputImage = outputImage
-        sharpenFilter.radius = 2.5
-        sharpenFilter.intensity = 0.8
-        outputImage = sharpenFilter.outputImage ?? outputImage
-        
-        // D. Smart Upscale (If image is too small, upscale it using Lanczos for smoothness)
-        if outputImage.extent.width < 500 {
-            let scale = 500 / outputImage.extent.width
-            let upscaleFilter = CIFilter.lanczosScaleTransform()
-            upscaleFilter.inputImage = outputImage
-            upscaleFilter.scale = Float(scale)
-            upscaleFilter.aspectRatio = 1.0
-            outputImage = upscaleFilter.outputImage ?? outputImage
-        }
-        
-        // Render to Data
-        if let resultCG = context.createCGImage(outputImage, from: outputImage.extent) {
-            let resultUI = UIImage(cgImage: resultCG)
-            // Use PNG to avoid JPEG artifacts on the sharp edges of the QR code
-            return resultUI.pngData() ?? Data()
-        }
-        
-        // Fallback to simple conversion if filters fail
-        return UIImage(cgImage: cgImage).pngData() ?? Data()
-    }
+    // mock data
+    let mockTrain = Train(
+        id: UUID(),
+        logo: "trenitalia",
+        number: "9607",
+        identifier: "FR9607",
+        provider: "trenitalia",
+        last_update_time: Date(),
+        delay: 0,
+        direction: "Napoli Centrale",
+        seats: [],
+        issue: ""
+    )
     
-    // orientation fix
-    func fixOrientation(img: UIImage) -> UIImage? {
-        if img.imageOrientation == .up { return img }
-        UIGraphicsBeginImageContextWithOptions(img.size, false, img.scale)
-        img.draw(in: CGRect(origin: .zero, size: img.size))
-        let normalizedImage = UIGraphicsGetImageFromCurrentImageContext()
-        UIGraphicsEndImageContext()
-        return normalizedImage
-    }
+    let seat1 = Seat(id: UUID(), trainID: mockTrain.id, name: "Francesco", carriage: "3", number: "12D", image: nil)
+    let seat2 = Seat(id: UUID(), trainID: mockTrain.id, name: "Chiara", carriage: "3", number: "12C", image: Data())
+    let seat3 = Seat(id: UUID(), trainID: mockTrain.id, name: "Chiara", carriage: "3", number: "12C", image: Data())
+    let seat4 = Seat(id: UUID(), trainID: mockTrain.id, name: "Chiara", carriage: "3", number: "12C", image: Data())
+    let seat5 = Seat(id: UUID(), trainID: mockTrain.id, name: "Chiara", carriage: "3", number: "12C", image: Data())
+    let seat6 = Seat(id: UUID(), trainID: mockTrain.id, name: "Chiara", carriage: "3", number: "12C", image: Data())
+    let seat7 = Seat(id: UUID(), trainID: mockTrain.id, name: "Chiara", carriage: "3", number: "12C", image: Data())
+    let seat8 = Seat(id: UUID(), trainID: mockTrain.id, name: "Chiara", carriage: "3", number: "12C", image: Data())
+    let seat9 = Seat(id: UUID(), trainID: mockTrain.id, name: "Chiara", carriage: "3", number: "12C", image: Data())
+    
+    container.mainContext.insert(mockTrain)
+    container.mainContext.insert(seat1)
+    container.mainContext.insert(seat2)
+    container.mainContext.insert(seat3)
+    container.mainContext.insert(seat4)
+    container.mainContext.insert(seat5)
+    container.mainContext.insert(seat6)
+    container.mainContext.insert(seat7)
+    container.mainContext.insert(seat8)
+    container.mainContext.insert(seat9)
+    
+    // view
+    return SeatsView(train: mockTrain, seats: [seat1, seat2, seat3, seat4, seat5, seat6, seat8, seat9])
+        .modelContainer(container)
+}
+
+#Preview("Empty State") {
+    // memory container
+    let schema = Schema([Train.self, Seat.self])
+    let config = ModelConfiguration(isStoredInMemoryOnly: true)
+    let container = try! ModelContainer(for: schema, configurations: config)
+    
+    // mock data
+    let mockTrain = Train(
+        id: UUID(),
+        logo: "italo",
+        number: "9923",
+        identifier: "IT9923",
+        provider: "italo",
+        last_update_time: Date(),
+        delay: 5,
+        direction: "Milano Centrale",
+        seats: [],
+        issue: ""
+    )
+    
+    container.mainContext.insert(mockTrain)
+    
+    // view
+    return SeatsView(train: mockTrain, seats: [])
+        .modelContainer(container)
 }

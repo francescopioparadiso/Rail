@@ -4,10 +4,10 @@ import SwiftData
 struct PastView: View {
     // MARK: - variables
     // enviroment variables
-    @Environment(\.requestReview) var requestReview
+    @Environment(\.requestReview) var request_review
     
     // database variables
-    @Environment(\.modelContext) private var modelContext
+    @Environment(\.modelContext) private var model_context
     @Query private var trains: [Train]
     @Query private var stops: [Stop]
     @Query private var seats: [Seat]
@@ -18,27 +18,27 @@ struct PastView: View {
     // computed variables
     private var past_trains: [Train] {
         trains
-            .sorted { lhs, rhs in
-                guard
-                    let lhsFirstStop = stops
-                        .filter({ $0.id == lhs.id })
-                        .sorted(by: { $0.ref_time < $1.ref_time })
-                        .first,
-                    let rhsFirstStop = stops
-                        .filter({ $0.id == rhs.id })
-                        .sorted(by: { $0.ref_time < $1.ref_time })
-                        .first
-                else { return false }
-                
-                return lhsFirstStop.dep_time_id > rhsFirstStop.dep_time_eff
-            }
             .filter { train in
-                let trainStops = stops
+                let train_stops = stops
                     .filter { $0.id == train.id }
                     .sorted(by: { $0.ref_time < $1.ref_time })
                 
-                guard let lastStop = trainStops.last else { return false }
-                return Date() > lastStop.arr_time_eff && !Calendar.current.isDateInToday(lastStop.arr_time_eff)
+                guard let last_stop = train_stops.last else { return false }
+                return Date() > last_stop.arr_time_eff && !Calendar.current.isDateInToday(last_stop.arr_time_eff)
+            }
+            .sorted { lhs, rhs in
+                guard
+                    let lhs_last_stop = stops
+                        .filter({ $0.id == lhs.id })
+                        .sorted(by: { $0.ref_time < $1.ref_time })
+                        .last,
+                    let rhs_last_stop = stops
+                        .filter({ $0.id == rhs.id })
+                        .sorted(by: { $0.ref_time < $1.ref_time })
+                        .last
+                else { return false }
+                
+                return lhs_last_stop.arr_time_eff > rhs_last_stop.arr_time_eff
             }
     }
 
@@ -50,19 +50,8 @@ struct PastView: View {
                                        systemImage: "exclamationmark.magnifyingglass",
                                        description: Text("Add a new journey by tapping the above button."))
                 .padding()
-                .fontDesign(appFontDesign)
+                .fontDesign(app_font_design)
                 .foregroundColor(Color.primary)
-                .toolbar {
-                    ToolbarItem(placement: .navigationBarTrailing) {
-                        Button {
-                            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                            add_journey_sheet = true
-                        } label: {
-                            Image(systemName: "plus")
-                        }
-                        .buttonStyle(.glassProminent)
-                    }
-                }
             } else {
                 List {
                     ForEach(past_trains) { train in
@@ -98,24 +87,13 @@ struct PastView: View {
                 }
                 .scrollIndicators(.hidden)
                 .listStyle(.plain)
-                .toolbar {
-                    ToolbarItem(placement: .navigationBarTrailing) {
-                        Button {
-                            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                            add_journey_sheet = true
-                        } label: {
-                            Image(systemName: "plus")
-                        }
-                        .buttonStyle(.glassProminent)
-                    }
-                }
             }
         }
         .sheet(isPresented: $add_journey_sheet) {
-            AddTrainView()
+            AddTrainView(add_favorite_sheet: false)
         }
         .onAppear {
-            ReviewManager.shared.requestReviewIfAppropriate(action: requestReview)
+            ReviewManager.shared.requestReviewIfAppropriate(action: request_review)
             update_past_trains()
         }
     }
@@ -125,8 +103,8 @@ struct PastView: View {
         let items = offsets.map { past_trains[$0] }
         for train in items {
             let relatedStops = stops.filter { $0.id == train.id }
-            relatedStops.forEach { modelContext.delete($0) }
-            modelContext.delete(train)
+            relatedStops.forEach { model_context.delete($0) }
+            model_context.delete(train)
         }
     }
     

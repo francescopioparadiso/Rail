@@ -6,20 +6,65 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		2C68D1D12F2610B9002C0EAA /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 2C68D1D02F2610B9002C0EAA /* WidgetKit.framework */; };
+		2C68D1D32F2610B9002C0EAA /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 2C68D1D22F2610B9002C0EAA /* SwiftUI.framework */; };
+		2C68D1E42F2610BB002C0EAA /* RailWidgetExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 2C68D1CE2F2610B9002C0EAA /* RailWidgetExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		2CEB62662F2666E90093CDDF /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = 2CEB62652F2666E90093CDDF /* Localizable.xcstrings */; };
+		2CEB62672F2666E90093CDDF /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = 2CEB62652F2666E90093CDDF /* Localizable.xcstrings */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		2C68D1E22F2610BB002C0EAA /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 2C0E479B2ED8D7330024EF08 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 2C68D1CD2F2610B9002C0EAA;
+			remoteInfo = RailWidgetExtension;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		2C68D1E52F2610BB002C0EAA /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				2C68D1E42F2610BB002C0EAA /* RailWidgetExtension.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
 /* Begin PBXFileReference section */
 		2C0E47A32ED8D7330024EF08 /* Rail.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Rail.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		2C1595492EE7260D005800EB /* Rail Watch App.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Rail Watch App.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		2C68D1CE2F2610B9002C0EAA /* RailWidgetExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = RailWidgetExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		2C68D1D02F2610B9002C0EAA /* WidgetKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WidgetKit.framework; path = System/Library/Frameworks/WidgetKit.framework; sourceTree = SDKROOT; };
+		2C68D1D22F2610B9002C0EAA /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
+		2C68D1EE2F261CB5002C0EAA /* RailWidgetExtension.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = RailWidgetExtension.entitlements; sourceTree = "<group>"; };
+		2CEB62652F2666E90093CDDF /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
-		2C15955A2EE7295D005800EB /* Exceptions for "Rail" folder in "Rail Watch App" target */ = {
+		2C68D1E92F2610BB002C0EAA /* Exceptions for "RailWidget" folder in "RailWidgetExtension" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
+				Info.plist,
+			);
+			target = 2C68D1CD2F2610B9002C0EAA /* RailWidgetExtension */;
+		};
+		2C68D1EC2F2612C2002C0EAA /* Exceptions for "Rail" folder in "RailWidgetExtension" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Data/Favorite.swift,
+				Data/Pass.swift,
 				Data/Seats.swift,
 				Data/Stop.swift,
 				Data/Train.swift,
 			);
-			target = 2C1595482EE7260D005800EB /* Rail Watch App */;
+			target = 2C68D1CD2F2610B9002C0EAA /* RailWidgetExtension */;
 		};
 		2CF7290F2EE87320002B8235 /* Exceptions for "Rail" folder in "Rail" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
@@ -35,9 +80,17 @@
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
 				2CF7290F2EE87320002B8235 /* Exceptions for "Rail" folder in "Rail" target */,
-				2C15955A2EE7295D005800EB /* Exceptions for "Rail" folder in "Rail Watch App" target */,
+				2C68D1EC2F2612C2002C0EAA /* Exceptions for "Rail" folder in "RailWidgetExtension" target */,
 			);
 			path = Rail;
+			sourceTree = "<group>";
+		};
+		2C68D1D42F2610B9002C0EAA /* RailWidget */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				2C68D1E92F2610BB002C0EAA /* Exceptions for "RailWidget" folder in "RailWidgetExtension" target */,
+			);
+			path = RailWidget;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -50,10 +103,12 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		2C1595462EE7260D005800EB /* Frameworks */ = {
+		2C68D1CB2F2610B9002C0EAA /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				2C68D1D32F2610B9002C0EAA /* SwiftUI.framework in Frameworks */,
+				2C68D1D12F2610B9002C0EAA /* WidgetKit.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -63,7 +118,11 @@
 		2C0E479A2ED8D7330024EF08 = {
 			isa = PBXGroup;
 			children = (
+				2CEB62652F2666E90093CDDF /* Localizable.xcstrings */,
+				2C68D1EE2F261CB5002C0EAA /* RailWidgetExtension.entitlements */,
 				2C0E47A52ED8D7330024EF08 /* Rail */,
+				2C68D1D42F2610B9002C0EAA /* RailWidget */,
+				2C68D1CF2F2610B9002C0EAA /* Frameworks */,
 				2C0E47A42ED8D7330024EF08 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -72,9 +131,18 @@
 			isa = PBXGroup;
 			children = (
 				2C0E47A32ED8D7330024EF08 /* Rail.app */,
-				2C1595492EE7260D005800EB /* Rail Watch App.app */,
+				2C68D1CE2F2610B9002C0EAA /* RailWidgetExtension.appex */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		2C68D1CF2F2610B9002C0EAA /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				2C68D1D02F2610B9002C0EAA /* WidgetKit.framework */,
+				2C68D1D22F2610B9002C0EAA /* SwiftUI.framework */,
+			);
+			name = Frameworks;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -87,10 +155,12 @@
 				2C0E479F2ED8D7330024EF08 /* Sources */,
 				2C0E47A02ED8D7330024EF08 /* Frameworks */,
 				2C0E47A12ED8D7330024EF08 /* Resources */,
+				2C68D1E52F2610BB002C0EAA /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				2C68D1E32F2610BB002C0EAA /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				2C0E47A52ED8D7330024EF08 /* Rail */,
@@ -102,24 +172,27 @@
 			productReference = 2C0E47A32ED8D7330024EF08 /* Rail.app */;
 			productType = "com.apple.product-type.application";
 		};
-		2C1595482EE7260D005800EB /* Rail Watch App */ = {
+		2C68D1CD2F2610B9002C0EAA /* RailWidgetExtension */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = 2C1595532EE7260E005800EB /* Build configuration list for PBXNativeTarget "Rail Watch App" */;
+			buildConfigurationList = 2C68D1E82F2610BB002C0EAA /* Build configuration list for PBXNativeTarget "RailWidgetExtension" */;
 			buildPhases = (
-				2C1595452EE7260D005800EB /* Sources */,
-				2C1595462EE7260D005800EB /* Frameworks */,
-				2C1595472EE7260D005800EB /* Resources */,
+				2C68D1CA2F2610B9002C0EAA /* Sources */,
+				2C68D1CB2F2610B9002C0EAA /* Frameworks */,
+				2C68D1CC2F2610B9002C0EAA /* Resources */,
 			);
 			buildRules = (
 			);
 			dependencies = (
 			);
-			name = "Rail Watch App";
+			fileSystemSynchronizedGroups = (
+				2C68D1D42F2610B9002C0EAA /* RailWidget */,
+			);
+			name = RailWidgetExtension;
 			packageProductDependencies = (
 			);
-			productName = "Rail Watch App";
-			productReference = 2C1595492EE7260D005800EB /* Rail Watch App.app */;
-			productType = "com.apple.product-type.application";
+			productName = RailWidgetExtension;
+			productReference = 2C68D1CE2F2610B9002C0EAA /* RailWidgetExtension.appex */;
+			productType = "com.apple.product-type.app-extension";
 		};
 /* End PBXNativeTarget section */
 
@@ -134,7 +207,7 @@
 					2C0E47A22ED8D7330024EF08 = {
 						CreatedOnToolsVersion = 26.0.1;
 					};
-					2C1595482EE7260D005800EB = {
+					2C68D1CD2F2610B9002C0EAA = {
 						CreatedOnToolsVersion = 26.0.1;
 					};
 				};
@@ -155,7 +228,7 @@
 			projectRoot = "";
 			targets = (
 				2C0E47A22ED8D7330024EF08 /* Rail */,
-				2C1595482EE7260D005800EB /* Rail Watch App */,
+				2C68D1CD2F2610B9002C0EAA /* RailWidgetExtension */,
 			);
 		};
 /* End PBXProject section */
@@ -165,13 +238,15 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				2CEB62662F2666E90093CDDF /* Localizable.xcstrings in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		2C1595472EE7260D005800EB /* Resources */ = {
+		2C68D1CC2F2610B9002C0EAA /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				2CEB62672F2666E90093CDDF /* Localizable.xcstrings in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -185,7 +260,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		2C1595452EE7260D005800EB /* Sources */ = {
+		2C68D1CA2F2610B9002C0EAA /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -193,6 +268,14 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		2C68D1E32F2610BB002C0EAA /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 2C68D1CD2F2610B9002C0EAA /* RailWidgetExtension */;
+			targetProxy = 2C68D1E22F2610BB002C0EAA /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		2C0E47B22ED8D7340024EF08 /* Debug */ = {
@@ -238,7 +321,7 @@
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
 				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
-				MARKETING_VERSION = 1.4;
+				MARKETING_VERSION = 1.5;
 				PRODUCT_BUNDLE_IDENTIFIER = com.francescoparadis.Rail;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
@@ -300,7 +383,7 @@
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
 				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
-				MARKETING_VERSION = 1.4;
+				MARKETING_VERSION = 1.5;
 				PRODUCT_BUNDLE_IDENTIFIER = com.francescoparadis.Rail;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
@@ -378,6 +461,7 @@
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 			};
 			name = Debug;
@@ -434,77 +518,76 @@
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_EMIT_LOC_STRINGS = YES;
 			};
 			name = Release;
 		};
-		2C1595512EE7260E005800EB /* Debug */ = {
+		2C68D1E62F2610BB002C0EAA /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
-				CODE_SIGN_ENTITLEMENTS = "Rail Watch App/Rail Watch App.entitlements";
+				ASSETCATALOG_COMPILER_WIDGET_BACKGROUND_COLOR_NAME = WidgetBackground;
+				CODE_SIGN_ENTITLEMENTS = RailWidgetExtension.entitlements;
+				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 7QM8T4XA98;
-				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = "Rail-Watch-App-Info.plist";
-				INFOPLIST_KEY_CFBundleDisplayName = Rail;
-				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
-				INFOPLIST_KEY_WKCompanionAppBundleIdentifier = "";
+				INFOPLIST_FILE = RailWidget/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = RailWidget;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.francescoparadis.Rail.watchkitapp;
+				MARKETING_VERSION = 1.5;
+				PRODUCT_BUNDLE_IDENTIFIER = com.francescoparadis.Rail.RailWidget;
 				PRODUCT_NAME = "$(TARGET_NAME)";
-				SDKROOT = watchos;
+				SDKROOT = iphoneos;
 				SKIP_INSTALL = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
-				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = 4;
-				WATCHOS_DEPLOYMENT_TARGET = 26.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Debug;
 		};
-		2C1595522EE7260E005800EB /* Release */ = {
+		2C68D1E72F2610BB002C0EAA /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
-				CODE_SIGN_ENTITLEMENTS = "Rail Watch App/Rail Watch App.entitlements";
+				ASSETCATALOG_COMPILER_WIDGET_BACKGROUND_COLOR_NAME = WidgetBackground;
+				CODE_SIGN_ENTITLEMENTS = RailWidgetExtension.entitlements;
+				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 7QM8T4XA98;
-				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = "Rail-Watch-App-Info.plist";
-				INFOPLIST_KEY_CFBundleDisplayName = Rail;
-				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
-				INFOPLIST_KEY_WKCompanionAppBundleIdentifier = "";
+				INFOPLIST_FILE = RailWidget/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = RailWidget;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.francescoparadis.Rail.watchkitapp;
+				MARKETING_VERSION = 1.5;
+				PRODUCT_BUNDLE_IDENTIFIER = com.francescoparadis.Rail.RailWidget;
 				PRODUCT_NAME = "$(TARGET_NAME)";
-				SDKROOT = watchos;
+				SDKROOT = iphoneos;
 				SKIP_INSTALL = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
-				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = 4;
+				TARGETED_DEVICE_FAMILY = "1,2";
 				VALIDATE_PRODUCT = YES;
-				WATCHOS_DEPLOYMENT_TARGET = 26.0;
 			};
 			name = Release;
 		};
@@ -529,11 +612,11 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		2C1595532EE7260E005800EB /* Build configuration list for PBXNativeTarget "Rail Watch App" */ = {
+		2C68D1E82F2610BB002C0EAA /* Build configuration list for PBXNativeTarget "RailWidgetExtension" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
-				2C1595512EE7260E005800EB /* Debug */,
-				2C1595522EE7260E005800EB /* Release */,
+				2C68D1E62F2610BB002C0EAA /* Debug */,
+				2C68D1E72F2610BB002C0EAA /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
