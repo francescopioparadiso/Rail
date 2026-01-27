@@ -10,6 +10,7 @@
 ## 📱 Screenshots
 
 <p float="left">
+  <img src="Thumbnails/screen0.png" width="200" />
   <img src="Thumbnails/screen1.png" width="200" />
   <img src="Thumbnails/screen2.png" width="200" />
   <img src="Thumbnails/screen3.png" width="200" />

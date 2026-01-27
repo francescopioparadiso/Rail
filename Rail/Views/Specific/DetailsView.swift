@@ -867,7 +867,6 @@ struct DetailsView: View {
         last_update_time: now,
         delay: 5,
         direction: "Salerno",
-        seats: [],
         issue: ""
     )
     

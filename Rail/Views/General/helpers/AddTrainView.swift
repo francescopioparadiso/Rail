@@ -707,7 +707,6 @@ struct AddTrainView: View {
             last_update_time: last_update_time,
             delay: delay,
             direction: direction,
-            seats: seats,
             issue: issue
         )
         modelContext.insert(train_to_add)

@@ -238,7 +238,17 @@ struct SeatsView: View {
                             }
                             
                             // existing seats list
-                            ForEach(seats, id: \.id) { seat in
+                            ForEach(seats.sorted(by: { lhs, rhs in
+                                if lhs.carriage != rhs.carriage {
+                                    return lhs.carriage.localizedStandardCompare(rhs.carriage) == .orderedAscending
+                                    
+                                } else if lhs.number != rhs.number {
+                                    return lhs.number.localizedStandardCompare(rhs.number) == .orderedAscending
+                                    
+                                } else {
+                                    return lhs.name < rhs.name
+                                }
+                            })) { seat in
                                 HStack {
                                     VStack(alignment: .leading, spacing: 8) {
                                         Text(seat.name)
@@ -457,19 +467,16 @@ struct SeatsView: View {
         last_update_time: Date(),
         delay: 0,
         direction: "Napoli Centrale",
-        seats: [],
         issue: ""
     )
     
-    let seat1 = Seat(id: UUID(), trainID: mockTrain.id, name: "Francesco", carriage: "3", number: "12D", image: nil)
-    let seat2 = Seat(id: UUID(), trainID: mockTrain.id, name: "Chiara", carriage: "3", number: "12C", image: Data())
-    let seat3 = Seat(id: UUID(), trainID: mockTrain.id, name: "Chiara", carriage: "3", number: "12C", image: Data())
-    let seat4 = Seat(id: UUID(), trainID: mockTrain.id, name: "Chiara", carriage: "3", number: "12C", image: Data())
-    let seat5 = Seat(id: UUID(), trainID: mockTrain.id, name: "Chiara", carriage: "3", number: "12C", image: Data())
-    let seat6 = Seat(id: UUID(), trainID: mockTrain.id, name: "Chiara", carriage: "3", number: "12C", image: Data())
-    let seat7 = Seat(id: UUID(), trainID: mockTrain.id, name: "Chiara", carriage: "3", number: "12C", image: Data())
-    let seat8 = Seat(id: UUID(), trainID: mockTrain.id, name: "Chiara", carriage: "3", number: "12C", image: Data())
-    let seat9 = Seat(id: UUID(), trainID: mockTrain.id, name: "Chiara", carriage: "3", number: "12C", image: Data())
+    let seat1 = Seat(id: UUID(), trainID: mockTrain.id, name: "Pierpaolo", carriage: "1", number: "2D", image: UIImage(named: "sample_code")?.pngData())
+    let seat2 = Seat(id: UUID(), trainID: mockTrain.id, name: "Davide", carriage: "1", number: "7B", image: UIImage(named: "sample_code")?.pngData())
+    let seat3 = Seat(id: UUID(), trainID: mockTrain.id, name: "Andrea", carriage: "1", number: "8C", image: UIImage(named: "sample_code")?.pngData())
+    let seat4 = Seat(id: UUID(), trainID: mockTrain.id, name: "Marco", carriage: "1", number: "10C", image: UIImage(named: "sample_code")?.pngData())
+    let seat5 = Seat(id: UUID(), trainID: mockTrain.id, name: "Luca", carriage: "1", number: "10D", image: UIImage(named: "sample_code")?.pngData())
+    let seat6 = Seat(id: UUID(), trainID: mockTrain.id, name: "Riccardo", carriage: "1", number: "11A", image: UIImage(named: "sample_code")?.pngData())
+    let seat7 = Seat(id: UUID(), trainID: mockTrain.id, name: "Fabio", carriage: "1", number: "14B", image: UIImage(named: "sample_code")?.pngData())
     
     container.mainContext.insert(mockTrain)
     container.mainContext.insert(seat1)
@@ -479,12 +486,11 @@ struct SeatsView: View {
     container.mainContext.insert(seat5)
     container.mainContext.insert(seat6)
     container.mainContext.insert(seat7)
-    container.mainContext.insert(seat8)
-    container.mainContext.insert(seat9)
     
     // view
-    return SeatsView(train: mockTrain, seats: [seat1, seat2, seat3, seat4, seat5, seat6, seat8, seat9])
+    return SeatsView(train: mockTrain, seats: [seat1, seat2, seat3, seat4, seat5, seat6, seat7])
         .modelContainer(container)
+        .environment(\.locale, Locale(identifier: "it"))
 }
 
 #Preview("Empty State") {
@@ -503,7 +509,6 @@ struct SeatsView: View {
         last_update_time: Date(),
         delay: 5,
         direction: "Milano Centrale",
-        seats: [],
         issue: ""
     )
     
