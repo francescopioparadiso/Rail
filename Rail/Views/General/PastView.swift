@@ -48,7 +48,7 @@ struct PastView: View {
             if past_trains.isEmpty {
                 ContentUnavailableView("No past journeys",
                                        systemImage: "exclamationmark.magnifyingglass",
-                                       description: Text("Add a new journey by tapping the above button."))
+                                       description: Text("Add a new journey by tapping the button below."))
                 .padding()
                 .fontDesign(app_font_design)
                 .foregroundColor(Color.primary)
