@@ -95,7 +95,7 @@ struct AddPassView: View {
                         // MARK: - empty view
                         ContentUnavailableView("No passes added",
                                                systemImage: "ticket.fill",
-                                               description: Text("Add a new passes using the below button."))
+                                               description: Text("Add a new passes using the button below."))
                         .foregroundColor(Color.secondary)
                         .fontDesign(app_font_design)
                         .padding(.bottom, 80)

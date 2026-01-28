@@ -48,7 +48,7 @@ struct TodayView: View {
             if today_trains.isEmpty {
                 ContentUnavailableView("No ongoing journeys",
                                        systemImage: "exclamationmark.magnifyingglass",
-                                       description: Text("Add a new journey by tapping the above button."))
+                                       description: Text("Add a new journey by tapping the button below."))
                 .padding()
                 .foregroundColor(Color.primary)
                 .fontDesign(app_font_design)

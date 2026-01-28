@@ -151,7 +151,7 @@ struct SeatsView: View {
                         // MARK: - empty view
                         ContentUnavailableView("No seats added",
                                                systemImage: "airplaneseat",
-                                               description: Text("Add a new seat by tapping the below button."))
+                                               description: Text("Add a new seat by tapping the button below."))
                         .foregroundColor(Color.secondary)
                         .fontDesign(app_font_design)
                         .padding(.bottom, 80)
