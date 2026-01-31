@@ -26,6 +26,11 @@ struct DetailsView: View {
     @State private var seats_sheet: Bool = false
     @State private var show_all_stops: Bool = false
     
+    // speed variables
+    @State private var speedManager = SpeedManager()
+    @State private var min_speed: Double = 0.0
+    @State private var max_speed: Double = 300.0
+    
     // computed variables
     private var is_favorite: Bool {
         let stop_names = stops.filter { $0.is_selected }.map { $0.name }
@@ -48,6 +53,15 @@ struct DetailsView: View {
             
             return fav_ref_times == stop_ref_times
         }
+    }
+    
+    private var show_speed: Bool {
+        if let last_stop = stops.sorted(by: { $0.ref_time < $1.ref_time }).last,
+           last_stop.is_selected {
+            
+            return Date() <= last_stop.arr_time_eff || Calendar.current.isDateInToday(last_stop.arr_time_eff)
+        }
+        return false
     }
     
     private var first_stop: Stop {
@@ -667,6 +681,34 @@ struct DetailsView: View {
                 await update_train_details()
             }
             .toolbar {
+                /// speed button
+                if show_speed {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button {
+                        } label: {
+                            Gauge(value: Double(speedManager.displayedSpeed), in: min_speed...max_speed) {
+                                Text("kph")
+                                    .font(.caption2)
+                                    .foregroundStyle(Color.secondary)
+                            } currentValueLabel: {
+                                Text("\(speedManager.displayedSpeed)")
+                                    .font(.title3)
+                                    .fontWeight(.bold)
+                                    .foregroundStyle(Color.primary)
+                                    .contentTransition(.numericText(value: Double(speedManager.displayedSpeed)) )
+                                    .animation(.snappy, value: speedManager.displayedSpeed)
+                            }
+                            .fontDesign(app_font_design)
+                            .gaugeStyle(.accessoryCircular)
+                            .tint( Gradient(colors: [.green, .yellow, .red]) )
+                            .scaleEffect(0.6)
+                            .frame(width: 25, height: 25)
+                        }
+                        .buttonStyle(.glassProminent)
+                        .tint(color_scheme == .dark ? Color.black.opacity(0.1) : Color.white)
+                    }
+                }
+                
                 /// favorite button
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
@@ -787,7 +829,14 @@ struct DetailsView: View {
         .toolbar(.hidden, for: .tabBar)
         .onAppear {
             ReviewManager.shared.requestReviewIfAppropriate(action: request_review)
+            
+            speedManager.requestPermission()
+            speedManager.startMonitoring()
+            
             Task { await update_train_details() }
+        }
+        .onDisappear {
+            speedManager.stopMonitoring()
         }
         .onChange(of: scene_phase) { _, newPhase in
             if newPhase == .active {
@@ -865,7 +914,7 @@ struct DetailsView: View {
         identifier: "TS/9612/123456",
         provider: "trenitalia",
         last_update_time: now,
-        delay: 5,
+        delay: 50,
         direction: "Salerno",
         issue: ""
     )

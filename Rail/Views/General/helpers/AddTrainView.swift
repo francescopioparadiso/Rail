@@ -682,7 +682,6 @@ struct AddTrainView: View {
         let delay = train_selected?.value["delay"] as? Int ?? 0
         let direction = train_selected?.value["direction"] as? String ?? ""
         
-        let seats = train_selected?.value["seats"] as? [String] ?? []
         let issue = train_selected?.value["issue"] as? String ?? ""
 
         /// adjust identifier timestamp based on day difference

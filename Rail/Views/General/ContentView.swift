@@ -127,8 +127,6 @@ struct ContentView: View {
     
     let mockImageData = UIImage(named: "sample_code")?.pngData()
     
-    let id_2 = UUID()
-    
     // MARK: - Trains & Stops Data
     let train1 = Train(id: UUID(), logo: "ITALO", number: "9904", identifier: "IT9904", provider: "italo", last_update_time: Date(), delay: -2, direction: "Milano Centrale", issue: "")
     let train2 = Train(id: UUID(), logo: "REG", number: "3224", identifier: "REG3224", provider: "trenitalia", last_update_time: Date(), delay: 5, direction: "Carmagnola", issue: "Corsa terminata a Carmagnola per un guasto sulla linea.")
