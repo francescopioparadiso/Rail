@@ -56,11 +56,14 @@ struct DetailsView: View {
     }
     
     private var show_speed: Bool {
-        if let last_stop = stops.sorted(by: { $0.ref_time < $1.ref_time }).last,
-           last_stop.is_selected {
+        if let last_stop = stops
+            .filter({ $0.is_selected })
+            .sorted(by: { $0.ref_time < $1.ref_time })
+            .last {
             
             return Date() <= last_stop.arr_time_eff || Calendar.current.isDateInToday(last_stop.arr_time_eff)
         }
+        
         return false
     }
     
