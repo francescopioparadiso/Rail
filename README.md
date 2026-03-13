@@ -51,8 +51,6 @@ Questo progetto è distribuito sotto licenza **GNU GPLv3**. Sei libero di studia
 
 ## 📬 Contatti
 
-Sviluppato con passione da **Francesco Pio Paradiso**, studente di Magistrale in ICT (AI, ML & Big Data) presso il Politecnico di Torino.
-
 🌐 **Website:** [francescoparadiso.com](https://www.francescoparadiso.com)
 
 🔗 **LinkedIn:** [Francesco Pio Paradiso](https://www.linkedin.com/in/francescopioparadiso)
