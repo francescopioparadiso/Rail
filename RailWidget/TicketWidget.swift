@@ -53,36 +53,51 @@ struct TicketProvider: TimelineProvider {
             
             let now = Date()
             
-            // 1. Fetch all trains for today
+            // 1. Fetch all trains and their relevant stops to determine which is active
             let trainDescriptor = FetchDescriptor<Train>()
             let allTrains = try context.fetch(trainDescriptor)
             
+            struct TrainWithTimes {
+                let train: Train
+                let firstDep: Date
+                let lastArr: Date
+            }
+            
+            var candidates: [TrainWithTimes] = []
+            
             for train in allTrains {
-                // 2. Fetch stops for this train
                 let trainID = train.id
                 let stopDescriptor = FetchDescriptor<Stop>(predicate: #Predicate<Stop> { $0.id == trainID })
-                let allStops = try context.fetch(stopDescriptor)
+                let stops = try context.fetch(stopDescriptor)
+                let selectedStops = stops.filter { $0.is_selected }.sorted(by: { $0.ref_time < $1.ref_time })
                 
-                let selectedStops = allStops.filter { $0.is_selected }.sorted(by: { $0.ref_time < $1.ref_time })
-                guard let firstStop = selectedStops.first, let lastStop = selectedStops.last else { continue }
-                
-                // 3. Check if active: now between departure of first and arrival of last
-                if now >= firstStop.dep_time_eff && now <= lastStop.arr_time_eff {
-                    // 4. Fetch first seat for this train
-                    let seatDescriptor = FetchDescriptor<Seat>(predicate: #Predicate<Seat> { $0.trainID == trainID })
-                    let seats = try context.fetch(seatDescriptor)
-                    let firstSeat = seats.first
-                    
-                    return (
-                        trainID,
-                        train.number,
-                        train.logo,
-                        firstSeat?.name,
-                        firstSeat?.carriage,
-                        firstSeat?.number,
-                        scaleImage(data: firstSeat?.image, to: 400)
-                    )
+                if let first = selectedStops.first, let last = selectedStops.last {
+                    candidates.append(TrainWithTimes(train: train, firstDep: first.dep_time_eff, lastArr: last.arr_time_eff))
                 }
+            }
+            
+            // 2. Sort candidates by their departure time
+            let sortedCandidates = candidates.sorted(by: { $0.firstDep < $1.firstDep })
+            
+            // 3. The active train is the first one that hasn't arrived yet
+            if let activeCandidate = sortedCandidates.first(where: { now < $0.lastArr }) {
+                let train = activeCandidate.train
+                let trainID = train.id
+                
+                // 4. Fetch first seat for this train
+                let seatDescriptor = FetchDescriptor<Seat>(predicate: #Predicate<Seat> { $0.trainID == trainID })
+                let seats = try context.fetch(seatDescriptor)
+                let firstSeat = seats.first
+                
+                return (
+                    trainID,
+                    train.number,
+                    train.logo,
+                    firstSeat?.name,
+                    firstSeat?.carriage,
+                    firstSeat?.number,
+                    scaleImage(data: firstSeat?.image, to: 400)
+                )
             }
         } catch {
             print("Errore SwiftData Ticket Widget: \(error)")
@@ -219,10 +234,10 @@ struct TicketWidgetEntryView: View {
     @ViewBuilder
     private func seatInfoView(entry: TicketEntry) -> some View {
         HStack(spacing: 12) {
-            if entry.carriage != nil {
+            if let carriage = entry.carriage, !carriage.isEmpty {
                 HStack(spacing: 4) {
                     Image(systemName: "train.side.front.car")
-                    Text(entry.carriage ?? "-")
+                    Text(carriage)
                 }
                 .font(.subheadline).fontWeight(.semibold).fontDesign(widgetFontDesign)
                 .padding(.horizontal, 12).padding(.vertical, 6)
@@ -232,10 +247,10 @@ struct TicketWidgetEntryView: View {
                 .clipShape(Capsule())
             }
 
-            if entry.seatNumber != nil {
+            if let seatNumber = entry.seatNumber, !seatNumber.isEmpty {
                 HStack(spacing: 4) {
                     Image(systemName: "figure.seated.seatbelt")
-                    Text(entry.seatNumber ?? "-")
+                    Text(seatNumber)
                 }
                 .font(.subheadline).fontWeight(.semibold).fontDesign(widgetFontDesign)
                 .padding(.horizontal, 12).padding(.vertical, 6)

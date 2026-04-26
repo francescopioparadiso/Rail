@@ -130,12 +130,16 @@ struct AddFavoriteView: View {
                         dismiss()
                         favoriteID_selected = nil
                     } label: {
+                        let textString = favoriteID_selected == nil ? "Select a favorite" : "Save"
+                        let iconString = favoriteID_selected == nil ? "hand.rays.fill" : "checkmark"
                         HStack {
-                            Text("Save")
-                            
-                            Image(systemName: "checkmark")
+                            Image(systemName: iconString)
                                 .symbolEffect(.wiggle.byLayer, options: .repeat(.periodic(delay: 5.0)))
                                 .contentTransition(.symbolEffect(.replace.downUp.wholeSymbol, options: .nonRepeating))
+                            
+                            Text(textString)
+                                .contentTransition(.numericText(value: Double(textString.hashValue)))
+                                .animation(.snappy, value: textString)
                         }
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 24)

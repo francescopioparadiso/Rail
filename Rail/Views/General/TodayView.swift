@@ -117,19 +117,54 @@ struct TodayView: View {
                                 let interval = nextDepDate.timeIntervalSince(currentArrDate)
                                 
                                 if interval > 0 && interval <= 24 * 60 * 60 {
-                                    let hours = Int(interval) / 3600
-                                    let minutes = (Int(interval) % 3600) / 60
+                                    let totalMinutes = Int(interval) / 60
+                                    let hours = totalMinutes / 60
+                                    let minutes = totalMinutes % 60
+                                    
+                                    let connectionStatus: (text: String, icon: String, color: Color) = {
+                                        if totalMinutes < 10 {
+                                            return (String(localized: "Hurry up! High risk"), "figure.run", .red)
+                                        } else if totalMinutes < 20 {
+                                            return (String(localized: "Tight connection"), "exclamationmark.triangle.fill", .orange)
+                                        } else {
+                                            return (String(localized: "Time to relax"), "cup.and.saucer.fill", .green)
+                                        }
+                                    }()
                                     
                                     let timeString = hours > 0
-                                    ? "\(NSLocalizedString("Waiting for", comment: "")) \(hours)h \(minutes)m"
-                                    : "\(NSLocalizedString("Waiting for", comment: "")) \(minutes)m"
+                                    ? "\(hours)h \(minutes)m"
+                                    : "\(minutes)m"
                                     
-                                    Text(timeString)
-                                        .font(.footnote)
-                                        .fontDesign(app_font_design)
-                                        .foregroundColor(.gray)
-                                        .frame(maxWidth: .infinity, alignment: .center)
-                                        .padding(.vertical, 4)
+                                    HStack(alignment: .center, spacing: 8) {
+                                        Rectangle()
+                                            .fill(connectionStatus.color.opacity(0.3))
+                                            .frame(width: 3, height: 20)
+                                            .cornerRadius(1.5)
+                                        
+                                        Image(systemName: connectionStatus.icon)
+                                            .font(.footnote)
+                                        
+                                        Text("\(NSLocalizedString("Connection:", comment: "")) \(timeString)")
+                                            .font(.caption).fontWeight(.semibold)
+                                            .contentTransition(.numericText(value: Double(totalMinutes)))
+                                            .animation(.snappy, value: totalMinutes)
+                                        
+                                        Text("•")
+                                        
+                                        Text(connectionStatus.text)
+                                            .font(.caption)
+                                            .contentTransition(.numericText(value: Double(totalMinutes)))
+                                            .animation(.snappy, value: totalMinutes)
+                                        
+                                        Spacer()
+                                    }
+                                    .fontDesign(app_font_design)
+                                    .foregroundColor(connectionStatus.color)
+                                    .padding(.vertical, 8)
+                                    .padding(.horizontal, 16)
+                                    .background(connectionStatus.color.opacity(0.05))
+                                    .cornerRadius(16)
+                                    .padding(.horizontal, 8)
                                 }
                             }
                         }

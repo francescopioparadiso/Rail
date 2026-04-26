@@ -81,7 +81,7 @@ struct ContentView: View {
                         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
                         add_pass_sheet = true
                     } label: {
-                        Label("Passes", systemImage: "qrcode")
+                        Label("Passes", systemImage: "ticket")
                     }
                 }
             }

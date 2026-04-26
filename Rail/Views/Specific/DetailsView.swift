@@ -477,7 +477,7 @@ struct DetailsView: View {
                                 /// stop info
                                 HStack {
                                     VStack(alignment: .leading, spacing: 4) {
-                                        if Date() >= first_stop_no_issues.dep_time_id || Calendar.current.isDateInToday(first_stop_no_issues.dep_time_id) {
+                                        if (Date() >= first_stop_no_issues.dep_time_id || Calendar.current.isDateInToday(first_stop_no_issues.dep_time_id)) && !stop.weather.isEmpty {
                                             Text(stop.weather)
                                                 .font(.caption)
                                                 .fontDesign(app_font_design)

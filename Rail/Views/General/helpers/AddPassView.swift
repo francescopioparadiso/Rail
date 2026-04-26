@@ -19,8 +19,11 @@ struct AddPassView: View {
     // database variables
     @Environment(\.modelContext) private var modelContext
     @Query private var passes: [Pass]
-    private var sorted_passes: [Pass] {
-        passes.sorted { $0.expiry_date > $1.expiry_date }
+    private var active_passes: [Pass] {
+        passes.filter { $0.expiry_date >= Calendar.current.startOfDay(for: Date()) }.sorted { $0.expiry_date < $1.expiry_date }
+    }
+    private var expired_passes: [Pass] {
+        passes.filter { $0.expiry_date < Calendar.current.startOfDay(for: Date()) }.sorted { $0.expiry_date > $1.expiry_date }
     }
     private var principal_pass: Pass? {
         passes.first(where: { $0.is_principal })
@@ -31,8 +34,11 @@ struct AddPassView: View {
     
     // new pass variables
     @State private var show_adding_row: Bool = false
+    @State private var pass_to_edit: Pass? = nil
     @State private var new_name: String = ""
     @State private var new_expiry_date: Date = Date()
+    @State private var active_expanded: Bool = true
+    @State private var expired_expanded: Bool = false
     
     // image variables
     @State private var image_status: image_status = .empty
@@ -59,7 +65,7 @@ struct AddPassView: View {
     private var addNew_shouldBeActive: Bool {
         if pass_row_focus == nil {
             return true
-        } else if !new_name.isEmpty && picked_image != nil {
+        } else if !new_name.isEmpty && qr_image_data != nil {
             return true
         } else {
             return false
@@ -78,10 +84,15 @@ struct AddPassView: View {
                 return {
                     UIImpactFeedbackGenerator(style: .medium).impactOccurred()
                     
+                    pass_to_edit = nil
                     pass_row_focus = .name
                     new_name = "Settimanale"
                     
-                    show_adding_row = true
+                    withAnimation(.snappy) {
+                        active_expanded = false
+                        expired_expanded = false
+                        show_adding_row = true
+                    }
                 }
         }
     }
@@ -103,63 +114,6 @@ struct AddPassView: View {
                     } else {
                         // MARK: - populated view
                         List {
-                            // principal pass info
-                            if !passes.isEmpty {
-                                if principal_pass != nil {
-                                    VStack(spacing: 16) {
-                                        // code
-                                        if let imageData = principal_pass?.image, let uiImage = UIImage(data: imageData) {
-                                            Image(uiImage: uiImage)
-                                                .resizable()
-                                                .interpolation(.none)
-                                                .scaledToFit()
-                                                .padding()
-                                                .background(Color.white)
-                                                .cornerRadius(16)
-                                        } else {
-                                            ContentUnavailableView("No Code", systemImage: "qrcode.viewfinder")
-                                        }
-                                        
-                                        // info
-                                        VStack(spacing: 8) {
-                                            Text(principal_pass?.name ?? "")
-                                                .font(.title2)
-                                                .fontWeight(.semibold)
-                                                .contentTransition(.numericText(value: Double((principal_pass?.name.hashValue ?? 0))))
-                                                .animation(.snappy, value: principal_pass?.name)
-                                            
-                                            HStack(spacing: 8) {
-                                                Image(systemName: "calendar")
-                                                
-                                                Text(principal_pass?.expiry_date ?? Date(), format: .dateTime.day().month().year())
-                                                    .contentTransition(.numericText(value: Double((principal_pass?.expiry_date.hashValue ?? 0))))
-                                                    .animation(.snappy, value: principal_pass?.expiry_date)
-                                            }
-                                            .font(.subheadline)
-                                            .fontWeight(.medium)
-                                            .padding(.vertical, 8).padding(.horizontal, 12)
-                                            .background(Color.secondary.opacity(0.15))
-                                            .cornerRadius(16)
-                                        }
-                                        .fontDesign(app_font_design)
-                                        .foregroundStyle(Color.secondary)
-                                    }
-                                    .frame(maxWidth: .infinity)
-                                    .listRowSeparator(.hidden)
-                                    .padding(8)
-                                    .padding(.bottom, 48)
-                                    
-                                } else {
-                                    ContentUnavailableView("Principal pass",
-                                                           systemImage: "ticket.fill",
-                                                           description: Text("Add your principal passes here by swiping to the right on a pass in the list."))
-                                    .fontDesign(app_font_design)
-                                    .foregroundColor(Color.secondary)
-                                    .listRowSeparator(.hidden)
-                                    .frame(height: 470)
-                                }
-                            }
-                            
                             // adding row
                             if show_adding_row {
                                 HStack {
@@ -202,95 +156,79 @@ struct AddPassView: View {
                             }
                             
                             // existing pass list
-                            ForEach(Array(sorted_passes.enumerated()), id: \.element.id) { index, pass in
-                                let time_remaining: String = {
-                                    if pass.expiry_date < Date() {
-                                        let dateString = pass.expiry_date.formatted(.dateTime.day().month().year())
-                                        return String(localized: "Expired on \(dateString)")
+                            Section {
+                                if active_expanded {
+                                    ForEach(active_passes.filter({ pass in
+                                        if let pass_to_edit = pass_to_edit {
+                                            return pass.id == pass_to_edit.id
+                                        }
+                                        return true
+                                    })) { pass in
+                                        passRow(pass: pass)
                                     }
-                                    
-                                    let totalDays = Calendar.current.dateComponents([.day], from: Date(), to: pass.expiry_date).day ?? 0
-                                    if totalDays == 0 { return String(localized: "Expires today") }
-                                    if totalDays == 1 { return String(localized: "Expires tomorrow") }
-                                    
-                                    return String(localized: "Expires in \(totalDays) days")
-                                }()
-                                var expiry_date_color: Color {
-                                    if pass.expiry_date >= Date() {
-                                        return Color.green
-                                    } else {
-                                        return Color.red
+                                    .onDelete { offsets in
+                                        delete_passes(at: offsets, from: active_passes)
                                     }
                                 }
-                                
-                                HStack {
-                                    if pass.is_principal {
-                                        Image(systemName: "star.fill")
-                                            .foregroundStyle(.orange)
-                                            .font(.title)
-                                            .padding(.trailing, 4)
-                                    }
-                                    
-                                    VStack(alignment: .leading, spacing: 4) {
-                                        Text(pass.name)
-                                            .font(.headline)
-                                            .lineLimit(1)
-                                            .truncationMode(.tail)
-                                        
-                                        HStack {
-                                            Text(pass.expiry_date >= Date() ? "Active" : "Expired")
-                                                .font(.subheadline).fontDesign(app_font_design)
-                                                .padding(.horizontal, 8).padding(.vertical, 4)
-                                                .foregroundStyle(expiry_date_color)
-                                                .background(expiry_date_color.opacity(0.15))
-                                                .shadow(color: expiry_date_color, radius: 20)
-                                                .cornerRadius(16)
-                                            
-                                            Text(time_remaining)
-                                                .font(.subheadline)
-                                                .foregroundStyle(expiry_date_color)
-                                        }
-                                    }
+                            } header: {
+                                HStack(spacing: 8) {
+                                    Text("Active passes")
                                     
                                     Spacer()
                                     
-                                    if let _ = pass.image {
-                                        Button {
-                                            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                                            pass_to_view = pass
-                                            show_pass_view = true
-                                        } label: {
-                                            Image(systemName: "qrcode")
-                                                .font(.title)
+                                    Text("\(active_passes.count)")
+                                    
+                                    Image(systemName: "chevron.down")
+                                        .rotationEffect(.degrees(active_expanded ? 0 : -90))
+                                        .animation(.snappy, value: active_expanded)
+                                        .onTapGesture {
+                                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                                            active_expanded.toggle()
                                         }
+                                }
+                            } footer: {
+                                Text("Swipe to the right to add the QR code to the widget")
+                            }
+                            .fontDesign(app_font_design)
+                            
+                            Section {
+                                if expired_expanded {
+                                    ForEach(expired_passes.filter({ pass in
+                                        if let pass_to_edit = pass_to_edit {
+                                            return pass.id == pass_to_edit.id
+                                        }
+                                        return true
+                                    })) { pass in
+                                        passRow(pass: pass)
+                                    }
+                                    .onDelete { offsets in
+                                        delete_passes(at: offsets, from: expired_passes)
                                     }
                                 }
-                                .swipeActions(edge: .leading, allowsFullSwipe: true) {
-                                    Button {
-                                        UIImpactFeedbackGenerator(style: .heavy).impactOccurred()
-                                        withAnimation(.spring()) {
-                                            for pass in passes {
-                                                pass.is_principal = false
-                                            }
-                                            pass.is_principal = true
-                                            
-                                            try? modelContext.save()
-                                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                                                WidgetCenter.shared.reloadAllTimelines()
-                                            }
+                            } header: {
+                                HStack(spacing: 8) {
+                                    Text("Expired passes")
+                                    
+                                    Spacer()
+                                    
+                                    Text("\(expired_passes.count)")
+                                    
+                                    Image(systemName: "chevron.right")
+                                        .rotationEffect(.degrees(expired_expanded ? 90 : 0))
+                                        .animation(.snappy, value: expired_expanded)
+                                        .onTapGesture {
+                                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                                            expired_expanded.toggle()
                                         }
-                                    } label: {
-                                        Label("Set Principal", systemImage: "star.fill")
-                                    }
-                                    .tint(.orange)
                                 }
                             }
-                            .onDelete(perform: delete_pass)
+                            .fontDesign(app_font_design)
                         }
+                        .listSectionSpacing(32)
+                        .scrollIndicators(.hidden)
                         .safeAreaInset(edge: .bottom) {
                             Color.clear.frame(height: 96)
                         }
-                        .scrollIndicators(.hidden)
                     }
                 }
                 
@@ -299,7 +237,13 @@ struct AddPassView: View {
                     if show_adding_row {
                         Button {
                             UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                            show_adding_row = false
+                            withAnimation(.snappy) {
+                                active_expanded = true
+                                expired_expanded = false
+                                
+                                show_adding_row = false
+                                pass_to_edit = nil
+                            }
                         } label: {
                             HStack {
                                 Image(systemName: "arrow.uturn.backward")
@@ -319,12 +263,12 @@ struct AddPassView: View {
                         addNew_action()
                     } label: {
                         HStack {
+                            Image(systemName: addNew_icon)
+                                .contentTransition(.symbolEffect(.replace.downUp.wholeSymbol, options: .nonRepeating))
+                            
                             Text(addNew_text)
                                 .contentTransition(.numericText(value: Double(addNew_text.hashValue)))
                                 .animation(.snappy, value: addNew_text)
-                            
-                            Image(systemName: addNew_icon)
-                                .contentTransition(.symbolEffect(.replace.downUp.wholeSymbol, options: .nonRepeating))
                         }
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, pass_row_focus == nil ? 24 : 16)
@@ -359,31 +303,155 @@ struct AddPassView: View {
     }
     
     // MARK: - functions
-    private func delete_pass(at offsets: IndexSet) {
-        let items = offsets.map { sorted_passes[$0] }
-        for pass in items {
+    @ViewBuilder
+    private func passRow(pass: Pass) -> some View {
+        let time_remaining: String = {
+            if pass.expiry_date < Date() {
+                let dateString = pass.expiry_date.formatted(.dateTime.day().month().year())
+                return String(localized: "Expired on \(dateString)")
+            }
+            
+            let totalDays = Calendar.current.dateComponents([.day], from: Date(), to: pass.expiry_date).day ?? 0
+            if totalDays == 0 { return String(localized: "Expires today") }
+            if totalDays == 1 { return String(localized: "Expires tomorrow") }
+            
+            return String(localized: "Expires in \(totalDays) days")
+        }()
+        
+        var expiry_date_color: Color {
+            if pass.expiry_date >= Date() {
+                return Color.green
+            } else {
+                return Color.red
+            }
+        }
+        
+        HStack {
+            if pass.is_principal {
+                Image(systemName: "star.fill")
+                    .foregroundStyle(.orange)
+                    .font(.title)
+                    .padding(.trailing, 4)
+            }
+            
+            VStack(alignment: .leading, spacing: 4) {
+                Text(pass.name)
+                    .font(.headline)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                
+                HStack {
+                    Text(pass.expiry_date >= Date() ? "Active" : "Expired")
+                        .font(.subheadline).fontDesign(app_font_design)
+                        .padding(.horizontal, 8).padding(.vertical, 4)
+                        .foregroundStyle(expiry_date_color)
+                        .background(expiry_date_color.opacity(0.15))
+                        .shadow(color: expiry_date_color, radius: 20)
+                        .cornerRadius(16)
+                    
+                    Text(time_remaining)
+                        .font(.subheadline)
+                        .foregroundStyle(expiry_date_color)
+                }
+            }
+            .contentShape(Rectangle())
+            .onLongPressGesture {
+                UIImpactFeedbackGenerator(style: .heavy).impactOccurred()
+                withAnimation(.snappy) {
+                    pass_to_edit = pass
+                    new_name = pass.name
+                    new_expiry_date = pass.expiry_date
+                    qr_image_data = pass.image
+                    image_status = pass.image != nil ? .saved : .empty
+                    active_expanded = false
+                    expired_expanded = false
+                    show_adding_row = true
+                }
+                pass_row_focus = .name
+            }
+            
+            Spacer()
+            
+            if let _ = pass.image {
+                Button {
+                    UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                    pass_to_view = pass
+                    show_pass_view = true
+                } label: {
+                    Image(systemName: "qrcode")
+                        .font(.title)
+                        .foregroundStyle(Color.accentColor)
+                }
+                .buttonStyle(PlainButtonStyle())
+            }
+        }
+        .swipeActions(edge: .leading, allowsFullSwipe: true) {
+            if pass.expiry_date >= Calendar.current.startOfDay(for: Date()) {
+                Button {
+                    UIImpactFeedbackGenerator(style: .heavy).impactOccurred()
+                    withAnimation(.snappy) {
+                        if pass.is_principal {
+                            pass.is_principal = false
+                        } else {
+                            for p in passes {
+                                p.is_principal = false
+                            }
+                            pass.is_principal = true
+                        }
+                        
+                        try? modelContext.save()
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                            WidgetCenter.shared.reloadAllTimelines()
+                        }
+                    }
+                } label: {
+                    Label(pass.is_principal ? "Remove Principal" : "Set Principal", systemImage: pass.is_principal ? "star.slash.fill" : "star.fill")
+                }
+                .tint(.orange)
+            }
+        }
+    }
+    
+    private func delete_passes(at offsets: IndexSet, from list: [Pass]) {
+        for index in offsets {
+            let pass = list[index]
             modelContext.delete(pass)
         }
     }
     
     private func save_pass() {
-        let new_pass = Pass(
-            id: UUID(),
-            name: new_name,
-            expiry_date: new_expiry_date,
-            is_principal: false,
-            image: qr_image_data
-        )
+        if let pass = pass_to_edit {
+            // update
+            pass.name = new_name
+            pass.expiry_date = new_expiry_date
+            pass.image = qr_image_data
+            
+        } else {
+            // new
+            let new_pass = Pass(
+                id: UUID(),
+                name: new_name,
+                expiry_date: new_expiry_date,
+                is_principal: false,
+                image: qr_image_data
+            )
+            modelContext.insert(new_pass)
+        }
         
-        modelContext.insert(new_pass)
+        try? modelContext.save()
+        WidgetCenter.shared.reloadAllTimelines()
         
-        // reset variables
-        new_name = ""
-        new_expiry_date = Date()
-        picked_image = nil
-        qr_image_data = nil
-        image_status = .empty
-        show_adding_row = false
+        withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
+            new_name = ""
+            new_expiry_date = Date()
+            picked_image = nil
+            qr_image_data = nil
+            image_status = .empty
+            active_expanded = true
+            expired_expanded = true
+            show_adding_row = false
+            pass_to_edit = nil
+        }
     }
     
     private func process_image(newItem: PhotosPickerItem?) {
@@ -515,3 +583,4 @@ struct AddPassView: View {
     return AddPassView()
         .modelContainer(container)
 }
+

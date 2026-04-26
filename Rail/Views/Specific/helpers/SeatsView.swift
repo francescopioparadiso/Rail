@@ -242,7 +242,12 @@ struct SeatsView: View {
                             }
                             
                             // existing seats list
-                            ForEach(seats.sorted(by: { lhs, rhs in
+                            ForEach(seats.filter({ seat in
+                                if let seat_to_edit = seat_to_edit {
+                                    return seat.id == seat_to_edit.id
+                                }
+                                return true
+                            }).sorted(by: { lhs, rhs in
                                 if lhs.carriage != rhs.carriage {
                                     return lhs.carriage.localizedStandardCompare(rhs.carriage) == .orderedAscending
                                     
@@ -254,34 +259,48 @@ struct SeatsView: View {
                                 }
                             })) { seat in
                                 HStack {
-                                    VStack(alignment: .leading, spacing: 8) {
-                                        Text(seat.name)
-                                            .font(.headline)
-                                            .lineLimit(1)
-                                            .truncationMode(.tail)
-                                        
-                                        if !seat.carriage.isEmpty && !seat.number.isEmpty {
-                                            HStack {
-                                                HStack(spacing: 8) {
-                                                    Image(systemName: "train.side.rear.car")
-                                                    Text(seat.carriage)
-                                                    Spacer(minLength: 0)
+                                    HStack {
+                                        VStack(alignment: .leading, spacing: 8) {
+                                            Text(seat.name)
+                                                .font(.headline)
+                                                .lineLimit(1)
+                                                .truncationMode(.tail)
+                                            
+                                            if !seat.carriage.isEmpty && !seat.number.isEmpty {
+                                                HStack {
+                                                    HStack(spacing: 8) {
+                                                        Image(systemName: "train.side.rear.car")
+                                                        Text(seat.carriage)
+                                                        Spacer(minLength: 0)
+                                                    }
+                                                    .frame(maxWidth: 64)
+                                                    
+                                                    HStack(spacing: 8) {
+                                                        Image(systemName: "carseat.left.fill")
+                                                        Text(seat.number)
+                                                    }
                                                 }
-                                                .frame(maxWidth: 64)
-                                                
-                                                HStack(spacing: 8) {
-                                                    Image(systemName: "carseat.left.fill")
-                                                    Text(seat.number)
-                                                }
+                                                .font(.body)
                                             }
-                                            .font(.body)
                                         }
+                                        .fontDesign(app_font_design)
+                                        
+                                        Spacer()
                                     }
-                                    .fontDesign(app_font_design)
+                                    .contentShape(Rectangle())
+                                    .onLongPressGesture {
+                                        UIImpactFeedbackGenerator(style: .heavy).impactOccurred()
+                                        seat_to_edit = seat
+                                        new_name = seat.name
+                                        new_carriage = seat.carriage
+                                        new_number = seat.number
+                                        qr_image_data = seat.image
+                                        image_status = seat.image != nil ? .saved : .empty
+                                        show_adding_row = true
+                                        seat_row_focus = .name
+                                    }
                                     
-                                    Spacer()
-                                    
-                                    // Fixed condition: check if image data is not empty
+                                    // QR code button
                                     if let _ = seat.image {
                                         Button {
                                             UIImpactFeedbackGenerator(style: .medium).impactOccurred()
@@ -290,20 +309,10 @@ struct SeatsView: View {
                                         } label: {
                                             Image(systemName: "qrcode")
                                                 .font(.title)
+                                                .foregroundStyle(Color.accentColor)
                                         }
+                                        .buttonStyle(PlainButtonStyle())
                                     }
-                                }
-                                .contentShape(Rectangle())
-                                .onLongPressGesture {
-                                    UIImpactFeedbackGenerator(style: .heavy).impactOccurred()
-                                    seat_to_edit = seat
-                                    new_name = seat.name
-                                    new_carriage = seat.carriage
-                                    new_number = seat.number
-                                    qr_image_data = seat.image
-                                    image_status = seat.image != nil ? .saved : .empty
-                                    show_adding_row = true
-                                    seat_row_focus = .name
                                 }
                             }
                             .onDelete(perform: delete_seat)
