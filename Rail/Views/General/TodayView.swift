@@ -123,17 +123,7 @@ struct TodayView: View {
                                     ? "\(hours)h \(minutes)m"
                                     : "\(minutes)m"
                                     
-                                    let connectionStatus: (text: String, icon: String, color: Color) = {
-                                        if totalMinutes < 20 {
-                                            return (String(localized: "Hurry up! High risk"), "figure.run", .red)
-                                        } else if totalMinutes < 40 {
-                                            return (String(localized: "Tight connection"), "exclamationmark.triangle.fill", .orange)
-                                        } else if totalMinutes < 60 {
-                                            return (String(localized: "Take your time"), "clock.fill", .yellow)
-                                        } else {
-                                            return (String(localized: "Time to relax"), "cup.and.saucer.fill", .green)
-                                        }
-                                    }()
+                                    let connectionStatus = ConnectionStatus(minutes: totalMinutes)
                                     
                                     let currentConnectionIndex = current_today_trains.indices.prefix(index + 1).reduce(0) { count, i in
                                         hasInterval(trains: current_today_trains, from: i, to: i + 1, stopsByTrain: stopsByTrain) ? count + 1 : count
@@ -322,14 +312,13 @@ struct TodayView: View {
 struct ConnectionIntervalView: View {
     let durationString: String
     let totalMinutes: Int
-    let connectionStatus: (text: String, icon: String, color: Color)
+    let connectionStatus: ConnectionStatus
     let station: String
     let weather: String?
     let index: Int
     let total: Int
     let manualRefreshCounter: Int
     
-    @State private var aiSuggestion: String? = nil
     @State private var isVisible: Bool = false
     
     var body: some View {
@@ -354,17 +343,9 @@ struct ConnectionIntervalView: View {
                         .font(.footnote).fontWeight(.semibold)
                         .contentTransition(.numericText(value: Double(totalMinutes)))
                     
-                    if let aiSuggestion {
-                        Text(aiSuggestion)
-                            .font(.caption)
-                            .contentTransition(.numericText(value: Double(aiSuggestion.hashValue)))
-                            .animation(.snappy, value: aiSuggestion)
-                            .fixedSize(horizontal: false, vertical: true)
-                            .transition(.asymmetric(
-                                insertion: .push(from: .top).combined(with: .opacity),
-                                removal: .opacity
-                            ))
-                    }
+                    Text(connectionStatus.text)
+                        .font(.caption)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
                 
                 Spacer()
@@ -382,22 +363,182 @@ struct ConnectionIntervalView: View {
                 }
             }
         }
-        .task(id: "\(totalMinutes)-\(weather ?? "unknown")-\(manualRefreshCounter)") {
-            let suggestion = await IntelligenceService.shared.generateConnectionSuggestion(
-                duration: durationString,
-                station: station,
-                weather: weather,
-                index: index,
-                total: total,
-                language: Locale.current.identifier
-            )
-
-            if !Task.isCancelled {
-                withAnimation(.snappy) {
-                    aiSuggestion = suggestion
-                }
-            }
-        }
     }
 }
+
+// MARK: - Previews
+#Preview {
+    let config = ModelConfiguration(isStoredInMemoryOnly: true)
+    let container = try! ModelContainer(for: Train.self, Stop.self, Seat.self, Favorite.self, Pass.self, configurations: config)
+    
+    let now = Date()
+    let calendar = Calendar.current
+    
+    // Train 1: Roma -> Milano
+    let train1ID = UUID()
+    let train1 = Train(
+        id: train1ID,
+        logo: "FR",
+        number: "9612",
+        identifier: "9612",
+        provider: "trenitalia",
+        last_update_time: now,
+        delay: 5,
+        direction: "Milano Centrale",
+        issue: ""
+    )
+    
+    let train1Stop1 = Stop(
+        id: train1ID,
+        name: "Roma Termini",
+        platform: "10",
+        weather: "☀️",
+        is_selected: true,
+        status: 0,
+        is_completed: true,
+        is_in_station: false,
+        dep_delay: 0,
+        arr_delay: 0,
+        dep_time_id: calendar.date(byAdding: .hour, value: -3, to: now)!,
+        arr_time_id: calendar.date(byAdding: .hour, value: -3, to: now)!,
+        dep_time_eff: calendar.date(byAdding: .hour, value: -3, to: now)!,
+        arr_time_eff: calendar.date(byAdding: .hour, value: -3, to: now)!,
+        ref_time: calendar.date(byAdding: .hour, value: -3, to: now)!
+    )
+    
+    let train1Stop2 = Stop(
+        id: train1ID,
+        name: "Milano Centrale",
+        platform: "3",
+        weather: "☁️",
+        is_selected: true,
+        status: 0,
+        is_completed: false,
+        is_in_station: true,
+        dep_delay: 0,
+        arr_delay: 5,
+        dep_time_id: calendar.date(byAdding: .minute, value: -5, to: now)!,
+        arr_time_id: calendar.date(byAdding: .minute, value: -5, to: now)!,
+        dep_time_eff: calendar.date(byAdding: .minute, value: -5, to: now)!,
+        arr_time_eff: calendar.date(byAdding: .minute, value: -5, to: now)!,
+        ref_time: calendar.date(byAdding: .minute, value: -5, to: now)!
+    )
+    
+    // Train 2: Milano -> Torino (Tight Connection: 15 min)
+    let train2ID = UUID()
+    let train2 = Train(
+        id: train2ID,
+        logo: "FR",
+        number: "9544",
+        identifier: "9544",
+        provider: "trenitalia",
+        last_update_time: now,
+        delay: 0,
+        direction: "Torino Porta Nuova",
+        issue: ""
+    )
+    
+    let train2Stop1 = Stop(
+        id: train2ID,
+        name: "Milano Centrale",
+        platform: "5",
+        weather: "☁️",
+        is_selected: true,
+        status: 0,
+        is_completed: false,
+        is_in_station: false,
+        dep_delay: 0,
+        arr_delay: 0,
+        dep_time_id: calendar.date(byAdding: .minute, value: 10, to: now)!,
+        arr_time_id: calendar.date(byAdding: .minute, value: 10, to: now)!,
+        dep_time_eff: calendar.date(byAdding: .minute, value: 10, to: now)!,
+        arr_time_eff: calendar.date(byAdding: .minute, value: 10, to: now)!,
+        ref_time: calendar.date(byAdding: .minute, value: 10, to: now)!
+    )
+    
+    let train2Stop2 = Stop(
+        id: train2ID,
+        name: "Torino Porta Nuova",
+        platform: "1",
+        weather: "🌧️",
+        is_selected: true,
+        status: 0,
+        is_completed: false,
+        is_in_station: false,
+        dep_delay: 0,
+        arr_delay: 0,
+        dep_time_id: calendar.date(byAdding: .hour, value: 1, to: now)!,
+        arr_time_id: calendar.date(byAdding: .hour, value: 1, to: now)!,
+        dep_time_eff: calendar.date(byAdding: .hour, value: 1, to: now)!,
+        arr_time_eff: calendar.date(byAdding: .hour, value: 1, to: now)!,
+        ref_time: calendar.date(byAdding: .hour, value: 1, to: now)!
+    )
+    
+    // Train 3: Torino -> Paris (Relaxed Connection: 75 min)
+    let train3ID = UUID()
+    let train3 = Train(
+        id: train3ID,
+        logo: "FR",
+        number: "9248",
+        identifier: "9248",
+        provider: "trenitalia",
+        last_update_time: now,
+        delay: 0,
+        direction: "Paris Gare de Lyon",
+        issue: ""
+    )
+    
+    let train3Stop1 = Stop(
+        id: train3ID,
+        name: "Torino Porta Nuova",
+        platform: "3",
+        weather: "🌧️",
+        is_selected: true,
+        status: 0,
+        is_completed: false,
+        is_in_station: false,
+        dep_delay: 0,
+        arr_delay: 0,
+        dep_time_id: calendar.date(byAdding: .minute, value: 135, to: now)!,
+        arr_time_id: calendar.date(byAdding: .minute, value: 135, to: now)!,
+        dep_time_eff: calendar.date(byAdding: .minute, value: 135, to: now)!,
+        arr_time_eff: calendar.date(byAdding: .minute, value: 135, to: now)!,
+        ref_time: calendar.date(byAdding: .minute, value: 135, to: now)!
+    )
+    
+    let train3Stop2 = Stop(
+        id: train3ID,
+        name: "Paris Gare de Lyon",
+        platform: "A",
+        weather: "🌤️",
+        is_selected: true,
+        status: 0,
+        is_completed: false,
+        is_in_station: false,
+        dep_delay: 0,
+        arr_delay: 0,
+        dep_time_id: calendar.date(byAdding: .hour, value: 6, to: now)!,
+        arr_time_id: calendar.date(byAdding: .hour, value: 6, to: now)!,
+        dep_time_eff: calendar.date(byAdding: .hour, value: 6, to: now)!,
+        arr_time_eff: calendar.date(byAdding: .hour, value: 6, to: now)!,
+        ref_time: calendar.date(byAdding: .hour, value: 6, to: now)!
+    )
+    
+    container.mainContext.insert(train1)
+    container.mainContext.insert(train1Stop1)
+    container.mainContext.insert(train1Stop2)
+    
+    container.mainContext.insert(train2)
+    container.mainContext.insert(train2Stop1)
+    container.mainContext.insert(train2Stop2)
+    
+    container.mainContext.insert(train3)
+    container.mainContext.insert(train3Stop1)
+    container.mainContext.insert(train3Stop2)
+    
+    return TodayView(ticketTrainID: .constant(nil), show_ticket_view: .constant(false))
+        .modelContainer(container)
+}
+
+
 

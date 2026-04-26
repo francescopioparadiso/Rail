@@ -4,7 +4,7 @@ import SwiftUI
 @main
 struct RailWidgets: WidgetBundle {
     var body: some Widget {
-        RailWidget()
+        PassWidget()
         TicketWidget()
     }
 }

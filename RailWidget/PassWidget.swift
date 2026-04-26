@@ -2,13 +2,9 @@ import WidgetKit
 import SwiftUI
 import SwiftData
 
-// widget shared variables
-let widgetFontDesign: Font.Design = .rounded
-
 // MARK: - simple entry
 struct SimpleEntry: TimelineEntry {
     let date: Date
-    
     let pass_name: String?
     let expiry_date: Date?
     let image: Data?
@@ -18,20 +14,15 @@ struct SimpleEntry: TimelineEntry {
 struct Provider: TimelineProvider {
     typealias Entry = SimpleEntry
 
-    // get first principal pass from shared SwiftData container
     @MainActor
     func fetchFirstPass() -> (String?, Date?, Data?) {
         do {
-            /// group identifier
             let groupIdentifier = "group.com.francescoparadis.Rail"
-            
-            /// shared container URL
             guard let groupURL = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: groupIdentifier) else {
                 return (nil, nil, nil)
             }
             let databaseURL = groupURL.appendingPathComponent("default.store")
             
-            /// configuration for SwiftData
             let schema = Schema([
                 Train.self,
                 Stop.self,
@@ -51,7 +42,6 @@ struct Provider: TimelineProvider {
             let descriptor = FetchDescriptor<Pass>(sortBy: [SortDescriptor(\.expiry_date)])
             let passes = try container.mainContext.fetch(descriptor)
             
-            /// get the first principal pass
             if let principal_pass = passes.first(where: { $0.is_principal }) {
                 return (principal_pass.name, principal_pass.expiry_date, principal_pass.image)
             }
@@ -61,7 +51,6 @@ struct Provider: TimelineProvider {
         return (nil, nil, nil)
     }
 
-    // define placeholder (needed for widget gallery)
     func placeholder(in context: Context) -> SimpleEntry {
         SimpleEntry(
             date: Date(),
@@ -71,7 +60,6 @@ struct Provider: TimelineProvider {
         )
     }
 
-    // define snapshot (needed for widget gallery)
     func getSnapshot(in context: Context, completion: @escaping (SimpleEntry) -> ()) {
         Task {
             let (name, expiry_date, image) = await fetchFirstPass()
@@ -85,7 +73,6 @@ struct Provider: TimelineProvider {
         }
     }
 
-    // define timeline (needed for widget updates)
     func getTimeline(in context: Context, completion: @escaping (Timeline<SimpleEntry>) -> ()) {
         Task {
             let (name, expiry_date, image) = await fetchFirstPass()
@@ -102,86 +89,44 @@ struct Provider: TimelineProvider {
 }
 
 // MARK: - widget view
-struct RailWidgetEntryView : View {
-    // MARK: - variables
-    // environment variables
-    @Environment(\.widgetFamily) var family
-    
-    // pass variables
+struct PassWidgetEntryView : View {
     var entry: Provider.Entry
         
     var body: some View {
         Group {
             if let pass_name = entry.pass_name, let expiry_date = entry.expiry_date {
-                switch family {
-                case .systemSmall:
-                    smallLayout(name: pass_name, date: expiry_date)
-                case .systemMedium:
-                    mediumLayout(name: pass_name, date: expiry_date)
-                default:
-                    largeLayout(name: pass_name, date: expiry_date)
-                }
+                mediumLayout(name: pass_name, date: expiry_date)
             } else {
                 ContentUnavailableView("No pass selected", systemImage: "ticket.fill")
                     .fontDesign(widgetFontDesign)
-                    .lineLimit(1).truncationMode(.tail)
-                    .minimumScaleFactor(0.5)
             }
         }
         .containerBackground(.ultraThinMaterial, for: .widget)
         .widgetURL(URL(string: "railapp://view-pass"))
     }
     
-    // MARK: - layouts
-    @ViewBuilder
-    func smallLayout(name: String, date: Date) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            headerView()
-            
-            nameView(for: name)
-            
-            Spacer()
-            
-            expiryDateView(for: date)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
     @ViewBuilder
     func mediumLayout(name: String, date: Date) -> some View {
-        HStack {
+        HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 4) {
                 headerView()
                 
-                nameView(for: name)
+                Text(name)
+                    .font(.title2).fontWeight(.semibold).fontDesign(widgetFontDesign)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.6)
                 
                 Spacer()
                 
                 expiryDateView(for: date)
             }
             
-            Spacer()
+            Spacer(minLength: 0)
             
             codeImageView()
         }
     }
     
-    @ViewBuilder
-    func largeLayout(name: String, date: Date) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            headerView()
-            
-            nameView(for: name)
-            
-            expiryDateView(for: date)
-            
-            Spacer(minLength: 8)
-            
-            codeImageView()
-        }
-    }
-    
-    // MARK: - reusable views
     @ViewBuilder
     private func headerView() -> some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -197,55 +142,38 @@ struct RailWidgetEntryView : View {
     }
     
     @ViewBuilder
-    private func nameView(for name: String) -> some View {
-        Text(name)
-            .font(.title).fontWeight(.semibold).fontDesign(widgetFontDesign)
-            .lineLimit(1).truncationMode(.tail)
-            .minimumScaleFactor(0.5)
-    }
-    
-    @ViewBuilder
     private func expiryDateView(for date: Date) -> some View {
         let isActive = date >= Date()
         let color: Color = isActive ? .green : .red
         let text = isActive ? "Active" : "Expired"
-        let time_remaining: String = {
-            if date < Date() {
-                let dateString = date.formatted(.dateTime.day().month().year())
-                return String(localized: "Expired on \(dateString)")
-            }
-            
-            let totalDays = Calendar.current.dateComponents([.day], from: Date(), to: date).day ?? 0
-            if totalDays == 0 { return String(localized: "Expires today") }
-            if totalDays == 1 { return String(localized: "Expires tomorrow") }
-            
-            return String(localized: "Expires in \(totalDays) days")
-        }()
         
-        switch family {
-        case .systemSmall:
+        VStack(alignment: .leading, spacing: 4) {
             Text(text)
-                .font(.footnote).fontWeight(.semibold).fontDesign(widgetFontDesign)
+                .font(.footnote).fontWeight(.bold).fontDesign(widgetFontDesign)
                 .padding(.horizontal, 8).padding(.vertical, 4)
-                .foregroundStyle(color)
-                .background(color.opacity(0.15))
+                .foregroundStyle(.white)
+                .background(color)
                 .clipShape(Capsule())
             
-        default:
-            HStack {
-                Text(text)
-                    .font(.footnote).fontWeight(.semibold).fontDesign(widgetFontDesign)
-                    .padding(.horizontal, 8).padding(.vertical, 4)
-                    .foregroundStyle(color)
-                    .background(color.opacity(0.15))
-                    .clipShape(Capsule())
-                
-                Text(time_remaining)
-                    .font(.footnote).fontWeight(.medium).fontDesign(widgetFontDesign)
-                    .foregroundStyle(color)
-                    .lineLimit(1).truncationMode(.tail)
-                    .minimumScaleFactor(0.5)
+            Group {
+                if !isActive {
+                    Text("Expired on \(date.formatted(.dateTime.day().month().year()))")
+                } else {
+                    let totalDays = Calendar.current.dateComponents([.day], from: Date(), to: date).day ?? 0
+                    if totalDays == 0 {
+                        Text("Expires today")
+                    } else if totalDays == 1 {
+                        Text("Expires tomorrow")
+                    } else {
+                        Text("Expires in \(totalDays) days")
+                    }
+                }
             }
+            .font(.caption).fontWeight(.medium).fontDesign(widgetFontDesign)
+            .foregroundStyle(color)
+            .lineLimit(1)
+            .minimumScaleFactor(0.8)
+            .padding(.leading, 4)
         }
     }
     
@@ -256,89 +184,58 @@ struct RailWidgetEntryView : View {
                 .resizable()
                 .interpolation(.none)
                 .scaledToFit()
-                .padding(family == .systemLarge ? 16 : 8)
+                .padding(6)
                 .background(Color.white)
-                .cornerRadius(16)
+                .cornerRadius(12)
+                .frame(maxHeight: .infinity)
         } else {
-            ContentUnavailableView {
-                Label("No Code", systemImage: "qrcode.viewfinder")
+            VStack {
+                Image(systemName: "qrcode.viewfinder")
+                    .font(.title)
+                Text("No Code")
+                    .font(.caption2)
             }
-            .scaleEffect(0.8)
+            .foregroundStyle(.secondary)
+            .fontDesign(widgetFontDesign)
+            .frame(width: 80)
         }
     }
 }
 
 // MARK: - widget
-struct RailWidget: Widget {
-    let kind: String = "RailWidget"
+struct PassWidget: Widget {
+    let kind: String = "PassWidget"
 
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: kind, provider: Provider()) { entry in
-            RailWidgetEntryView(entry: entry)
+            PassWidgetEntryView(entry: entry)
         }
         .configurationDisplayName("Pass Widget")
         .description("Displays your principal pass QR code.")
+        .supportedFamilies([.systemMedium])
     }
 }
 
 // MARK: - previews
-#Preview("Small", as: .systemSmall) {
-    RailWidget()
-} timeline: {
-    SimpleEntry(
-        date: .now,
-        pass_name: "Settimanale",
-        expiry_date: .now.addingTimeInterval(86400),
-        image: UIImage(named: "sample_code")?.pngData()
-    )
-}
-
 #Preview("Medium", as: .systemMedium) {
-    RailWidget()
+    PassWidget()
 } timeline: {
     SimpleEntry(
         date: .now,
         pass_name: "Mensile",
-        expiry_date: .now.addingTimeInterval(86400 * 91),
-        image: UIImage(named: "sample_code")?.pngData()
+        expiry_date: Calendar.current.date(byAdding: .day, value: 30, to: Date()) ?? .now,
+        image: scaleImage(data: UIImage(named: "sample_code")?.pngData(), to: 400)
     )
-}
-
-#Preview("Large", as: .systemLarge) {
-    RailWidget()
-} timeline: {
     SimpleEntry(
         date: .now,
-        pass_name: "Annuale",
-        expiry_date: .now.addingTimeInterval(-86400 * 91),
-        image: UIImage(named: "sample_code")?.pngData()
+        pass_name: "Settimanale",
+        expiry_date: Calendar.current.date(byAdding: .day, value: -1, to: Date()) ?? .now,
+        image: scaleImage(data: UIImage(named: "sample_code")?.pngData(), to: 400)
     )
 }
 
-#Preview("Unavailable - Small", as: .systemSmall) {
-    RailWidget()
-} timeline: {
-    SimpleEntry(
-        date: .now,
-        pass_name: nil,
-        expiry_date: nil,
-        image: nil
-    )
-}
-
-#Preview("Unavailable - Medium", as: .systemMedium) {
-    RailWidget()
-} timeline: {
-    SimpleEntry(
-        date: .now,
-        pass_name: nil,
-        expiry_date: nil,
-        image: nil
-    )
-}
-
-#Preview("Unavailable - Large", as: .systemLarge) {
-    RailWidget()
+#Preview("Unavailable", as: .systemMedium) {
+    PassWidget()
 } timeline: {
     SimpleEntry(
         date: .now,
