@@ -69,7 +69,7 @@ struct ContentView: View {
                         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
                         add_favorite_sheet = true
                     } label: {
-                        Label("Favorites", systemImage: "heart")
+                        Image(systemName: "heart")
                     }
                     .tint(Color.red)
                 }
@@ -81,7 +81,7 @@ struct ContentView: View {
                         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
                         add_pass_sheet = true
                     } label: {
-                        Label("Passes", systemImage: "ticket")
+                        Image(systemName: "ticket")
                     }
                 }
             }
@@ -105,6 +105,7 @@ struct ContentView: View {
         }
         .sheet(isPresented: $add_pass_sheet) {
             AddPassView()
+                .interactiveDismissDisabled()
         }
         .onOpenURL { url in
             if url.scheme == "railapp" && url.host == "view-pass" {

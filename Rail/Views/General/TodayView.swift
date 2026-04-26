@@ -23,6 +23,9 @@ struct TodayView: View {
     @State private var updateTask: Task<Void, Never>? = nil
     @State private var navigationPath: [Train] = []
     
+    @State private var updateCounter = 0
+    @State private var manualRefreshCounter = 0
+    
     // computed variables
     private var today_trains: [Train] {
         let now = Date()
@@ -52,8 +55,11 @@ struct TodayView: View {
     
     // MARK: - main view
     var body: some View {
+        let current_today_trains = today_trains
+        let stopsByTrain = Dictionary(grouping: stops, by: { $0.id })
+        
         NavigationStack(path: $navigationPath) {
-            if today_trains.isEmpty {
+            if current_today_trains.isEmpty {
                 ContentUnavailableView("No ongoing journeys",
                                        systemImage: "exclamationmark.magnifyingglass",
                                        description: Text("Add a new journey by tapping the button below."))
@@ -61,33 +67,25 @@ struct TodayView: View {
                 .foregroundColor(Color.primary)
                 .fontDesign(app_font_design)
             } else {
-                let stopsByTrain = Dictionary(grouping: stops, by: { $0.id })
                 let seatsByTrain = Dictionary(grouping: seats, by: { $0.trainID })
                 
+                let totalConnections = current_today_trains.indices.dropLast().reduce(0) { count, i in
+                    hasInterval(trains: current_today_trains, from: i, to: i + 1, stopsByTrain: stopsByTrain) ? count + 1 : count
+                }
+                
                 List {
-                    ForEach(Array(today_trains.enumerated()), id: \.element.id) { index, train in
+                    ForEach(Array(current_today_trains.enumerated()), id: \.element.id) { index, train in
                         // compute stops and summary for this train
                         let trainStops = (stopsByTrain[train.id] ?? [])
                             .sorted(by: { $0.ref_time < $1.ref_time })
                         
                         let summary = StopSummary.calculate(for: train.id, in: trainStops)
                         
-                        let trainSeats = (seatsByTrain[train.id] ?? [])
-                            .sorted {
-                                if $0.carriage != $1.carriage {
-                                    return $0.carriage < $1.carriage
-                                } else if $0.number != $1.number {
-                                    return $0.number < $1.number
-                                } else {
-                                    return $0.name < $1.name
-                                }
-                            }
-                        
-                        let nextTrain = index + 1 < today_trains.count ? today_trains[index + 1] : nil
+                        let nextTrain = index + 1 < current_today_trains.count ? current_today_trains[index + 1] : nil
                         
                         // determine if there’s an interval before or after this train
-                        let hasIntervalBefore = hasInterval(from: index - 1, to: index, stopsByTrain: stopsByTrain)
-                        let hasIntervalAfter = hasInterval(from: index, to: index + 1, stopsByTrain: stopsByTrain)
+                        let hasIntervalBefore = hasInterval(trains: current_today_trains, from: index - 1, to: index, stopsByTrain: stopsByTrain)
+                        let hasIntervalAfter = hasInterval(trains: current_today_trains, from: index, to: index + 1, stopsByTrain: stopsByTrain)
                         
                         // adjust vertical padding based on intervals
                         let topPadding: CGFloat = hasIntervalBefore ? 2 : (index == 0 ? 16 : 24)
@@ -121,50 +119,36 @@ struct TodayView: View {
                                     let hours = totalMinutes / 60
                                     let minutes = totalMinutes % 60
                                     
+                                    let durationString = hours > 0
+                                    ? "\(hours)h \(minutes)m"
+                                    : "\(minutes)m"
+                                    
                                     let connectionStatus: (text: String, icon: String, color: Color) = {
-                                        if totalMinutes < 10 {
+                                        if totalMinutes < 20 {
                                             return (String(localized: "Hurry up! High risk"), "figure.run", .red)
-                                        } else if totalMinutes < 20 {
+                                        } else if totalMinutes < 40 {
                                             return (String(localized: "Tight connection"), "exclamationmark.triangle.fill", .orange)
+                                        } else if totalMinutes < 60 {
+                                            return (String(localized: "Take your time"), "clock.fill", .yellow)
                                         } else {
                                             return (String(localized: "Time to relax"), "cup.and.saucer.fill", .green)
                                         }
                                     }()
                                     
-                                    let timeString = hours > 0
-                                    ? "\(hours)h \(minutes)m"
-                                    : "\(minutes)m"
-                                    
-                                    HStack(alignment: .center, spacing: 8) {
-                                        Rectangle()
-                                            .fill(connectionStatus.color.opacity(0.3))
-                                            .frame(width: 3, height: 20)
-                                            .cornerRadius(1.5)
-                                        
-                                        Image(systemName: connectionStatus.icon)
-                                            .font(.footnote)
-                                        
-                                        Text("\(NSLocalizedString("Connection:", comment: "")) \(timeString)")
-                                            .font(.caption).fontWeight(.semibold)
-                                            .contentTransition(.numericText(value: Double(totalMinutes)))
-                                            .animation(.snappy, value: totalMinutes)
-                                        
-                                        Text("•")
-                                        
-                                        Text(connectionStatus.text)
-                                            .font(.caption)
-                                            .contentTransition(.numericText(value: Double(totalMinutes)))
-                                            .animation(.snappy, value: totalMinutes)
-                                        
-                                        Spacer()
+                                    let currentConnectionIndex = current_today_trains.indices.prefix(index + 1).reduce(0) { count, i in
+                                        hasInterval(trains: current_today_trains, from: i, to: i + 1, stopsByTrain: stopsByTrain) ? count + 1 : count
                                     }
-                                    .fontDesign(app_font_design)
-                                    .foregroundColor(connectionStatus.color)
-                                    .padding(.vertical, 8)
-                                    .padding(.horizontal, 16)
-                                    .background(connectionStatus.color.opacity(0.05))
-                                    .cornerRadius(16)
-                                    .padding(.horizontal, 8)
+                                    
+                                    ConnectionIntervalView(
+                                        durationString: durationString,
+                                        totalMinutes: totalMinutes,
+                                        connectionStatus: connectionStatus,
+                                        station: summary.last.name,
+                                        weather: summary.last.weather,
+                                        index: currentConnectionIndex,
+                                        total: totalConnections,
+                                        manualRefreshCounter: manualRefreshCounter
+                                    )
                                 }
                             }
                         }
@@ -172,13 +156,15 @@ struct TodayView: View {
                         .listRowSeparator(.hidden)
                         .listRowBackground(Color.clear)
                     }
-                    .onDelete(perform: delete_today_trains)
+                    .onDelete(perform: { offsets in
+                        delete_today_trains(at: offsets, current_today_trains: current_today_trains)
+                    })
                 }
                 .scrollIndicators(.hidden)
                 .listStyle(.plain)
                 .padding(.horizontal)
                 .refreshable {
-                    Task { await update_today_trains() }
+                    Task { await update_today_trains(current_today_trains: current_today_trains, isManual: true) }
                 }
                 .navigationDestination(for: Train.self) { train in
                     let trainStops = stops.filter { $0.id == train.id }.sorted(by: { $0.ref_time < $1.ref_time })
@@ -210,15 +196,15 @@ struct TodayView: View {
             updateTask = Task {
                 print("🔄 Starting update loop at \(Date().formatted(date: .abbreviated, time: .standard))")
                 // Initial update
-                await update_today_trains()
+                await update_today_trains(current_today_trains: current_today_trains)
                 
                 // Loop every 30 seconds
                 while !Task.isCancelled {
                     try? await Task.sleep(nanoseconds: 30_000_000_000) // 30 seconds
                     if Task.isCancelled { break }
                     
-                    print("🔄 Updating today trains data...\(today_trains.count)/\(trains.count) at \(Date().formatted(date: .abbreviated, time: .standard))")
-                    await update_today_trains()
+                    print("🔄 Updating today trains data...\(current_today_trains.count)/\(trains.count) at \(Date().formatted(date: .abbreviated, time: .standard))")
+                    await update_today_trains(current_today_trains: current_today_trains)
                 }
             }
         }
@@ -229,8 +215,8 @@ struct TodayView: View {
     }
     
     // MARK: - functions
-    private func delete_today_trains(at offsets: IndexSet) {
-        let items = offsets.map { today_trains[$0] }
+    private func delete_today_trains(at offsets: IndexSet, current_today_trains: [Train]) {
+        let items = offsets.map { current_today_trains[$0] }
         for train in items {
             let relatedStops = stops.filter { $0.id == train.id }
             relatedStops.forEach { modelContext.delete($0) }
@@ -238,12 +224,12 @@ struct TodayView: View {
         }
     }
     
-    private func update_today_trains() async {
+    private func update_today_trains(current_today_trains: [Train], isManual: Bool = false) async {
         guard !isUpdating else { return }
         isUpdating = true
         defer { isUpdating = false }
         
-        let trainsToUpdate = today_trains
+        let trainsToUpdate = current_today_trains
         
         await withTaskGroup(of: Void.self) { group in
             for train in trainsToUpdate {
@@ -302,19 +288,25 @@ struct TodayView: View {
             }
         }
         try? modelContext.save()
-        WidgetCenter.shared.reloadAllTimelines()
+        await MainActor.run {
+            if isManual {
+                manualRefreshCounter += 1
+            }
+            updateCounter += 1
+            WidgetCenter.shared.reloadAllTimelines()
+        }
     }
     
-    private func hasInterval(from sourceIndex: Int, to targetIndex: Int, stopsByTrain: [UUID: [Stop]]) -> Bool {
+    private func hasInterval(trains: [Train], from sourceIndex: Int, to targetIndex: Int, stopsByTrain: [UUID: [Stop]]) -> Bool {
         // Validate indices
-        guard sourceIndex >= 0, sourceIndex < today_trains.count,
-              targetIndex >= 0, targetIndex < today_trains.count else {
+        guard sourceIndex >= 0, sourceIndex < trains.count,
+              targetIndex >= 0, targetIndex < trains.count else {
             return false
         }
         
         // Get source and target trains
-        let sourceTrain = today_trains[sourceIndex]
-        let targetTrain = today_trains[targetIndex]
+        let sourceTrain = trains[sourceIndex]
+        let targetTrain = trains[targetIndex]
         
         // Get relevant stops for both trains using pre-grouped data
         let sourceStops = (stopsByTrain[sourceTrain.id] ?? []).filter { $0.is_selected }.sorted(by: { $0.ref_time < $1.ref_time })
@@ -325,3 +317,87 @@ struct TodayView: View {
         return (sourceLastStop.name == targetFirstStop.name) && (sourceLastStop.arr_time_eff < targetFirstStop.dep_time_eff)
     }
 }
+
+// MARK: - Subviews
+struct ConnectionIntervalView: View {
+    let durationString: String
+    let totalMinutes: Int
+    let connectionStatus: (text: String, icon: String, color: Color)
+    let station: String
+    let weather: String?
+    let index: Int
+    let total: Int
+    let manualRefreshCounter: Int
+    
+    @State private var aiSuggestion: String? = nil
+    @State private var isVisible: Bool = false
+    
+    var body: some View {
+        HStack(alignment: .center, spacing: 8) {
+            // connection line
+            Rectangle()
+                .fill(connectionStatus.color.opacity(0.3))
+                .frame(width: 3)
+                .cornerRadius(1.5)
+                .scaleEffect(y: isVisible ? 1.0 : 0.0, anchor: .top)
+                .opacity(isVisible ? 1.0 : 0.0)
+                .fixedSize(horizontal: true, vertical: false)
+            
+            HStack(spacing: 8) {
+                Image(systemName: connectionStatus.icon)
+                    .font(.title3)
+                    .symbolEffect(.bounce, value: isVisible)
+                    .frame(width: 32)
+                
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("\(NSLocalizedString("Connection:", comment: "")) \(durationString)")
+                        .font(.footnote).fontWeight(.semibold)
+                        .contentTransition(.numericText(value: Double(totalMinutes)))
+                    
+                    if let aiSuggestion {
+                        Text(aiSuggestion)
+                            .font(.caption)
+                            .contentTransition(.numericText(value: Double(aiSuggestion.hashValue)))
+                            .animation(.snappy, value: aiSuggestion)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .transition(.asymmetric(
+                                insertion: .push(from: .top).combined(with: .opacity),
+                                removal: .opacity
+                            ))
+                    }
+                }
+                
+                Spacer()
+            }
+            .opacity(isVisible ? 1.0 : 0.0)
+            .offset(x: isVisible ? 0 : -10)
+        }
+        .padding(.vertical, 8).padding(.horizontal)
+        .fontDesign(app_font_design)
+        .foregroundColor(connectionStatus.color)
+        .onAppear {
+            if !isVisible {
+                withAnimation(.snappy) {
+                    isVisible = true
+                }
+            }
+        }
+        .task(id: "\(totalMinutes)-\(weather ?? "unknown")-\(manualRefreshCounter)") {
+            let suggestion = await IntelligenceService.shared.generateConnectionSuggestion(
+                duration: durationString,
+                station: station,
+                weather: weather,
+                index: index,
+                total: total,
+                language: Locale.current.identifier
+            )
+
+            if !Task.isCancelled {
+                withAnimation(.snappy) {
+                    aiSuggestion = suggestion
+                }
+            }
+        }
+    }
+}
+

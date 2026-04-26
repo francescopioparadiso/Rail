@@ -62,17 +62,6 @@ struct PastView: View {
                             .sorted(by: { $0.ref_time < $1.ref_time })
                         
                         let summary = StopSummary.calculate(for: train.id, in: trainStops)
-                        
-                        let trainSeats = (seatsByTrain[train.id] ?? [])
-                            .sorted {
-                                if $0.carriage != $1.carriage {
-                                    return $0.carriage < $1.carriage
-                                } else if $0.number != $1.number {
-                                    return $0.number < $1.number
-                                } else {
-                                    return $0.name < $1.name
-                                }
-                            }
 
                         ZStack {
                             ListView(train: train, stops: trainStops, summary: summary)

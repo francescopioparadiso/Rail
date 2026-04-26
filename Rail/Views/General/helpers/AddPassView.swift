@@ -177,6 +177,8 @@ struct AddPassView: View {
                                     Spacer()
                                     
                                     Text("\(active_passes.count)")
+                                        .contentTransition(.numericText(value: Double(active_passes.count)))
+                                        .animation(.snappy, value: active_passes.count)
                                     
                                     Image(systemName: "chevron.down")
                                         .rotationEffect(.degrees(active_expanded ? 0 : -90))
@@ -187,7 +189,9 @@ struct AddPassView: View {
                                         }
                                 }
                             } footer: {
-                                Text("Swipe to the right to add the QR code to the widget")
+                                if !active_passes.isEmpty {
+                                    Text("Swipe to the right to add the QR code to the widget")
+                                }
                             }
                             .fontDesign(app_font_design)
                             
@@ -212,6 +216,8 @@ struct AddPassView: View {
                                     Spacer()
                                     
                                     Text("\(expired_passes.count)")
+                                        .contentTransition(.numericText(value: Double(expired_passes.count)))
+                                        .animation(.snappy, value: expired_passes.count)
                                     
                                     Image(systemName: "chevron.right")
                                         .rotationEffect(.degrees(expired_expanded ? 90 : 0))
@@ -300,6 +306,7 @@ struct AddPassView: View {
                 }
             }
         }
+        .interactiveDismissDisabled()
     }
     
     // MARK: - functions

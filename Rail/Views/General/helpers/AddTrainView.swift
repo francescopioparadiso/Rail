@@ -218,6 +218,9 @@ struct AddTrainView: View {
                 /// haptic feedback
                 UIImpactFeedbackGenerator(style: .medium).impactOccurred()
                 
+                /// reset focus
+                is_focused = false
+                
                 /// change view
                 current_view = .choose_train
                 
@@ -333,11 +336,11 @@ struct AddTrainView: View {
                 }
                 .padding(.bottom, is_focused ? 8 : 16).padding(.horizontal)
             }
-            .ignoresSafeArea(edges: is_focused ? [] : .bottom)
-            .background(Color(UIColor.systemBackground))
-            .toolbar(.hidden, for: .tabBar)
             .navigationTitle(current_view.title)
             .navigationBarTitleDisplayMode(.inline)
+            .ignoresSafeArea(edges: is_focused ? [] : [.top, .bottom])
+            .background(Color(UIColor.systemBackground))
+            .toolbar(.hidden, for: .tabBar)
             .toolbar {
                 // back or dismiss button
                 ToolbarItem(placement: .navigationBarLeading) {
@@ -346,6 +349,15 @@ struct AddTrainView: View {
                     } label: {
                         Image(systemName: "xmark")
                     }
+                }
+                
+                // navigation title
+                ToolbarItem(placement: .principal) {
+                    Text(current_view.title)
+                        .font(.headline)
+                        .fontDesign(app_font_design)
+                        .contentTransition(.numericText(value: Double(current_view.title.hashValue)))
+                        .animation(.snappy, value: current_view.title)
                 }
             }
         }
@@ -378,7 +390,7 @@ struct AddTrainView: View {
     
     // MARK: - views functions
     @ViewBuilder func add_train_view() -> some View {
-        VStack {
+        ScrollView {
             TextField("0", text: $train_number)
                 .font(.system(size: 80))
                 .fontDesign(app_font_design)
@@ -386,10 +398,13 @@ struct AddTrainView: View {
                 .keyboardType(.numberPad)
                 .multilineTextAlignment(.center)
                 .focused($is_focused)
-                .padding(.horizontal).padding(.vertical, 48)
+                .padding(.horizontal)
+                .padding(.top, is_focused ? 48 : 72)
             
-            Spacer()
+            Color.clear
+                .frame(height: 80)
         }
+        .scrollDisabled(is_focused)
     }
     
     @ViewBuilder func choose_train_view() -> some View {
@@ -411,72 +426,76 @@ struct AddTrainView: View {
             .padding(.bottom, 80)
             
         case .success:
-            VStack {
-                ForEach(Array(trains_fetched.keys).enumerated(), id: \.element) { index, id in
-                    // get useful parameter for displaying
-                    let number = trains_fetched[id]?["number"] as? String ?? ""
-                    let logo = trains_fetched[id]?["logo"] as? String ?? ""
-                    
-                    let stops = trains_fetched[id]?["stops"] as? [[String: Any]] ?? []
-                    let firstStop_name = stops.first?["name"] as? String ?? ""
-                    let lastStop_name = stops.last?["name"] as? String ?? ""
-                    let firstStop_refTime = stops.first?["ref_time"] as? Date ?? .distantPast
-                    let lastStop_refTime = stops.last?["ref_time"] as? Date ?? .distantPast
-                    
-                    // display button for each train
-                    Button {
-                        /// toggle behavior
-                        if trainID_selected == id {
-                            trainID_selected = nil
-                        } else {
-                            trainID_selected = id
-                        }
-                    } label: {
-                        VStack (spacing: 16) {
-                            /// logo +  number
-                            HStack {
-                                Image(logo)
-                                    .resizable()
-                                    .scaledToFit()
-                                    .frame(height: UIFont.preferredFont(forTextStyle: .title3).lineHeight * 0.8)
-                                
-                                Text(number)
-                                    .font(.title3)
-                                    .fontWeight(.semibold)
-                                
-                                Spacer()
+            ScrollView {
+                VStack {
+                    ForEach(Array(trains_fetched.keys).enumerated(), id: \.element) { index, id in
+                        // get useful parameter for displaying
+                        let number = trains_fetched[id]?["number"] as? String ?? ""
+                        let logo = trains_fetched[id]?["logo"] as? String ?? ""
+                        
+                        let stops = trains_fetched[id]?["stops"] as? [[String: Any]] ?? []
+                        let firstStop_name = stops.first?["name"] as? String ?? ""
+                        let lastStop_name = stops.last?["name"] as? String ?? ""
+                        let firstStop_refTime = stops.first?["ref_time"] as? Date ?? .distantPast
+                        let lastStop_refTime = stops.last?["ref_time"] as? Date ?? .distantPast
+                        
+                        // display button for each train
+                        Button {
+                            /// toggle behavior
+                            if trainID_selected == id {
+                                trainID_selected = nil
+                            } else {
+                                trainID_selected = id
                             }
-                            
-                            /// departure and arrival stop name + time
-                            VStack(alignment: .leading, spacing: 4) {
+                        } label: {
+                            VStack (spacing: 16) {
+                                /// logo +  number
                                 HStack {
-                                    Text(firstStop_name)
+                                    Image(logo)
+                                        .resizable()
+                                        .scaledToFit()
+                                        .frame(height: UIFont.preferredFont(forTextStyle: .title3).lineHeight * 0.8)
+                                    
+                                    Text(number)
+                                        .font(.title3)
+                                        .fontWeight(.semibold)
+                                    
                                     Spacer()
-                                    Text(firstStop_refTime.formatted(Date.FormatStyle.dateTime.hour().minute()))
                                 }
                                 
-                                HStack {
-                                    Text(lastStop_name)
-                                    Spacer()
-                                    Text(lastStop_refTime.formatted(Date.FormatStyle.dateTime.hour().minute()))
+                                /// departure and arrival stop name + time
+                                VStack(alignment: .leading, spacing: 4) {
+                                    HStack {
+                                        Text(firstStop_name)
+                                        Spacer()
+                                        Text(firstStop_refTime.formatted(Date.FormatStyle.dateTime.hour().minute()))
+                                    }
+                                    
+                                    HStack {
+                                        Text(lastStop_name)
+                                        Spacer()
+                                        Text(lastStop_refTime.formatted(Date.FormatStyle.dateTime.hour().minute()))
+                                    }
                                 }
+                                .font(.subheadline)
                             }
-                            .font(.subheadline)
+                            .fontDesign(app_font_design)
+                            .foregroundStyle(Color.primary)
+                            .padding()
+                            .background(
+                                RoundedRectangle(cornerRadius: 24)
+                                    .stroke(style: trainID_selected == id ? StrokeStyle(lineWidth: 2) : StrokeStyle(lineWidth: 1, dash: [5]))
+                                    .foregroundColor(trainID_selected == id ? Color.accentColor : Color.primary.opacity(0.5))
+                            )
                         }
-                        .fontDesign(app_font_design)
-                        .foregroundStyle(Color.primary)
                         .padding()
-                        .background(
-                            RoundedRectangle(cornerRadius: 24)
-                                .stroke(style: trainID_selected == id ? StrokeStyle(lineWidth: 2) : StrokeStyle(lineWidth: 1, dash: [5]))
-                                .foregroundColor(trainID_selected == id ? Color.accentColor : Color.primary.opacity(0.5))
-                        )
                     }
-                    .padding()
                 }
                 
-                Spacer()
+                Color.clear
+                    .frame(height: 80)
             }
+            .contentMargins(.top, 72, for: .scrollContent)
             
         case .failure:
             ContentUnavailableView(
@@ -534,41 +553,9 @@ struct AddTrainView: View {
             .listStyle(.plain)
             .scrollContentBackground(.hidden)
             .scrollIndicators(.hidden)
-            .padding(8)
-            
-            /*
-            // select/deselect all button
-            Button {
-                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                if stops_selected.count < stops_fetched.count {
-                    stops_selected = stops_fetched
-                } else {
-                    stops_selected.removeAll()
-                }
-            } label: {
-                HStack {
-                    Image(systemName: stops_selected.count < stops_fetched.count ? "circle" : "checkmark.circle.fill")
-                        .font(.largeTitle)
-                        .padding(.vertical).padding(.leading)
-                        .contentTransition(.symbolEffect(.replace.downUp.wholeSymbol, options: .nonRepeating))
-                    
-                    Text(stops_selected.count < stops_fetched.count ? "Select All Stops" : "Deselect All Stops")
-                        .font(.footnote)
-                        .multilineTextAlignment(.leading)
-                        .padding(.vertical).padding(.trailing)
-                        .contentTransition(.numericText(value: Double(stops_selected.count)))
-                        .animation(.snappy, value: stops_selected.count)
-                    
-                    Spacer(minLength: 0)
-                }
-                .fontDesign(appFontDesign)
-                .foregroundStyle(Color.accentColor)
-            }
-            .frame(maxWidth: .infinity)
-            .buttonStyle(.glassProminent)
-            .tint(Color.accentColor.opacity(0.15))
-            .padding(.bottom).padding(.horizontal)
-             */
+            .contentMargins(.horizontal, 8, for: .scrollContent)
+            .contentMargins(.top, 72, for: .scrollContent)
+            .padding(.bottom, 8)
         }
         .background(Color(UIColor.systemBackground))
         .ignoresSafeArea(edges: .bottom)
@@ -576,13 +563,15 @@ struct AddTrainView: View {
     }
     
     @ViewBuilder func choose_date_view() -> some View {
-        VStack {
+        ScrollView {
             DatePicker("", selection: $date_selected, in: Date()..., displayedComponents: [.date])
                 .datePickerStyle(GraphicalDatePickerStyle())
             
-            Spacer()
+            Color.clear
+                .frame(height: 80)
         }
-        .padding(8)
+        .contentMargins(.top, 72, for: .scrollContent)
+        .padding(.horizontal, 8)
     }
     
     // MARK: - fetching functions
