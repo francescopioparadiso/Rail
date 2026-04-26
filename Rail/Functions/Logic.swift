@@ -26,12 +26,12 @@ func fetch_common_train_list(number: String) async -> [[String: Any]] {
 
                 if timestamp >= todayTimestamp {
                     let identifier = "\(code)/\(number)/\(timestamp)"
-                    group.addTask { await TrenitaliaAPI().info(identifier: identifier, should_fetch_weather: true) }
+                    group.addTask { await TrenitaliaAPI().info(identifier: identifier, should_fetch_weather: false) }
                 }
             }
 
             if !number.isEmpty {
-                group.addTask { await ItaloAPI().info(identifier: number) }
+                group.addTask { await ItaloAPI().info(identifier: number, should_fetch_weather: false) }
             }
 
             for await result in group {
@@ -438,7 +438,7 @@ class ItaloAPI {
         return solutions
     }
 
-    func info(identifier: String) async -> [String: Any]? {
+    func info(identifier: String, should_fetch_weather: Bool) async -> [String: Any]? {
         let urlString = "https://italoinviaggio.italotreno.it/api/RicercaTrenoService?TrainNumber=\(identifier)"
         guard let url = URL(string: urlString) else { return nil }
 
@@ -479,7 +479,14 @@ class ItaloAPI {
                     let arr_time_eff = Calendar.current.date(bySetting: .second, value: 0, of: time_to_date(timeString: each["ActualArrivalTime"] as? String ?? "")!)!
                     let ref_time = i == 0 ? dep_time_id : arr_time_id
                     
-                    let weather = try await getOpenMeteoWeather(lat: get_latitude(for: name), lon: get_longitude(for: name), date: ref_time)
+                    let weather: String = await {
+                        guard should_fetch_weather else { return "" }
+                        do {
+                            return try await getOpenMeteoWeather(lat: get_latitude(for: name), lon: get_longitude(for: name), date: ref_time)
+                        } catch {
+                            return ""
+                        }
+                    }()
                     
                     if i == 0 {
                         // first station

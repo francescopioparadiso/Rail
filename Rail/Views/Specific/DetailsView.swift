@@ -3,6 +3,7 @@ import SwiftData
 import PhotosUI
 import Vision
 import CoreImage.CIFilterBuiltins
+import WidgetKit
 
 extension String: @retroactive Identifiable {
     public var id: String { self }
@@ -20,6 +21,7 @@ struct DetailsView: View {
     let train: Train
     let stops: [Stop]
     let seats: [Seat]
+    @Binding var show_ticket_initially: Bool
     @Query private var favorites: [Favorite]
     
     // state variables
@@ -55,37 +57,33 @@ struct DetailsView: View {
         }
     }
     
+    private var summary: StopSummary {
+        StopSummary.calculate(for: train.id, in: stops)
+    }
+
     private var show_speed: Bool {
-        if let last_stop = stops
-            .filter({ $0.is_selected })
-            .sorted(by: { $0.ref_time < $1.ref_time })
-            .last {
-            
-            return Date() <= last_stop.arr_time_eff || Calendar.current.isDateInToday(last_stop.arr_time_eff)
-        }
-        
-        return false
+        return Date() <= summary.last.arr_time_eff || Calendar.current.isDateInToday(summary.last.arr_time_eff)
     }
     
     private var first_stop: Stop {
         show_all_stops ?
         stops.first ?? Stop.placeholder() :
-        stops.first(where: { $0.is_selected }) ?? stops.first ?? Stop.placeholder()
+        summary.first
     }
     private var last_stop: Stop {
         show_all_stops ?
         stops.last ?? Stop.placeholder() :
-        stops.last(where: { $0.is_selected }) ?? stops.last ?? Stop.placeholder()
+        summary.last
     }
     private var first_stop_no_issues: Stop {
         show_all_stops ?
         stops.first(where: { $0.status != 3 }) ?? stops.first ?? Stop.placeholder() :
-        stops.first(where: { $0.status != 3 && $0.is_selected }) ?? Stop.placeholder()
+        summary.firstNoIssues
     }
     private var last_stop_no_issues: Stop {
         show_all_stops ?
         stops.last(where: { $0.status != 3 }) ?? stops.last ?? Stop.placeholder() :
-        stops.last(where: { $0.status != 3 && $0.is_selected}) ?? stops.last ?? Stop.placeholder()
+        summary.lastNoIssues
     }
     
     private var first_index: Int {
@@ -686,7 +684,7 @@ struct DetailsView: View {
             .toolbar {
                 /// speed button
                 if show_speed {
-                    ToolbarItem(placement: .topBarTrailing) {
+                    ToolbarItem {
                         Button {
                         } label: {
                             Gauge(value: Double(speedManager.displayedSpeed), in: min_speed...max_speed) {
@@ -707,13 +705,13 @@ struct DetailsView: View {
                             .scaleEffect(0.6)
                             .frame(width: 25, height: 25)
                         }
-                        .buttonStyle(.glassProminent)
-                        .tint(color_scheme == .dark ? Color.black.opacity(0.1) : Color.white)
                     }
                 }
                 
+                ToolbarSpacer(.flexible)
+                
                 /// favorite button
-                ToolbarItem(placement: .topBarTrailing) {
+                ToolbarItem {
                     Button {
                         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
                         
@@ -767,8 +765,10 @@ struct DetailsView: View {
                     .tint(is_favorite ? Color.red : Color.primary)
                 }
                 
+                ToolbarSpacer(.flexible)
+                
                 /// seats button
-                ToolbarItem(placement: .topBarTrailing) {
+                ToolbarItem {
                     Button {
                         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
                         seats_sheet = true
@@ -795,8 +795,6 @@ struct DetailsView: View {
                         .fontDesign(app_font_design)
                         .foregroundStyle(Color.primary)
                     }
-                    .buttonStyle(.glassProminent)
-                    .tint(color_scheme == .dark ? Color.black.opacity(0.1) : Color.white)
                 }
             }
             .sheet(isPresented: $seats_sheet) {
@@ -837,6 +835,11 @@ struct DetailsView: View {
             speedManager.startMonitoring()
             
             Task { await update_train_details() }
+            
+            if show_ticket_initially {
+                seats_sheet = true
+                show_ticket_initially = false
+            }
         }
         .onDisappear {
             speedManager.stopMonitoring()
@@ -844,6 +847,14 @@ struct DetailsView: View {
         .onChange(of: scene_phase) { _, newPhase in
             if newPhase == .active {
                 Task { await update_train_details() }
+            }
+        }
+        .onChange(of: show_ticket_initially) { _, newValue in
+            if newValue {
+                if !seats_sheet {
+                    seats_sheet = true
+                }
+                show_ticket_initially = false
             }
         }
     }
@@ -864,7 +875,7 @@ struct DetailsView: View {
                 case "trenitalia":
                     return await TrenitaliaAPI().info(identifier: train.identifier, should_fetch_weather: true) ?? [:]
                 case "italo":
-                    return await ItaloAPI().info(identifier: train.identifier) ?? [:]
+                    return await ItaloAPI().info(identifier: train.identifier, should_fetch_weather: true) ?? [:]
                 default:
                     return [:]
             }
@@ -887,7 +898,9 @@ struct DetailsView: View {
             
             /// update only the necessary fields
             stop.platform = stop_updated["platform"] as? String ?? ""
-            stop.weather = stop_updated["weather"] as? String ?? ""
+            if let newWeather = stop_updated["weather"] as? String, !newWeather.isEmpty {
+                stop.weather = newWeather
+            }
             stop.status = stop_updated["status"] as? Int ?? 0
             stop.is_completed = stop_updated["is_completed"] as? Bool ?? false
             stop.is_in_station = stop_updated["is_in_station"] as? Bool ?? false
@@ -896,6 +909,9 @@ struct DetailsView: View {
             stop.dep_time_eff = stop_updated["dep_time_eff"] as? Date ?? .distantPast
             stop.arr_time_eff = stop_updated["arr_time_eff"] as? Date ?? .distantPast
         }
+        
+        try? model_context.save()
+        WidgetCenter.shared.reloadAllTimelines()
     }
 }
 
@@ -943,7 +959,7 @@ struct DetailsView: View {
     ]
 
     NavigationStack {
-        DetailsView(train: mockTrain, stops: mockStops, seats: mockSeats)
+        DetailsView(train: mockTrain, stops: mockStops, seats: mockSeats, show_ticket_initially: .constant(false))
             .modelContainer(container)
     }
 }

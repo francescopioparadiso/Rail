@@ -1,52 +1,16 @@
 import SwiftUI
 import SwiftData
 
-extension Stop {
-    static func placeholder() -> Stop {
-        Stop(
-            id: UUID(),
-            name: "N/A",
-            platform: "N/A",
-            weather: "N/A",
-            is_selected: false,
-            status: 0,
-            is_completed: false,
-            is_in_station: false,
-            dep_delay: 0,
-            arr_delay: 0,
-            dep_time_id: .distantPast,
-            arr_time_id: .distantPast,
-            dep_time_eff: .distantPast,
-            arr_time_eff: .distantPast,
-            ref_time: .distantPast
-        )
-    }
-}
-
-
 struct ListView: View {
     // MARK: - variables
     // data variables
     let train: Train
     let stops: [Stop]
-    
-    // computed variables
-    var first_stop: Stop {
-        stops.first(where: { $0.is_selected }) ?? stops.first ?? Stop.placeholder()
-    }
-    var last_stop: Stop {
-        stops.last(where: { $0.is_selected }) ?? Stop.placeholder()
-    }
-    var first_stop_no_issues: Stop {
-        stops.first(where: { $0.status != 3 && $0.is_selected }) ?? stops.first ?? Stop.placeholder()
-    }
-    var last_stop_no_issues: Stop {
-        stops.last(where: { $0.status != 3 && $0.is_selected }) ?? stops.last ?? Stop.placeholder()
-    }
+    let summary: StopSummary
     
     // MARK: - main view
     var body: some View {
-        if Date() < last_stop_no_issues.arr_time_eff {
+        if Date() < summary.lastNoIssues.arr_time_eff {
             VStack(spacing: 8) {
                 // MARK: - logo + number
                 HStack(spacing: 4) {
@@ -68,7 +32,7 @@ struct ListView: View {
                 // MARK: - departure and arrival stops
                 VStack(alignment: .leading, spacing: 4) {
                     HStack {
-                        Text(first_stop_no_issues.name)
+                        Text(summary.firstNoIssues.name)
                             .font(.subheadline)
                             .fontDesign(app_font_design)
                             .foregroundStyle(Color.primary)
@@ -79,25 +43,25 @@ struct ListView: View {
                         Spacer()
                         
                         if train.issue == "Treno cancellato" {
-                            Text(first_stop_no_issues.dep_time_eff.formatted(.dateTime.hour().minute()))
+                            Text(summary.firstNoIssues.dep_time_eff.formatted(.dateTime.hour().minute()))
                                 .font(.subheadline)
                                 .fontDesign(app_font_design)
                                 .foregroundStyle(Color.red)
-                        } else if Date() >= stops.first?.dep_time_id ?? Date() && first_stop_no_issues.dep_delay != 0 {
-                            Text(first_stop_no_issues.dep_time_eff.formatted(.dateTime.hour().minute()))
+                        } else if Date() >= stops.first?.dep_time_id ?? Date() && summary.firstNoIssues.dep_delay != 0 {
+                            Text(summary.firstNoIssues.dep_time_eff.formatted(.dateTime.hour().minute()))
                                 .font(.subheadline)
                                 .fontDesign(app_font_design)
-                                .foregroundStyle(first_stop_no_issues.dep_delay > 0 ? Color.red : Color.green)
+                                .foregroundStyle(summary.firstNoIssues.dep_delay > 0 ? Color.red : Color.green)
                         } else {
-                            Text(first_stop_no_issues.dep_time_id.formatted(.dateTime.hour().minute()))
+                            Text(summary.firstNoIssues.dep_time_id.formatted(.dateTime.hour().minute()))
                                 .font(.subheadline)
                                 .fontDesign(app_font_design)
-                                .foregroundStyle(Date() >= first_stop.dep_time_id && first_stop_no_issues.dep_delay == 0 ? Color.green : Color.primary)
+                                .foregroundStyle(Date() >= summary.first.dep_time_id && summary.firstNoIssues.dep_delay == 0 ? Color.green : Color.primary)
                         }
                     }
                     
                     HStack {
-                        Text(last_stop_no_issues.name)
+                        Text(summary.lastNoIssues.name)
                             .font(.subheadline)
                             .fontDesign(app_font_design)
                             .foregroundStyle(Color.primary)
@@ -108,22 +72,22 @@ struct ListView: View {
                         Spacer()
                         
                         if train.issue == "Treno cancellato" {
-                            Text(last_stop_no_issues.arr_time_eff.formatted(.dateTime.hour().minute()))
+                            Text(summary.lastNoIssues.arr_time_eff.formatted(.dateTime.hour().minute()))
                                 .font(.subheadline)
                                 .fontDesign(app_font_design)
                                 .foregroundStyle(Color.red)
-                        } else if Date() >= stops.first?.dep_time_id ?? Date() && last_stop_no_issues.arr_delay != 0 {
-                            Text(last_stop_no_issues.arr_time_eff.formatted(.dateTime.hour().minute()))
+                        } else if Date() >= stops.first?.dep_time_id ?? Date() && summary.lastNoIssues.arr_delay != 0 {
+                            Text(summary.lastNoIssues.arr_time_eff.formatted(.dateTime.hour().minute()))
                                 .font(.subheadline)
                                 .fontDesign(app_font_design)
-                                .foregroundStyle(last_stop_no_issues.arr_delay > 0 ? Color.red : Color.green)
-                        } else if Date() >= first_stop.dep_time_id && last_stop_no_issues.arr_delay == 0 {
-                            Text(last_stop_no_issues.arr_time_eff.formatted(.dateTime.hour().minute()))
+                                .foregroundStyle(summary.lastNoIssues.arr_delay > 0 ? Color.red : Color.green)
+                        } else if Date() >= summary.first.dep_time_id && summary.lastNoIssues.arr_delay == 0 {
+                            Text(summary.lastNoIssues.arr_time_eff.formatted(.dateTime.hour().minute()))
                                 .font(.subheadline)
                                 .fontDesign(app_font_design)
                                 .foregroundStyle(Color.green)
                         } else {
-                            Text(last_stop_no_issues.arr_time_id.formatted(.dateTime.hour().minute()))
+                            Text(summary.lastNoIssues.arr_time_id.formatted(.dateTime.hour().minute()))
                                 .font(.subheadline)
                                 .fontDesign(app_font_design)
                                 .foregroundStyle(Color.primary)
@@ -145,14 +109,14 @@ struct ListView: View {
                     .background(Color.red.opacity(0.15))
                     .cornerRadius(16)
                     .padding(8)
-                } else if Date() < first_stop_no_issues.dep_time_id {
+                } else if Date() < summary.firstNoIssues.dep_time_id {
                     HStack(spacing: 8) {
                         ZStack {
                             let dep_time = {
-                                if first_stop.dep_time_eff != .distantPast && Calendar.current.isDateInToday(first_stop.dep_time_eff) {
-                                    return first_stop.dep_time_eff
+                                if summary.first.dep_time_eff != .distantPast && Calendar.current.isDateInToday(summary.first.dep_time_eff) {
+                                    return summary.first.dep_time_eff
                                 } else {
-                                    return first_stop.dep_time_id
+                                    return summary.first.dep_time_id
                                 }
                             }()
                             
@@ -184,13 +148,13 @@ struct ListView: View {
                         .background(Color.gray.opacity(0.15))
                         .cornerRadius(16)
                         .padding(.leading, 8).padding(.vertical, 8)
-                        .padding(.trailing, (Date() > first_stop.dep_time_id || Calendar.current.isDate(first_stop.dep_time_id, inSameDayAs: Date())) && first_stop.platform != "-" ? 0 : 8)
+                        .padding(.trailing, (Date() > summary.first.dep_time_id || Calendar.current.isDate(summary.first.dep_time_id, inSameDayAs: Date())) && summary.first.platform != "-" ? 0 : 8)
                         
-                        if (Date() > first_stop.dep_time_id || Calendar.current.isDate(first_stop.dep_time_id, inSameDayAs: Date())) && first_stop.platform != "-" {
+                        if (Date() > summary.first.dep_time_id || Calendar.current.isDate(summary.first.dep_time_id, inSameDayAs: Date())) && summary.first.platform != "-" {
                             HStack(spacing: 4) {
                                 Image(systemName: "arrow.up.right")
                                     .padding(.vertical, 8).padding(.leading)
-                                Text(first_stop.platform)
+                                Text(summary.first.platform)
                                     .fontDesign(app_font_design)
                                     .padding(.vertical, 8).padding(.trailing)
                             }
@@ -235,13 +199,13 @@ struct ListView: View {
                         .background(train.delay > 0 ? Color.red.opacity(0.15) : Color.green.opacity(0.15))
                         .cornerRadius(16)
                         .padding(.leading, 8).padding(.vertical, 8)
-                        .padding(.trailing, last_stop.platform == "-" ? 8 : 0)
+                        .padding(.trailing, summary.last.platform == "-" ? 8 : 0)
                         
-                        if last_stop.platform != "-" {
+                        if summary.last.platform != "-" {
                             HStack(spacing: 4) {
                                 Image(systemName: "arrow.down.right")
                                     .padding(.vertical, 8).padding(.leading)
-                                Text(last_stop.platform)
+                                Text(summary.last.platform)
                                     .fontDesign(app_font_design)
                                     .padding(.vertical, 8).padding(.trailing)
                             }
@@ -260,18 +224,18 @@ struct ListView: View {
                     .stroke(style: StrokeStyle(lineWidth: 1, dash: [5]))
                     .foregroundColor(Color.primary.opacity(0.5))
             )
-        } else if Date() >= last_stop.arr_time_eff {
+        } else if Date() >= summary.last.arr_time_eff {
             HStack{
                 VStack {
-                    Text("\(last_stop_no_issues.arr_time_eff.formatted(.dateTime.day()))")
+                    Text("\(summary.lastNoIssues.arr_time_eff.formatted(.dateTime.day()))")
                         .font(.title)
                         .fontDesign(app_font_design)
                         .fontWeight(.semibold)
-                    Text("\(last_stop_no_issues.arr_time_eff.formatted(.dateTime.month()))")
+                    Text("\(summary.lastNoIssues.arr_time_eff.formatted(.dateTime.month()))")
                         .font(.title)
                         .fontDesign(app_font_design)
                         .fontWeight(.semibold)
-                    Text("\(last_stop_no_issues.arr_time_eff.formatted(.dateTime.year()))")
+                    Text("\(summary.lastNoIssues.arr_time_eff.formatted(.dateTime.year()))")
                         .font(.title)
                         .fontDesign(app_font_design)
                         .fontWeight(.semibold)
@@ -303,7 +267,7 @@ struct ListView: View {
                     // departure and arrival stops with time
                     VStack(alignment: .leading, spacing: 4) {
                         HStack {
-                            Text(first_stop_no_issues.name)
+                            Text(summary.firstNoIssues.name)
                                 .font(.subheadline)
                                 .fontDesign(app_font_design)
                                 .foregroundStyle(Color.primary)
@@ -314,25 +278,25 @@ struct ListView: View {
                             Spacer()
                             
                             if train.issue == "Treno cancellato" {
-                                Text(first_stop_no_issues.dep_time_eff.formatted(.dateTime.hour().minute()))
+                                Text(summary.firstNoIssues.dep_time_eff.formatted(.dateTime.hour().minute()))
                                     .font(.subheadline)
                                     .fontDesign(app_font_design)
                                     .foregroundStyle(Color.red)
-                            } else if Date() >= first_stop.dep_time_id && first_stop_no_issues.dep_delay != 0 {
-                                Text(first_stop_no_issues.dep_time_eff.formatted(.dateTime.hour().minute()))
+                            } else if Date() >= summary.first.dep_time_id && summary.firstNoIssues.dep_delay != 0 {
+                                Text(summary.firstNoIssues.dep_time_eff.formatted(.dateTime.hour().minute()))
                                     .font(.subheadline)
                                     .fontDesign(app_font_design)
-                                    .foregroundStyle(first_stop_no_issues.dep_delay > 0 ? Color.red : Color.green)
+                                    .foregroundStyle(summary.firstNoIssues.dep_delay > 0 ? Color.red : Color.green)
                             } else {
-                                Text(first_stop_no_issues.dep_time_id.formatted(.dateTime.hour().minute()))
+                                Text(summary.firstNoIssues.dep_time_id.formatted(.dateTime.hour().minute()))
                                     .font(.subheadline)
                                     .fontDesign(app_font_design)
-                                    .foregroundStyle(Date() >= first_stop.dep_time_id && first_stop_no_issues.dep_delay == 0 ? Color.green : Color.primary)
+                                    .foregroundStyle(Date() >= summary.first.dep_time_id && summary.firstNoIssues.dep_delay == 0 ? Color.green : Color.primary)
                             }
                         }
                         
                         HStack {
-                            Text(last_stop_no_issues.name)
+                            Text(summary.lastNoIssues.name)
                                 .font(.subheadline)
                                 .fontDesign(app_font_design)
                                 .foregroundStyle(Color.primary)
@@ -343,22 +307,22 @@ struct ListView: View {
                             Spacer()
                             
                             if train.issue == "Treno cancellato" {
-                                Text(last_stop_no_issues.arr_time_eff.formatted(.dateTime.hour().minute()))
+                                Text(summary.lastNoIssues.arr_time_eff.formatted(.dateTime.hour().minute()))
                                     .font(.subheadline)
                                     .fontDesign(app_font_design)
                                     .foregroundStyle(Color.red)
-                            } else if Date() >= first_stop.dep_time_id && last_stop_no_issues.arr_delay != 0 {
-                                Text(last_stop_no_issues.arr_time_eff.formatted(.dateTime.hour().minute()))
+                            } else if Date() >= summary.first.dep_time_id && summary.lastNoIssues.arr_delay != 0 {
+                                Text(summary.lastNoIssues.arr_time_eff.formatted(.dateTime.hour().minute()))
                                     .font(.subheadline)
                                     .fontDesign(app_font_design)
-                                    .foregroundStyle(last_stop_no_issues.arr_delay > 0 ? Color.red : Color.green)
-                            } else if Date() >= first_stop.dep_time_id && last_stop_no_issues.arr_delay == 0 {
-                                Text(last_stop_no_issues.arr_time_eff.formatted(.dateTime.hour().minute()))
+                                    .foregroundStyle(summary.lastNoIssues.arr_delay > 0 ? Color.red : Color.green)
+                            } else if Date() >= summary.first.dep_time_id && summary.lastNoIssues.arr_delay == 0 {
+                                Text(summary.lastNoIssues.arr_time_eff.formatted(.dateTime.hour().minute()))
                                     .font(.subheadline)
                                     .fontDesign(app_font_design)
                                     .foregroundStyle(Color.green)
                             } else {
-                                Text(last_stop_no_issues.arr_time_id.formatted(.dateTime.hour().minute()))
+                                Text(summary.lastNoIssues.arr_time_id.formatted(.dateTime.hour().minute()))
                                     .font(.subheadline)
                                     .fontDesign(app_font_design)
                                     .foregroundStyle(Color.primary)
@@ -381,39 +345,40 @@ struct ListView: View {
                         .cornerRadius(16)
                         .padding(8)
                     } else {
-                        ZStack {
-                            let delay_string: String = {
-                                if last_stop_no_issues.arr_delay < 0 {
-                                    let delay = abs(last_stop_no_issues.arr_delay)
-                                    if delay >= 60 {
-                                        let hours = delay / 60
-                                        let minutes = delay % 60
-                                        return "\(NSLocalizedString("Early of", comment: "")) \(hours)h \(minutes)m"
-                                    }
-                                    return "\(NSLocalizedString("Early of", comment: "")) \(delay)m"
-                                } else if last_stop_no_issues.arr_delay == 0 {
-                                    return "\(NSLocalizedString("On time", comment: "")) "
-                                } else {
-                                    if last_stop_no_issues.arr_delay >= 60 {
-                                        let hours = last_stop_no_issues.arr_delay / 60
-                                        let minutes = last_stop_no_issues.arr_delay % 60
-                                        return "\(NSLocalizedString("Late of", comment: "")) \(hours)h \(minutes)m"
-                                    }
-                                    return "\(NSLocalizedString("Late of", comment: "")) \(last_stop_no_issues.arr_delay)m"
+                    ZStack {
+                        let delay_string: String = {
+                            if summary.lastNoIssues.arr_delay < 0 {
+                                let delay = abs(summary.lastNoIssues.arr_delay)
+                                if delay >= 60 {
+                                    let hours = delay / 60
+                                    let minutes = delay % 60
+                                    return "\(NSLocalizedString("Early of", comment: "")) \(hours)h \(minutes)m"
                                 }
-                            }()
-                            
-                            Text(delay_string)
-                                .font(.subheadline)
-                                .fontDesign(app_font_design)
-                                .foregroundStyle(last_stop_no_issues.arr_delay > 0 ? .red : .green)
-                                .padding(.vertical, 8)
-                        }
-                        .frame(maxWidth: .infinity)
-                        .background(last_stop_no_issues.arr_delay > 0 ? Color.red.opacity(0.15) : Color.green.opacity(0.15))
-                        .cornerRadius(16)
-                        .padding(.vertical, 8).padding(.trailing, 8)
+                                return "\(NSLocalizedString("Early of", comment: "")) \(delay)m"
+                            } else if summary.lastNoIssues.arr_delay == 0 {
+                                return "\(NSLocalizedString("On time", comment: "")) "
+                            } else {
+                                if summary.lastNoIssues.arr_delay >= 60 {
+                                    let hours = summary.lastNoIssues.arr_delay / 60
+                                    let minutes = summary.lastNoIssues.arr_delay % 60
+                                    return "\(NSLocalizedString("Late of", comment: "")) \(hours)h \(minutes)m"
+                                }
+                                return "\(NSLocalizedString("Late of", comment: "")) \(summary.lastNoIssues.arr_delay)m"
+                            }
+                        }()
+
+                        Text(delay_string)
+                            .font(.subheadline)
+                            .fontDesign(app_font_design)
+                            .foregroundStyle(summary.lastNoIssues.arr_delay > 0 ? .red : .green)
+                            .padding(.vertical, 8)
                     }
+                    .frame(maxWidth: .infinity)
+                    .background(summary.lastNoIssues.arr_delay > 0 ? Color.red.opacity(0.15) : Color.green.opacity(0.15))
+                    .cornerRadius(16)
+                    .padding(.vertical, 8).padding(.trailing, 8)
+                    }
+
                 }
             }
             .background(

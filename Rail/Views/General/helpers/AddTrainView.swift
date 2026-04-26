@@ -1,5 +1,6 @@
 import SwiftUI
 import SwiftData
+import WidgetKit
 
 enum current_view: String, CaseIterable {
     case add_train
@@ -759,35 +760,43 @@ struct AddTrainView: View {
             modelContext.insert(stop_to_add)
         }
         
+        try? modelContext.save()
+        WidgetCenter.shared.reloadAllTimelines()
+        
         print("\n ✅ Train and stops saved successfully!")
     }
     
     private func fetch_favorites() async {
-        for favorite in favorites {
-            let identifier: String = {
-                if favorite.provider == "trenitalia" {
-                    let today_timestamp = Int(Date().timeIntervalSince1970) * 1000
-                    return "\(favorite.identifier)/\(today_timestamp)"
-                } else {
-                    return favorite.identifier
+        await withTaskGroup(of: (UUID, [String: Any]?).self) { group in
+            for favorite in favorites {
+                let identifier: String = {
+                    if favorite.provider == "trenitalia" {
+                        let today_timestamp = Int(Date().timeIntervalSince1970) * 1000
+                        return "\(favorite.identifier)/\(today_timestamp)"
+                    } else {
+                        return favorite.identifier
+                    }
+                }()
+                
+                group.addTask {
+                    let train_info = await {
+                        if favorite.provider == "trenitalia" {
+                            return await TrenitaliaAPI().info(identifier: identifier, should_fetch_weather: false)
+                        } else if favorite.provider == "italo" {
+                            return await ItaloAPI().info(identifier: identifier, should_fetch_weather: false)
+                        } else {
+                            return nil
+                        }
+                    }()
+                    return (favorite.id, train_info)
                 }
-            }()
+            }
             
-            let train_info = await {
-                if favorite.provider == "trenitalia" {
-                    let result = await TrenitaliaAPI().info(identifier: identifier, should_fetch_weather: true)
-                    return result
-                    
-                } else if favorite.provider == "italo" {
-                    let result = await ItaloAPI().info(identifier: identifier)
-                    return result
-                    
-                } else {
-                    return nil
+            for await (id, info) in group {
+                await MainActor.run {
+                    trains_fetched[id] = info
                 }
-            }()
-            
-            trains_fetched[favorite.id] = train_info
+            }
         }
         
         print("🔄 Favorites fetched successfully!")

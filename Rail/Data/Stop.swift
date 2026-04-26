@@ -55,4 +55,24 @@ final class Stop {
         self.arr_time_eff = arr_time_eff
         self.ref_time = ref_time
     }
+    
+    static func placeholder() -> Stop {
+        Stop(
+            id: UUID(),
+            name: "N/A",
+            platform: "N/A",
+            weather: "N/A",
+            is_selected: false,
+            status: 0,
+            is_completed: false,
+            is_in_station: false,
+            dep_delay: 0,
+            arr_delay: 0,
+            dep_time_id: .distantPast,
+            arr_time_id: .distantPast,
+            dep_time_eff: .distantPast,
+            arr_time_eff: .distantPast,
+            ref_time: .distantPast
+        )
+    }
 }

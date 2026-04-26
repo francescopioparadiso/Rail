@@ -269,7 +269,6 @@ struct RailWidgetEntryView : View {
 }
 
 // MARK: - widget
-@main
 struct RailWidget: Widget {
     let kind: String = "RailWidget"
 
@@ -277,7 +276,8 @@ struct RailWidget: Widget {
         StaticConfiguration(kind: kind, provider: Provider()) { entry in
             RailWidgetEntryView(entry: entry)
         }
-        .configurationDisplayName("Rail Widget")
+        .configurationDisplayName("Pass Widget")
+        .description("Displays your principal pass QR code.")
     }
 }
 

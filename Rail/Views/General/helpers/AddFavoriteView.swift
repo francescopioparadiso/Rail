@@ -284,46 +284,52 @@ struct AddFavoriteView: View {
 
 // MARK: - shared functions
 func fetch_favorites(favorites: [Favorite]) async -> [UUID: [String: Any]] {
-    var temp_fetched: [UUID: [String: Any]] = [:]
-    
-    for favorite in favorites {
-        let identifier: String = {
-            if favorite.provider == "trenitalia" {
-                let today_timestamp = Int(Date().timeIntervalSince1970) * 1000
-                return "\(favorite.identifier)/\(today_timestamp)"
-            } else {
-                return favorite.identifier
-            }
-        }()
-        
-        var train_info = await {
-            if favorite.provider == "trenitalia" {
-                return await TrenitaliaAPI().info(identifier: identifier, should_fetch_weather: true)
-            } else if favorite.provider == "italo" {
-                return await ItaloAPI().info(identifier: identifier)
-            } else {
-                return nil
-            }
-        }()
-        
-        if var info = train_info {
-            if let fetchedStops = info["stops"] as? [[String: Any]] {
-                let modifiedStops = fetchedStops.map { stop -> [String: Any] in
-                    var modifiedStop = stop
-                    let name = stop["name"] as? String ?? ""
-                    modifiedStop["is_selected"] = favorite.stop_names.contains(name)
-                    return modifiedStop
+    return await withTaskGroup(of: (UUID, [String: Any]?).self) { group in
+        for favorite in favorites {
+            let identifier: String = {
+                if favorite.provider == "trenitalia" {
+                    let today_timestamp = Int(Date().timeIntervalSince1970) * 1000
+                    return "\(favorite.identifier)/\(today_timestamp)"
+                } else {
+                    return favorite.identifier
                 }
-                info["stops"] = modifiedStops
-                train_info = info
+            }()
+            
+            group.addTask {
+                let train_info = await {
+                    if favorite.provider == "trenitalia" {
+                        return await TrenitaliaAPI().info(identifier: identifier, should_fetch_weather: false)
+                    } else if favorite.provider == "italo" {
+                        return await ItaloAPI().info(identifier: identifier, should_fetch_weather: false)
+                    } else {
+                        return nil
+                    }
+                }()
+                
+                if var info = train_info {
+                    if let fetchedStops = info["stops"] as? [[String: Any]] {
+                        let modifiedStops = fetchedStops.map { stop -> [String: Any] in
+                            var modifiedStop = stop
+                            let name = stop["name"] as? String ?? ""
+                            modifiedStop["is_selected"] = favorite.stop_names.contains(name)
+                            return modifiedStop
+                        }
+                        info["stops"] = modifiedStops
+                        return (favorite.id, info)
+                    }
+                }
+                return (favorite.id, train_info)
             }
         }
         
-        temp_fetched[favorite.id] = train_info ?? [:]
+        var temp_fetched: [UUID: [String: Any]] = [:]
+        for await (id, info) in group {
+            temp_fetched[id] = info ?? [:]
+        }
+        
+        print("🔄 Favorites fetched successfully!")
+        return temp_fetched
     }
-    
-    print("🔄 Favorites fetched successfully!")
-    return temp_fetched
 }
 
 

@@ -6,6 +6,10 @@ struct PastView: View {
     // enviroment variables
     @Environment(\.requestReview) var request_review
     
+    // deep link variables
+    @Binding var ticketTrainID: UUID?
+    @Binding var show_ticket_view: Bool
+    
     // database variables
     @Environment(\.modelContext) private var model_context
     @Query private var trains: [Train]
@@ -14,37 +18,33 @@ struct PastView: View {
 
     // sheet variables
     @State private var add_journey_sheet = false
+    @State private var navigationPath: [Train] = []
 
     // computed variables
     private var past_trains: [Train] {
-        trains
+        let now = Date()
+        let calendar = Calendar.current
+        let stopsByTrain = Dictionary(grouping: stops, by: { $0.id })
+        
+        return trains
             .filter { train in
-                let train_stops = stops
-                    .filter { $0.id == train.id }
-                    .sorted(by: { $0.ref_time < $1.ref_time })
-                
-                guard let last_stop = train_stops.last else { return false }
-                return Date() > last_stop.arr_time_eff && !Calendar.current.isDateInToday(last_stop.arr_time_eff)
+                guard let trainStops = stopsByTrain[train.id] else { return false }
+                let sortedStops = trainStops.sorted(by: { $0.ref_time < $1.ref_time })
+                guard let lastStop = sortedStops.last else { return false }
+                return now > lastStop.arr_time_eff && !calendar.isDateInToday(lastStop.arr_time_eff)
             }
             .sorted { lhs, rhs in
-                guard
-                    let lhs_last_stop = stops
-                        .filter({ $0.id == lhs.id })
-                        .sorted(by: { $0.ref_time < $1.ref_time })
-                        .last,
-                    let rhs_last_stop = stops
-                        .filter({ $0.id == rhs.id })
-                        .sorted(by: { $0.ref_time < $1.ref_time })
-                        .last
-                else { return false }
+                let lhsLast = stopsByTrain[lhs.id]?.max(by: { $0.ref_time < $1.ref_time })
+                let rhsLast = stopsByTrain[rhs.id]?.max(by: { $0.ref_time < $1.ref_time })
                 
-                return lhs_last_stop.arr_time_eff > rhs_last_stop.arr_time_eff
+                guard let lTime = lhsLast?.arr_time_eff, let rTime = rhsLast?.arr_time_eff else { return false }
+                return lTime > rTime
             }
     }
 
     // MARK: - main view
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $navigationPath) {
             if past_trains.isEmpty {
                 ContentUnavailableView("No past journeys",
                                        systemImage: "exclamationmark.magnifyingglass",
@@ -53,14 +53,17 @@ struct PastView: View {
                 .fontDesign(app_font_design)
                 .foregroundColor(Color.primary)
             } else {
+                let stopsByTrain = Dictionary(grouping: stops, by: { $0.id })
+                let seatsByTrain = Dictionary(grouping: seats, by: { $0.trainID })
+                
                 List {
                     ForEach(past_trains) { train in
-                        let trainStops = stops
-                            .filter { $0.id == train.id }
+                        let trainStops = (stopsByTrain[train.id] ?? [])
                             .sorted(by: { $0.ref_time < $1.ref_time })
                         
-                        let trainSeats = seats
-                            .filter { $0.trainID == train.id }
+                        let summary = StopSummary.calculate(for: train.id, in: trainStops)
+                        
+                        let trainSeats = (seatsByTrain[train.id] ?? [])
                             .sorted {
                                 if $0.carriage != $1.carriage {
                                     return $0.carriage < $1.carriage
@@ -72,9 +75,9 @@ struct PastView: View {
                             }
 
                         ZStack {
-                            ListView(train: train, stops: trainStops)
+                            ListView(train: train, stops: trainStops, summary: summary)
 
-                            NavigationLink(destination: DetailsView(train: train, stops: trainStops, seats: trainSeats)) {
+                            NavigationLink(value: train) {
                                 EmptyView()
                             }
                             .buttonStyle(PlainButtonStyle())
@@ -87,6 +90,20 @@ struct PastView: View {
                 }
                 .scrollIndicators(.hidden)
                 .listStyle(.plain)
+                .navigationDestination(for: Train.self) { train in
+                    let trainStops = stops.filter { $0.id == train.id }.sorted(by: { $0.ref_time < $1.ref_time })
+                    let trainSeats = seats.filter { $0.trainID == train.id }
+                    DetailsView(train: train, stops: trainStops, seats: trainSeats, show_ticket_initially: $show_ticket_view)
+                }
+                .onChange(of: ticketTrainID) { _, newID in
+                    if let id = newID, let train = trains.first(where: { $0.id == id }) {
+                        // Only push if not already at the top of the stack
+                        if navigationPath.last?.id != train.id {
+                            navigationPath.append(train)
+                        }
+                        ticketTrainID = nil
+                    }
+                }
             }
         }
         .sheet(isPresented: $add_journey_sheet) {
@@ -122,7 +139,8 @@ struct PastView: View {
     }
     
     private func update_train(_ train: Train) async {
-        for (i, stop) in stops.enumerated() {
+        let trainStops = stops.filter { $0.id == train.id }.sorted(by: { $0.ref_time < $1.ref_time })
+        for (i, stop) in trainStops.enumerated() {
             if i == 0 {
                 // first station
                 if Date() < stop.dep_time_id {
@@ -132,7 +150,7 @@ struct PastView: View {
                     stop.is_completed = true
                     stop.is_in_station = false
                 }
-            } else if i == stops.count - 1 {
+            } else if i == trainStops.count - 1 {
                 // last station
                 if Date() < stop.arr_time_eff {
                     stop.is_completed = false

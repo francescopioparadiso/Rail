@@ -2,6 +2,7 @@ import SwiftUI
 import SwiftData
 import PhotosUI
 import Vision
+import WidgetKit
 
 enum seat_row_focus {
     case carriage
@@ -34,6 +35,7 @@ struct SeatsView: View {
     
     // new seat variables
     @State private var show_adding_row: Bool = false
+    @State private var seat_to_edit: Seat? = nil
     @State private var new_name: String = ""
     @State private var new_carriage: String = ""
     @State private var new_number: String = ""
@@ -89,6 +91,7 @@ struct SeatsView: View {
                     UIImpactFeedbackGenerator(style: .heavy).impactOccurred()
                     
                     show_adding_row = false
+                    seat_to_edit = nil
                     image_status = .empty
                     
                     new_name = ""
@@ -111,9 +114,10 @@ struct SeatsView: View {
                 return {
                     UIImpactFeedbackGenerator(style: .heavy).impactOccurred()
                     
-                    add_seat()
+                    add_or_update_seat()
                     
                     show_adding_row = false
+                    seat_to_edit = nil
                     image_status = .empty
                     
                     new_name = ""
@@ -289,6 +293,18 @@ struct SeatsView: View {
                                         }
                                     }
                                 }
+                                .contentShape(Rectangle())
+                                .onLongPressGesture {
+                                    UIImpactFeedbackGenerator(style: .heavy).impactOccurred()
+                                    seat_to_edit = seat
+                                    new_name = seat.name
+                                    new_carriage = seat.carriage
+                                    new_number = seat.number
+                                    qr_image_data = seat.image
+                                    image_status = seat.image != nil ? .saved : .empty
+                                    show_adding_row = true
+                                    seat_row_focus = .name
+                                }
                             }
                             .onDelete(perform: delete_seat)
                         }
@@ -370,7 +386,7 @@ struct SeatsView: View {
     }
     
     // MARK: - functions
-    private func add_seat() {
+    private func add_or_update_seat() {
         guard !new_name.isEmpty else { return }
         
         let new_carriage_formatted: String = {
@@ -399,15 +415,27 @@ struct SeatsView: View {
         // ✅ CHANGED: Handle optional data
         let imageData = qr_image_data
         
-        let seat_to_add = Seat(
-            id: UUID(),
-            trainID: train.id,
-            name: new_name_formatted,
-            carriage: new_carriage_formatted,
-            number: new_number_formatted,
-            image: imageData // Pass the optional data directly
-        )
-        modelContext.insert(seat_to_add)
+        if let seat = seat_to_edit {
+            // Update existing seat
+            seat.name = new_name_formatted
+            seat.carriage = new_carriage_formatted
+            seat.number = new_number_formatted
+            seat.image = imageData
+        } else {
+            // Add new seat
+            let seat_to_add = Seat(
+                id: UUID(),
+                trainID: train.id,
+                name: new_name_formatted,
+                carriage: new_carriage_formatted,
+                number: new_number_formatted,
+                image: imageData // Pass the optional data directly
+            )
+            modelContext.insert(seat_to_add)
+        }
+        
+        try? modelContext.save()
+        WidgetCenter.shared.reloadAllTimelines()
     }
     
     private func delete_seat(at offsets: IndexSet) {
@@ -415,6 +443,8 @@ struct SeatsView: View {
             let seat = seats[index]
             modelContext.delete(seat)
         }
+        try? modelContext.save()
+        WidgetCenter.shared.reloadAllTimelines()
     }
     
     private func process_image(newItem: PhotosPickerItem?) {

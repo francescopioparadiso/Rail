@@ -2,9 +2,47 @@ import Foundation
 import CoreLocation
 import WeatherKit
 
+// MARK: - Cache
+private class WeatherCache {
+    static let shared = WeatherCache()
+    private var cache: [String: (String, Date)] = [:]
+    private let lock = NSLock()
+    
+    func get(lat: Double, lon: Double, date: Date) -> String? {
+        let key = cacheKey(lat: lat, lon: lon, date: date)
+        lock.lock()
+        defer { lock.unlock() }
+        
+        if let (value, timestamp) = cache[key] {
+            // Cache for 1 hour
+            if Date().timeIntervalSince(timestamp) < 3600 {
+                return value
+            }
+        }
+        return nil
+    }
+    
+    func set(lat: Double, lon: Double, date: Date, value: String) {
+        let key = cacheKey(lat: lat, lon: lon, date: date)
+        lock.lock()
+        defer { lock.unlock() }
+        cache[key] = (value, Date())
+    }
+    
+    private func cacheKey(lat: Double, lon: Double, date: Date) -> String {
+        let hour = Calendar.current.component(.hour, from: date)
+        let day = Calendar.current.startOfDay(for: date)
+        return "\(lat),\(lon),\(day.timeIntervalSince1970),\(hour)"
+    }
+}
+
 func get_weather(lat: Double, lon: Double, date: Date) async throws -> String {
     // 1. Validation & Setup
     guard lat != 0, lon != 0 else { return "—" }
+    
+    if let cached = WeatherCache.shared.get(lat: lat, lon: lon, date: date) {
+        return cached
+    }
     
     let isoDate = DateFormatter()
     isoDate.dateFormat = "yyyy-MM-dd"
@@ -27,7 +65,9 @@ func get_weather(lat: Double, lon: Double, date: Date) async throws -> String {
     let temp = Int(res.hourly.temperature_2m[hourIndex].rounded())
     let emoji = res.hourly.weathercode[hourIndex].weatherEmoji
     
-    return "\(emoji) \(temp)°C"
+    let result = "\(emoji) \(temp)°C"
+    WeatherCache.shared.set(lat: lat, lon: lon, date: date, value: result)
+    return result
 }
 
 private struct OMResponse: Decodable {
@@ -60,6 +100,10 @@ func getAppleWeather(lat: Double, lon: Double, date: Date) async throws -> Strin
         return "—"
     }
     
+    if let cached = WeatherCache.shared.get(lat: lat, lon: lon, date: date) {
+        return cached
+    }
+    
     let location = CLLocation(latitude: lat, longitude: lon)
     
     // 2. Optimization: Fetch ONLY the hourly forecast (saves data/processing)
@@ -78,7 +122,9 @@ func getAppleWeather(lat: Double, lon: Double, date: Date) async throws -> Strin
     let temp = Int(forecast.temperature.value.rounded())
     let emoji = weatherEmoji(from: forecast.condition)
 
-    return "\(emoji) \(temp)°C"
+    let result = "\(emoji) \(temp)°C"
+    WeatherCache.shared.set(lat: lat, lon: lon, date: date, value: result)
+    return result
 }
 
 func weatherEmoji(from condition: WeatherCondition) -> String {
@@ -112,6 +158,10 @@ func getOpenMeteoWeather(lat: Double, lon: Double, date: Date) async throws -> S
     dateFormatter.dateFormat = "yyyy-MM-dd"
     let dateString = dateFormatter.string(from: date)
     
+    if let cached = WeatherCache.shared.get(lat: lat, lon: lon, date: date) {
+        return cached
+    }
+    
     // 2. Decide if we need the Forecast API (future/today) or Archive API (past)
     let isPast = date < Calendar.current.startOfDay(for: Date())
     let baseUrl = isPast ? "https://archive-api.open-meteo.com/v1/archive" : "https://api.open-meteo.com/v1/forecast"
@@ -142,7 +192,9 @@ func getOpenMeteoWeather(lat: Double, lon: Double, date: Date) async throws -> S
     let emoji = getWeatherEmoji(code: code)
     
     print("\(lat), \(lon) at \(date): Code \(code), Temp \(temp)°C")
-    return "\(emoji) \(temp)°C"
+    let result = "\(emoji) \(temp)°C"
+    WeatherCache.shared.set(lat: lat, lon: lon, date: date, value: result)
+    return result
 }
 
 func getWeatherEmoji(code: Int) -> String {

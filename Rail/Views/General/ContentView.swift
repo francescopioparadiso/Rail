@@ -28,6 +28,10 @@ struct ContentView: View {
     @State private var add_favorite_sheet = false
     @State private var add_pass_sheet = false
     
+    // deep link variables
+    @State private var ticketTrainID: UUID? = nil
+    @State private var show_ticket_view = false
+    
     // favorites variables
     @State var favorites_fetched: [UUID: [String: Any]] = [:]
     @State var favoriteID_selected: UUID? = nil
@@ -37,48 +41,47 @@ struct ContentView: View {
         NavigationStack {
             TabView(selection: $selectedTab) {
                 Tab("Past", systemImage: "tray.full", value: .past) {
-                    PastView()
-                        .onAppear {
-                            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                        }
+                    PastView(ticketTrainID: $ticketTrainID, show_ticket_view: $show_ticket_view)
                 }
                 
                 Tab("Today", systemImage: "calendar.day.timeline.leading", value: .today) {
-                    TodayView()
-                        .onAppear {
-                            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                        }
+                    TodayView(ticketTrainID: $ticketTrainID, show_ticket_view: $show_ticket_view)
                 }
                 
                 Tab("Add", systemImage: "plus", value: .add, role: .search) {
-                    TodayView()
-                        .onAppear {
-                            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                            add_favorite_sheet = false
-                            add_train_sheet = true
-                            selectedTab = .today
-                        }
+                    Color.clear
                 }
-                
-                    
+            }
+            .onChange(of: selectedTab) { oldValue, newValue in
+                if newValue == .add {
+                    UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                    // Small delay to let the TabView finish its transition
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                        add_favorite_sheet = false
+                        add_train_sheet = true
+                        selectedTab = .today
+                    }
+                }
             }
             .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
+                ToolbarItem {
                     Button {
                         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
                         add_favorite_sheet = true
                     } label: {
-                        Image(systemName: "heart")
+                        Label("Favorites", systemImage: "heart")
                     }
                     .tint(Color.red)
                 }
                 
-                ToolbarItem(placement: .navigationBarTrailing) {
+                ToolbarSpacer(.flexible)
+                
+                ToolbarItem {
                     Button {
                         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
                         add_pass_sheet = true
                     } label: {
-                        Image(systemName: "qrcode")
+                        Label("Passes", systemImage: "qrcode")
                     }
                 }
             }
@@ -107,6 +110,16 @@ struct ContentView: View {
             if url.scheme == "railapp" && url.host == "view-pass" {
                 if !add_pass_sheet {
                     add_pass_sheet = true
+                }
+            } else if url.scheme == "railapp" && url.host == "view-ticket" {
+                if let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+                   let queryItem = components.queryItems?.first(where: { $0.name == "trainID" }),
+                   let trainIDValue = queryItem.value,
+                   let trainID = UUID(uuidString: trainIDValue) {
+                    
+                    self.ticketTrainID = trainID
+                    self.show_ticket_view = true
+                    self.selectedTab = .today
                 }
             }
         }
