@@ -30,6 +30,8 @@
 * **Monitoraggio Live:** Tracking in tempo reale di orari, ritardi, binari e cancellazioni con calcolo dinamico dei tempi effettivi.
 * **Gestione Gruppi ("I tuoi Posti"):** Organizzazione e visualizzazione delle carrozze e dei posti a sedere per tutti i compagni di viaggio.
 * **Contesto Meteorologico:** Integrazione con servizi meteo per visualizzare le condizioni atmosferiche previste ad ogni singola fermata del tragitto.
+* **Integrazione con Calendario:** Sincronizzazione automatica dei viaggi con il calendario iOS per visualizzare gli impegni di viaggio insieme agli altri eventi personali.
+* **Nuovi Widget:** Widget dinamici per la Home Screen che mostrano informazioni sullo stato dell'abbonamento e i tuoi biglietti imminenti, con un design in vetro smerigliato per un look elegante e moderno.
 
 ## 🛠 Tech Stack & Architettura
 
