@@ -27,5 +27,9 @@
 		<string>remote-notification</string>
 		<string>fetch</string>
 	</array>
+	<key>NSCalendarsUsageDescription</key>
+	<string>Rail needs access to your calendar to add train journeys as events.</string>
+	<key>NSCalendarsFullAccessUsageDescription</key>
+	<string>Rail needs full access to your calendar to add and manage train journey events.</string>
 </dict>
 </plist>

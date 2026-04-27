@@ -105,6 +105,11 @@ struct AddTrainView: View {
     @State private var train_number: String = ""
     @State private var date_selected: Date = Date()
     
+    @AppStorage("autoSyncToCalendar") private var autoSyncToCalendar: Bool = true
+    @AppStorage("calendarTitleFormat") private var titleFormat: String = "Train {number}"
+    @AppStorage("selectedCalendarIdentifier") private var selectedCalendarIdentifier: String = ""
+    @AppStorage("calendarTravelTime") private var travelTime: Double = 0
+
     // button properties
     private var back_button_icon: String {
         switch current_view {
@@ -700,6 +705,8 @@ struct AddTrainView: View {
         )
         modelContext.insert(train_to_add)
         
+        var addedStops: [Stop] = []
+
         // MARK: - add stops
         for stop in stops_fetched {
             /// fetch details
@@ -747,9 +754,25 @@ struct AddTrainView: View {
                 ref_time: ref_time
             )
             modelContext.insert(stop_to_add)
+            addedStops.append(stop_to_add)
         }
         
         try? modelContext.save()
+        
+        // MARK: - calendar sync
+        if autoSyncToCalendar {
+            Task {
+                await CalendarManager.shared.syncTrainEvent(
+                    train: train_to_add,
+                    stops: addedStops,
+                    seats: [], // No seats yet when adding a train
+                    titleFormat: titleFormat,
+                    calendarIdentifier: selectedCalendarIdentifier,
+                    travelTime: travelTime
+                )
+            }
+        }
+        
         WidgetCenter.shared.reloadAllTimelines()
         
         print("\n ✅ Train and stops saved successfully!")

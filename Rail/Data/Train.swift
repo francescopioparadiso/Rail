@@ -15,8 +15,9 @@ final class Train {
     var direction: String = ""
 
     var issue: String = ""
+    var calendarEventIdentifier: String? = nil
 
-    init(id: UUID, logo: String, number: String, identifier: String, provider: String, last_update_time: Date, delay: Int, direction: String, issue: String) {
+    init(id: UUID, logo: String, number: String, identifier: String, provider: String, last_update_time: Date, delay: Int, direction: String, issue: String, calendarEventIdentifier: String? = nil) {
         self.id = id
         self.logo = logo
         self.number = number
@@ -26,6 +27,7 @@ final class Train {
         self.delay = delay
         self.direction = direction
         self.issue = issue
+        self.calendarEventIdentifier = calendarEventIdentifier
     }
 }
 

@@ -8,6 +8,7 @@ struct PastView: View {
     
     // deep link variables
     @Binding var ticketTrainID: UUID?
+    @Binding var ticketSeatID: UUID?
     @Binding var show_ticket_view: Bool
     
     // database variables
@@ -54,7 +55,6 @@ struct PastView: View {
                 .foregroundColor(Color.primary)
             } else {
                 let stopsByTrain = Dictionary(grouping: stops, by: { $0.id })
-                let seatsByTrain = Dictionary(grouping: seats, by: { $0.trainID })
                 
                 List {
                     ForEach(past_trains) { train in
@@ -82,7 +82,7 @@ struct PastView: View {
                 .navigationDestination(for: Train.self) { train in
                     let trainStops = stops.filter { $0.id == train.id }.sorted(by: { $0.ref_time < $1.ref_time })
                     let trainSeats = seats.filter { $0.trainID == train.id }
-                    DetailsView(train: train, stops: trainStops, seats: trainSeats, show_ticket_initially: $show_ticket_view)
+                    DetailsView(train: train, stops: trainStops, seats: trainSeats, show_ticket_initially: $show_ticket_view, ticketSeatID: $ticketSeatID)
                 }
                 .onChange(of: ticketTrainID) { _, newID in
                     if let id = newID, let train = trains.first(where: { $0.id == id }) {
@@ -108,6 +108,11 @@ struct PastView: View {
     private func delete_past_trains(at offsets: IndexSet) {
         let items = offsets.map { past_trains[$0] }
         for train in items {
+            // Remove calendar event
+            Task {
+                await CalendarManager.shared.removeTrainEvent(train: train)
+            }
+            
             let relatedStops = stops.filter { $0.id == train.id }
             relatedStops.forEach { model_context.delete($0) }
             model_context.delete(train)

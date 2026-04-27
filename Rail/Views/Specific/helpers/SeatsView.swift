@@ -22,6 +22,7 @@ struct SeatsView: View {
     @Query private var all_seats: [Seat]
     let train: Train
     let seats: [Seat]
+    let initialSeatID: UUID?
     
     // focus variables
     @FocusState private var seat_row_focus: seat_row_focus?
@@ -390,6 +391,13 @@ struct SeatsView: View {
             .onAppear {
                 new_name = name_placeholder
                 ReviewManager.shared.requestReviewIfAppropriate(action: request_review)
+                
+                if let initialID = initialSeatID, let seat = seats.first(where: { $0.id == initialID }) {
+                    if let _ = seat.image {
+                        seat_to_view = seat
+                        show_ticket_view = true
+                    }
+                }
             }
         }
     }
@@ -527,7 +535,7 @@ struct SeatsView: View {
     container.mainContext.insert(seat7)
     
     // view
-    return SeatsView(train: mockTrain, seats: [seat1, seat2, seat3, seat4, seat5, seat6, seat7])
+    return SeatsView(train: mockTrain, seats: [seat1, seat2, seat3, seat4, seat5, seat6, seat7], initialSeatID: nil)
         .modelContainer(container)
         .environment(\.locale, Locale(identifier: "it"))
 }
@@ -554,6 +562,6 @@ struct SeatsView: View {
     container.mainContext.insert(mockTrain)
     
     // view
-    return SeatsView(train: mockTrain, seats: [])
+    return SeatsView(train: mockTrain, seats: [], initialSeatID: nil)
         .modelContainer(container)
 }

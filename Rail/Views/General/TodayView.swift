@@ -9,6 +9,7 @@ struct TodayView: View {
     
     // deep link variables
     @Binding var ticketTrainID: UUID?
+    @Binding var ticketSeatID: UUID?
     @Binding var show_ticket_view: Bool
     
     // database variables
@@ -17,15 +18,16 @@ struct TodayView: View {
     @Query private var stops: [Stop]
     @Query private var seats: [Seat]
 
-    // sheet variables
+    // state variables
     @State private var add_journey_sheet = false
-    @State private var isUpdating = false
-    @State private var updateTask: Task<Void, Never>? = nil
     @State private var navigationPath: [Train] = []
     
-    @State private var updateCounter = 0
+    // refresh variables
+    @State private var isUpdating = false
+    @State private var updateTask: Task<Void, Never>?
     @State private var manualRefreshCounter = 0
-    
+    @State private var updateCounter = 0
+
     // computed variables
     private var today_trains: [Train] {
         let now = Date()
@@ -53,6 +55,10 @@ struct TodayView: View {
             }
     }
     
+    @AppStorage("calendarTitleFormat") private var titleFormat: String = "Train {number}"
+    @AppStorage("selectedCalendarIdentifier") private var selectedCalendarIdentifier: String = ""
+    @AppStorage("calendarTravelTime") private var travelTime: Double = 0
+    
     // MARK: - main view
     var body: some View {
         let current_today_trains = today_trains
@@ -67,84 +73,16 @@ struct TodayView: View {
                 .foregroundColor(Color.primary)
                 .fontDesign(app_font_design)
             } else {
-                let seatsByTrain = Dictionary(grouping: seats, by: { $0.trainID })
-                
                 let totalConnections = current_today_trains.indices.dropLast().reduce(0) { count, i in
                     hasInterval(trains: current_today_trains, from: i, to: i + 1, stopsByTrain: stopsByTrain) ? count + 1 : count
                 }
                 
                 List {
                     ForEach(Array(current_today_trains.enumerated()), id: \.element.id) { index, train in
-                        // compute stops and summary for this train
-                        let trainStops = (stopsByTrain[train.id] ?? [])
-                            .sorted(by: { $0.ref_time < $1.ref_time })
-                        
-                        let summary = StopSummary.calculate(for: train.id, in: trainStops)
-                        
-                        let nextTrain = index + 1 < current_today_trains.count ? current_today_trains[index + 1] : nil
-                        
-                        // determine if there’s an interval before or after this train
-                        let hasIntervalBefore = hasInterval(trains: current_today_trains, from: index - 1, to: index, stopsByTrain: stopsByTrain)
-                        let hasIntervalAfter = hasInterval(trains: current_today_trains, from: index, to: index + 1, stopsByTrain: stopsByTrain)
-                        
-                        // adjust vertical padding based on intervals
-                        let topPadding: CGFloat = hasIntervalBefore ? 2 : (index == 0 ? 16 : 24)
-                        let bottomPadding: CGFloat = hasIntervalAfter ? 2 : 24
-                        
-                        VStack(spacing: 0) {
-                            // MARK: - train row
-                            ZStack {
-                                ListView(train: train, stops: trainStops, summary: summary)
-                                    .padding(.top, topPadding)
-                                    .padding(.bottom, bottomPadding)
-                                
-                                NavigationLink(value: train) {
-                                    EmptyView()
-                                }
-                                .buttonStyle(PlainButtonStyle())
-                                .opacity(0)
-                            }
-                            
-                            // MARK: - interval row
-                            if hasIntervalAfter, let nextTrain {
-                                let currentArrDate = summary.last.arr_time_eff
-                                
-                                let nextTrainStops = (stopsByTrain[nextTrain.id] ?? []).filter { $0.is_selected }
-                                let nextDepDate = nextTrainStops.min(by: { $0.ref_time < $1.ref_time })?.dep_time_eff ?? .distantPast
-                                
-                                let interval = nextDepDate.timeIntervalSince(currentArrDate)
-                                
-                                if interval > 0 && interval <= 24 * 60 * 60 {
-                                    let totalMinutes = Int(interval) / 60
-                                    let hours = totalMinutes / 60
-                                    let minutes = totalMinutes % 60
-                                    
-                                    let durationString = hours > 0
-                                    ? "\(hours)h \(minutes)m"
-                                    : "\(minutes)m"
-                                    
-                                    let connectionStatus = ConnectionStatus(minutes: totalMinutes)
-                                    
-                                    let currentConnectionIndex = current_today_trains.indices.prefix(index + 1).reduce(0) { count, i in
-                                        hasInterval(trains: current_today_trains, from: i, to: i + 1, stopsByTrain: stopsByTrain) ? count + 1 : count
-                                    }
-                                    
-                                    ConnectionIntervalView(
-                                        durationString: durationString,
-                                        totalMinutes: totalMinutes,
-                                        connectionStatus: connectionStatus,
-                                        station: summary.last.name,
-                                        weather: summary.last.weather,
-                                        index: currentConnectionIndex,
-                                        total: totalConnections,
-                                        manualRefreshCounter: manualRefreshCounter
-                                    )
-                                }
-                            }
-                        }
-                        .listRowInsets(EdgeInsets())
-                        .listRowSeparator(.hidden)
-                        .listRowBackground(Color.clear)
+                        trainRow(train: train, index: index, current_today_trains: current_today_trains, stopsByTrain: stopsByTrain, totalConnections: totalConnections)
+                            .listRowInsets(EdgeInsets())
+                            .listRowSeparator(.hidden)
+                            .listRowBackground(Color.clear)
                     }
                     .onDelete(perform: { offsets in
                         delete_today_trains(at: offsets, current_today_trains: current_today_trains)
@@ -157,9 +95,9 @@ struct TodayView: View {
                     Task { await update_today_trains(current_today_trains: current_today_trains, isManual: true) }
                 }
                 .navigationDestination(for: Train.self) { train in
-                    let trainStops = stops.filter { $0.id == train.id }.sorted(by: { $0.ref_time < $1.ref_time })
+                    let trainStops = (stopsByTrain[train.id] ?? []).sorted(by: { $0.ref_time < $1.ref_time })
                     let trainSeats = seats.filter { $0.trainID == train.id }
-                    DetailsView(train: train, stops: trainStops, seats: trainSeats, show_ticket_initially: $show_ticket_view)
+                    DetailsView(train: train, stops: trainStops, seats: trainSeats, show_ticket_initially: $show_ticket_view, ticketSeatID: $ticketSeatID)
                 }
                 .onChange(of: ticketTrainID) { _, newID in
                     if let id = newID, let train = trains.first(where: { $0.id == id }) {
@@ -198,9 +136,76 @@ struct TodayView: View {
                 }
             }
         }
-        .onDisappear {
-            // Optional: cancel task on disappear if you don't want it running in background
-            // updateTask?.cancel()
+    }
+    
+    @ViewBuilder
+    private func trainRow(train: Train, index: Int, current_today_trains: [Train], stopsByTrain: [UUID: [Stop]], totalConnections: Int) -> some View {
+        // compute stops and summary for this train
+        let trainStops = (stopsByTrain[train.id] ?? [])
+            .sorted(by: { $0.ref_time < $1.ref_time })
+        
+        let summary = StopSummary.calculate(for: train.id, in: trainStops)
+        
+        let nextTrain = index + 1 < current_today_trains.count ? current_today_trains[index + 1] : nil
+        
+        // determine if there’s an interval before or after this train
+        let hasIntervalBefore = hasInterval(trains: current_today_trains, from: index - 1, to: index, stopsByTrain: stopsByTrain)
+        let hasIntervalAfter = hasInterval(trains: current_today_trains, from: index, to: index + 1, stopsByTrain: stopsByTrain)
+        
+        // adjust vertical padding based on intervals
+        let topPadding: CGFloat = hasIntervalBefore ? 2 : (index == 0 ? 16 : 24)
+        let bottomPadding: CGFloat = hasIntervalAfter ? 2 : 24
+        
+        VStack(spacing: 0) {
+            // MARK: - train row
+            ZStack {
+                ListView(train: train, stops: trainStops, summary: summary)
+                    .padding(.top, topPadding)
+                    .padding(.bottom, bottomPadding)
+                
+                NavigationLink(value: train) {
+                    EmptyView()
+                }
+                .buttonStyle(PlainButtonStyle())
+                .opacity(0)
+            }
+            
+            // MARK: - interval row
+            if hasIntervalAfter, let nextTrain {
+                let currentArrDate = summary.last.arr_time_eff
+                
+                let nextTrainStops = (stopsByTrain[nextTrain.id] ?? []).filter { $0.is_selected }
+                let nextDepDate = nextTrainStops.min(by: { $0.ref_time < $1.ref_time })?.dep_time_eff ?? .distantPast
+                
+                let interval = nextDepDate.timeIntervalSince(currentArrDate)
+                
+                if interval > 0 && interval <= 24 * 60 * 60 {
+                    let totalMinutes = Int(interval) / 60
+                    let hours = totalMinutes / 60
+                    let minutes = totalMinutes % 60
+                    
+                    let durationString = hours > 0
+                    ? "\(hours)h \(minutes)m"
+                    : "\(minutes)m"
+                    
+                    let connectionStatus = ConnectionStatus(minutes: totalMinutes)
+                    
+                    let currentConnectionIndex = current_today_trains.indices.prefix(index + 1).reduce(0) { count, i in
+                        hasInterval(trains: current_today_trains, from: i, to: i + 1, stopsByTrain: stopsByTrain) ? count + 1 : count
+                    }
+                    
+                    ConnectionIntervalView(
+                        durationString: durationString,
+                        totalMinutes: totalMinutes,
+                        connectionStatus: connectionStatus,
+                        station: summary.last.name,
+                        weather: summary.last.weather,
+                        index: currentConnectionIndex,
+                        total: totalConnections,
+                        manualRefreshCounter: manualRefreshCounter
+                    )
+                }
+            }
         }
     }
     
@@ -208,6 +213,11 @@ struct TodayView: View {
     private func delete_today_trains(at offsets: IndexSet, current_today_trains: [Train]) {
         let items = offsets.map { current_today_trains[$0] }
         for train in items {
+            // Remove calendar event
+            Task {
+                await CalendarManager.shared.removeTrainEvent(train: train)
+            }
+            
             let relatedStops = stops.filter { $0.id == train.id }
             relatedStops.forEach { modelContext.delete($0) }
             modelContext.delete(train)
@@ -272,6 +282,21 @@ struct TodayView: View {
                             stop.arr_delay = stop_updated["arr_delay"] as? Int ?? 0
                             stop.dep_time_eff = stop_updated["dep_time_eff"] as? Date ?? .distantPast
                             stop.arr_time_eff = stop_updated["arr_time_eff"] as? Date ?? .distantPast
+                        }
+                        
+                        // update calendar event if exists
+                        if train.calendarEventIdentifier != nil {
+                            Task {
+                                let trainSeats = seats.filter { $0.trainID == train.id }
+                                await CalendarManager.shared.syncTrainEvent(
+                                    train: train,
+                                    stops: today_stops,
+                                    seats: trainSeats,
+                                    titleFormat: titleFormat,
+                                    calendarIdentifier: selectedCalendarIdentifier,
+                                    travelTime: travelTime
+                                )
+                            }
                         }
                     }
                 }
@@ -536,9 +561,6 @@ struct ConnectionIntervalView: View {
     container.mainContext.insert(train3Stop1)
     container.mainContext.insert(train3Stop2)
     
-    return TodayView(ticketTrainID: .constant(nil), show_ticket_view: .constant(false))
+    return TodayView(ticketTrainID: .constant(nil), ticketSeatID: .constant(nil), show_ticket_view: .constant(false))
         .modelContainer(container)
 }
-
-
-

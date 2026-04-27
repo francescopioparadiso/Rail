@@ -27,9 +27,11 @@ struct ContentView: View {
     @State private var add_train_sheet = false
     @State private var add_favorite_sheet = false
     @State private var add_pass_sheet = false
+    @State private var calendar_sheet = false
     
     // deep link variables
     @State private var ticketTrainID: UUID? = nil
+    @State private var ticketSeatID: UUID? = nil
     @State private var show_ticket_view = false
     
     // favorites variables
@@ -41,11 +43,11 @@ struct ContentView: View {
         NavigationStack {
             TabView(selection: $selectedTab) {
                 Tab("Past", systemImage: "tray.full", value: .past) {
-                    PastView(ticketTrainID: $ticketTrainID, show_ticket_view: $show_ticket_view)
+                    PastView(ticketTrainID: $ticketTrainID, ticketSeatID: $ticketSeatID, show_ticket_view: $show_ticket_view)
                 }
                 
                 Tab("Today", systemImage: "calendar.day.timeline.leading", value: .today) {
-                    TodayView(ticketTrainID: $ticketTrainID, show_ticket_view: $show_ticket_view)
+                    TodayView(ticketTrainID: $ticketTrainID, ticketSeatID: $ticketSeatID, show_ticket_view: $show_ticket_view)
                 }
                 
                 Tab("Add", systemImage: "plus", value: .add, role: .search) {
@@ -64,6 +66,15 @@ struct ContentView: View {
                 }
             }
             .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button {
+                        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                        calendar_sheet = true
+                    } label: {
+                        Image(systemName: "calendar")
+                    }
+                }
+                
                 ToolbarItem {
                     Button {
                         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
@@ -94,6 +105,9 @@ struct ContentView: View {
                 self.favorites_fetched = results
             }
         }
+        .sheet(isPresented: $calendar_sheet) {
+            CalendarView()
+        }
         .sheet(isPresented: $add_train_sheet) {
             AddTrainView(add_favorite_sheet: add_favorite_sheet)
         }
@@ -113,14 +127,23 @@ struct ContentView: View {
                     add_pass_sheet = true
                 }
             } else if url.scheme == "railapp" && url.host == "view-ticket" {
-                if let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
-                   let queryItem = components.queryItems?.first(where: { $0.name == "trainID" }),
-                   let trainIDValue = queryItem.value,
-                   let trainID = UUID(uuidString: trainIDValue) {
-                    
-                    self.ticketTrainID = trainID
-                    self.show_ticket_view = true
-                    self.selectedTab = .today
+                if let components = URLComponents(url: url, resolvingAgainstBaseURL: false) {
+                    if let trainIDItem = components.queryItems?.first(where: { $0.name == "trainID" }),
+                       let trainIDValue = trainIDItem.value,
+                       let trainID = UUID(uuidString: trainIDValue) {
+                        
+                        self.ticketTrainID = trainID
+                        
+                        if let seatIDItem = components.queryItems?.first(where: { $0.name == "seatID" }),
+                           let seatIDValue = seatIDItem.value {
+                            self.ticketSeatID = UUID(uuidString: seatIDValue)
+                        } else {
+                            self.ticketSeatID = nil
+                        }
+                        
+                        self.show_ticket_view = true
+                        self.selectedTab = .today
+                    }
                 }
             }
         }

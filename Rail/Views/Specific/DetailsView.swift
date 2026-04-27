@@ -22,6 +22,7 @@ struct DetailsView: View {
     let stops: [Stop]
     let seats: [Seat]
     @Binding var show_ticket_initially: Bool
+    @Binding var ticketSeatID: UUID?
     @Query private var favorites: [Favorite]
     
     // state variables
@@ -98,6 +99,10 @@ struct DetailsView: View {
     private var last_index_no_issues: Int {
         stops.lastIndex(where: { $0.status != 3 }) ?? (stops.indices.last ?? 0)
     }
+    
+    @AppStorage("calendarTitleFormat") private var titleFormat: String = "Train {number}"
+    @AppStorage("selectedCalendarIdentifier") private var selectedCalendarIdentifier: String = ""
+    @AppStorage("calendarTravelTime") private var travelTime: Double = 0
     
     // MARK: - main view
     var body: some View {
@@ -798,7 +803,7 @@ struct DetailsView: View {
                 }
             }
             .sheet(isPresented: $seats_sheet) {
-                SeatsView(train: train, seats: seats)
+                SeatsView(train: train, seats: seats, initialSeatID: ticketSeatID)
                     .presentationDetents([.large])
             }
             
@@ -839,6 +844,7 @@ struct DetailsView: View {
             if show_ticket_initially {
                 seats_sheet = true
                 show_ticket_initially = false
+                ticketSeatID = nil // Reset so next time it's clean
             }
         }
         .onDisappear {
@@ -910,6 +916,18 @@ struct DetailsView: View {
             stop.arr_time_eff = stop_updated["arr_time_eff"] as? Date ?? .distantPast
         }
         
+        // update calendar event if exists
+        if train.calendarEventIdentifier != nil {
+            await CalendarManager.shared.syncTrainEvent(
+                train: train,
+                stops: today_stops,
+                seats: seats,
+                titleFormat: titleFormat,
+                calendarIdentifier: selectedCalendarIdentifier,
+                travelTime: travelTime
+            )
+        }
+        
         try? model_context.save()
         WidgetCenter.shared.reloadAllTimelines()
     }
@@ -959,7 +977,7 @@ struct DetailsView: View {
     ]
 
     NavigationStack {
-        DetailsView(train: mockTrain, stops: mockStops, seats: mockSeats, show_ticket_initially: .constant(false))
+        DetailsView(train: mockTrain, stops: mockStops, seats: mockSeats, show_ticket_initially: .constant(false), ticketSeatID: .constant(nil))
             .modelContainer(container)
     }
 }
