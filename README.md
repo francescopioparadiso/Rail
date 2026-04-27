@@ -17,6 +17,8 @@
   <img src="Thumbnails/screen4.png" width="268" />
   <img src="Thumbnails/screen5.png" width="268" />
   <img src="Thumbnails/screen6.png" width="268" />
+  <img src="Thumbnails/screen7.png" width="268" />
+  <img src="Thumbnails/screen8.png" width="268" />
 </p>
 
 ## ✨ Nuove Funzionalità & Aggiornamenti
