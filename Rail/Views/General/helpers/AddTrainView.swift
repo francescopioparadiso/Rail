@@ -474,12 +474,14 @@ struct AddTrainView: View {
                                         Text(firstStop_name)
                                         Spacer()
                                         Text(firstStop_refTime.formatted(Date.FormatStyle.dateTime.hour().minute()))
+                                            .monospacedDigit()
                                     }
                                     
                                     HStack {
                                         Text(lastStop_name)
                                         Spacer()
                                         Text(lastStop_refTime.formatted(Date.FormatStyle.dateTime.hour().minute()))
+                                            .monospacedDigit()
                                     }
                                 }
                                 .font(.subheadline)
@@ -541,6 +543,7 @@ struct AddTrainView: View {
                             
                             Text(ref_time.formatted(Date.FormatStyle.dateTime.hour().minute()))
                                 .font(.subheadline)
+                                .monospacedDigit()
                         }
                         .fontDesign(app_font_design)
                         .foregroundStyle(Color.primary)

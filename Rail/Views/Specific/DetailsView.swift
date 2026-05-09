@@ -144,6 +144,7 @@ struct DetailsView: View {
                                 .fontDesign(app_font_design)
                                 .strikethrough()
                                 .foregroundStyle(Color.red)
+                                .monospacedDigit()
                         } else if Date() >= first_stop.dep_time_id || Calendar.current.isDateInToday(first_stop.dep_time_id) {
                             HStack {
                                 if first_stop_no_issues.dep_delay != 0 {
@@ -152,18 +153,21 @@ struct DetailsView: View {
                                         .fontDesign(app_font_design)
                                         .strikethrough()
                                         .foregroundStyle(Color.secondary)
+                                        .monospacedDigit()
                                 }
                                 
                                 Text(first_stop_no_issues.dep_time_eff.formatted(.dateTime.hour().minute()))
                                     .font(.subheadline)
                                     .fontDesign(app_font_design)
                                     .foregroundStyle(first_stop_no_issues.dep_delay > 0 ? Color.red : Color.green)
+                                    .monospacedDigit()
                             }
                         } else {
                             Text(first_stop_no_issues.dep_time_id.formatted(.dateTime.hour().minute()))
                                 .font(.subheadline)
                                 .fontDesign(app_font_design)
                                 .foregroundStyle(Date() >= first_stop_no_issues.dep_time_id && first_stop_no_issues.dep_delay == 0 ? Color.green : Color.primary)
+                                .monospacedDigit()
                         }
                     }
                     
@@ -182,6 +186,7 @@ struct DetailsView: View {
                                 .fontDesign(app_font_design)
                                 .strikethrough()
                                 .foregroundStyle(Color.red)
+                                .monospacedDigit()
                         } else if Date() >= first_stop.dep_time_id || Calendar.current.isDateInToday(first_stop.dep_time_id) {
                             HStack {
                                 if last_stop_no_issues.arr_delay != 0 {
@@ -190,23 +195,27 @@ struct DetailsView: View {
                                         .fontDesign(app_font_design)
                                         .strikethrough()
                                         .foregroundStyle(Color.secondary)
+                                        .monospacedDigit()
                                 }
                                 
                                 Text(last_stop_no_issues.arr_time_eff.formatted(.dateTime.hour().minute()))
                                     .font(.subheadline)
                                     .fontDesign(app_font_design)
                                     .foregroundStyle(last_stop_no_issues.arr_delay > 0 ? Color.red : Color.green)
+                                    .monospacedDigit()
                             }
                         } else if Date() >= first_stop.dep_time_id && last_stop.arr_delay == 0 {
                             Text(last_stop_no_issues.arr_time_id.formatted(.dateTime.hour().minute()))
                                 .font(.subheadline)
                                 .fontDesign(app_font_design)
                                 .foregroundStyle(Color.green)
+                                .monospacedDigit()
                         } else {
                             Text(last_stop_no_issues.arr_time_id.formatted(.dateTime.hour().minute()))
                                 .font(.subheadline)
                                 .fontDesign(app_font_design)
                                 .foregroundStyle(Color.primary)
+                                .monospacedDigit()
                         }
                     }
                 }
@@ -244,7 +253,7 @@ struct DetailsView: View {
                             if day > 0 {
                                 return String(localized: "Departure on \(dep_time.formatted(date: .abbreviated, time: .omitted))")
                             } else if hour > 0 && minute > 0 {
-                                return String(localized: "Departure in \(hour)h\(minute)m")
+                                return String(localized: "Departure in \(hour)h \(minute)m")
                             } else if hour > 0 && minute == 0 {
                                 return String(localized: "Departure in \(hour)h")
                             } else if minute > 0 {
@@ -286,7 +295,7 @@ struct DetailsView: View {
                                         if delay >= 60 {
                                             let hours = delay / 60
                                             let minutes = delay % 60
-                                            return "\(hours)h\(minutes)m"
+                                            return "\(hours)h \(minutes)m"
                                         }
                                         return "\(delay)m"
                                     } else if last_stop_no_issues.arr_delay == 0 {
@@ -295,7 +304,7 @@ struct DetailsView: View {
                                         if last_stop_no_issues.arr_delay >= 60 {
                                             let hours = last_stop_no_issues.arr_delay / 60
                                             let minutes = last_stop_no_issues.arr_delay % 60
-                                            return "\(hours)h\(minutes)m"
+                                            return "\(hours)h \(minutes)m"
                                         }
                                         return "\(last_stop_no_issues.arr_delay)m"
                                     }
@@ -393,7 +402,7 @@ struct DetailsView: View {
                         
                         let time_string = {
                             if hours > 0 && minutes % 60 != 0 {
-                                return "\(hours)h\(minutes % 60)m"
+                                return "\(hours)h \(minutes % 60)m"
                             } else if hours > 0 && minutes % 60 == 0 {
                                 return "\(hours)h"
                             } else {
@@ -519,6 +528,7 @@ struct DetailsView: View {
                                             HStack(spacing: 2) {
                                                 Image(systemName: index == first_index ? "arrow.up.right.circle.fill" : "arrow.down.right.circle.fill")
                                                 Text(index == first_index ? stop.dep_time_id.formatted(.dateTime.hour().minute()) : stop.arr_time_id.formatted(.dateTime.hour().minute()))
+                                                    .monospacedDigit()
                                             }
                                             .font(.caption2)
                                             .fontDesign(app_font_design)
@@ -530,6 +540,7 @@ struct DetailsView: View {
                                                     HStack(spacing: 2) {
                                                         Image(systemName: "arrow.down.right.circle.fill")
                                                         Text(Date() >= first_stop_no_issues.dep_time_id || Calendar.current.isDateInToday(first_stop_no_issues.dep_time_id) ? stop.arr_time_eff.formatted(.dateTime.hour().minute()) : stop.arr_time_id.formatted(.dateTime.hour().minute()))
+                                                            .monospacedDigit()
                                                     }
                                                 }
                                                 
@@ -537,6 +548,7 @@ struct DetailsView: View {
                                                     HStack(spacing: 2) {
                                                         Image(systemName: "arrow.up.right.circle.fill")
                                                         Text(Date() >= first_stop_no_issues.dep_time_id || Calendar.current.isDateInToday(first_stop_no_issues.dep_time_id) ? stop.dep_time_eff.formatted(.dateTime.hour().minute()) : stop.dep_time_id.formatted(.dateTime.hour().minute()))
+                                                            .monospacedDigit()
                                                     }
                                                 }
                                             }
@@ -566,7 +578,7 @@ struct DetailsView: View {
                                                         if delay_type >= 60 && delay_type % 60 == 0 {
                                                             return "\(delay_type / 60)h"
                                                         } else if delay_type >= 60 && delay_type % 60 != 0 {
-                                                            return "\(delay_type / 60)h\(delay_type % 60)m"
+                                                            return "\(delay_type / 60)h \(delay_type % 60)m"
                                                         } else {
                                                             return "\(delay_type)m"
                                                         }
@@ -599,7 +611,7 @@ struct DetailsView: View {
                                                     if hours == 0 && minutes == 0 {
                                                         return String(localized: "At the station")
                                                     } else if hours > 0 {
-                                                        return "\(hours)h\(minutes % 60)m"
+                                                        return "\(hours)h \(minutes % 60)m"
                                                     } else {
                                                         return "\(minutes)m"
                                                     }

@@ -47,16 +47,19 @@ struct ListView: View {
                                 .font(.subheadline)
                                 .fontDesign(app_font_design)
                                 .foregroundStyle(Color.red)
+                                .monospacedDigit()
                         } else if Date() >= stops.first?.dep_time_id ?? Date() && summary.firstNoIssues.dep_delay != 0 {
                             Text(summary.firstNoIssues.dep_time_eff.formatted(.dateTime.hour().minute()))
                                 .font(.subheadline)
                                 .fontDesign(app_font_design)
                                 .foregroundStyle(summary.firstNoIssues.dep_delay > 0 ? Color.red : Color.green)
+                                .monospacedDigit()
                         } else {
                             Text(summary.firstNoIssues.dep_time_id.formatted(.dateTime.hour().minute()))
                                 .font(.subheadline)
                                 .fontDesign(app_font_design)
                                 .foregroundStyle(Date() >= summary.first.dep_time_id && summary.firstNoIssues.dep_delay == 0 ? Color.green : Color.primary)
+                                .monospacedDigit()
                         }
                     }
                     
@@ -76,21 +79,25 @@ struct ListView: View {
                                 .font(.subheadline)
                                 .fontDesign(app_font_design)
                                 .foregroundStyle(Color.red)
+                                .monospacedDigit()
                         } else if Date() >= stops.first?.dep_time_id ?? Date() && summary.lastNoIssues.arr_delay != 0 {
                             Text(summary.lastNoIssues.arr_time_eff.formatted(.dateTime.hour().minute()))
                                 .font(.subheadline)
                                 .fontDesign(app_font_design)
                                 .foregroundStyle(summary.lastNoIssues.arr_delay > 0 ? Color.red : Color.green)
+                                .monospacedDigit()
                         } else if Date() >= summary.first.dep_time_id && summary.lastNoIssues.arr_delay == 0 {
                             Text(summary.lastNoIssues.arr_time_eff.formatted(.dateTime.hour().minute()))
                                 .font(.subheadline)
                                 .fontDesign(app_font_design)
                                 .foregroundStyle(Color.green)
+                                .monospacedDigit()
                         } else {
                             Text(summary.lastNoIssues.arr_time_id.formatted(.dateTime.hour().minute()))
                                 .font(.subheadline)
                                 .fontDesign(app_font_design)
                                 .foregroundStyle(Color.primary)
+                                .monospacedDigit()
                         }
                     }
                 }
@@ -129,7 +136,7 @@ struct ListView: View {
                                 if day > 0 {
                                     return "\(NSLocalizedString("Departure on", comment: "")) \(dep_time.formatted(date: .abbreviated, time: .omitted))"
                                 } else if hour > 0 && minute > 0 {
-                                    return "\(NSLocalizedString("Departure in", comment: "")) \(hour)h\(minute)m"
+                                    return "\(NSLocalizedString("Departure in", comment: "")) \(hour)h \(minute)m"
                                 } else if hour > 0 && minute == 0 {
                                     return "\(NSLocalizedString("Departure in", comment: "")) \(hour)h"
                                 } else if minute > 0 {
@@ -282,16 +289,19 @@ struct ListView: View {
                                     .font(.subheadline)
                                     .fontDesign(app_font_design)
                                     .foregroundStyle(Color.red)
+                                    .monospacedDigit()
                             } else if Date() >= summary.first.dep_time_id && summary.firstNoIssues.dep_delay != 0 {
                                 Text(summary.firstNoIssues.dep_time_eff.formatted(.dateTime.hour().minute()))
                                     .font(.subheadline)
                                     .fontDesign(app_font_design)
                                     .foregroundStyle(summary.firstNoIssues.dep_delay > 0 ? Color.red : Color.green)
+                                    .monospacedDigit()
                             } else {
                                 Text(summary.firstNoIssues.dep_time_id.formatted(.dateTime.hour().minute()))
                                     .font(.subheadline)
                                     .fontDesign(app_font_design)
                                     .foregroundStyle(Date() >= summary.first.dep_time_id && summary.firstNoIssues.dep_delay == 0 ? Color.green : Color.primary)
+                                    .monospacedDigit()
                             }
                         }
                         
@@ -311,21 +321,25 @@ struct ListView: View {
                                     .font(.subheadline)
                                     .fontDesign(app_font_design)
                                     .foregroundStyle(Color.red)
+                                    .monospacedDigit()
                             } else if Date() >= summary.first.dep_time_id && summary.lastNoIssues.arr_delay != 0 {
                                 Text(summary.lastNoIssues.arr_time_eff.formatted(.dateTime.hour().minute()))
                                     .font(.subheadline)
                                     .fontDesign(app_font_design)
                                     .foregroundStyle(summary.lastNoIssues.arr_delay > 0 ? Color.red : Color.green)
+                                    .monospacedDigit()
                             } else if Date() >= summary.first.dep_time_id && summary.lastNoIssues.arr_delay == 0 {
                                 Text(summary.lastNoIssues.arr_time_eff.formatted(.dateTime.hour().minute()))
                                     .font(.subheadline)
                                     .fontDesign(app_font_design)
                                     .foregroundStyle(Color.green)
+                                    .monospacedDigit()
                             } else {
                                 Text(summary.lastNoIssues.arr_time_id.formatted(.dateTime.hour().minute()))
                                     .font(.subheadline)
                                     .fontDesign(app_font_design)
                                     .foregroundStyle(Color.primary)
+                                    .monospacedDigit()
                             }
                         }
                     }

@@ -72,11 +72,13 @@ struct AddFavoriteView: View {
                                                 Text(favorite.stop_names.first ?? "")
                                                 Spacer()
                                                 Text(favorite.stop_ref_times.first!.formatted(Date.FormatStyle.dateTime.hour().minute()))
+                                                    .monospacedDigit()
                                             }
                                             HStack {
                                                 Text(favorite.stop_names.last ?? "")
                                                 Spacer()
                                                 Text(favorite.stop_ref_times.last!.formatted(Date.FormatStyle.dateTime.hour().minute()))
+                                                    .monospacedDigit()
                                             }
                                         }
                                         .font(.subheadline)

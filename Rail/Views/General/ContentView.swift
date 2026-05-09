@@ -126,7 +126,7 @@ struct ContentView: View {
                 if !add_pass_sheet {
                     add_pass_sheet = true
                 }
-            } else if url.scheme == "railapp" && url.host == "view-ticket" {
+            } else if url.scheme == "railapp" && (url.host == "view-ticket" || url.host == "view-train") {
                 if let components = URLComponents(url: url, resolvingAgainstBaseURL: false) {
                     if let trainIDItem = components.queryItems?.first(where: { $0.name == "trainID" }),
                        let trainIDValue = trainIDItem.value,
@@ -141,7 +141,7 @@ struct ContentView: View {
                             self.ticketSeatID = nil
                         }
                         
-                        self.show_ticket_view = true
+                        self.show_ticket_view = url.host == "view-ticket"
                         self.selectedTab = .today
                     }
                 }
