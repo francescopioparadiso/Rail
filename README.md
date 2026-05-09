@@ -1,4 +1,4 @@
-# Rail - Il tuo viaggio, semplificato.
+# Rail - Il tuo viaggio, semplificato
 
 [![iOS 26+](https://img.shields.io/badge/iOS-26.0%2B-blue.svg?style=flat)](https://developer.apple.com/ios/)
 [![Swift 6.2](https://img.shields.io/badge/Swift-6.2-orange.svg?style=flat)](https://developer.apple.com/swift/)
@@ -31,7 +31,7 @@
 * **Gestione Gruppi ("I tuoi Posti"):** Organizzazione e visualizzazione delle carrozze e dei posti a sedere per tutti i compagni di viaggio.
 * **Contesto Meteorologico:** Integrazione con servizi meteo per visualizzare le condizioni atmosferiche previste ad ogni singola fermata del tragitto.
 * **Integrazione con Calendario:** Sincronizzazione automatica dei viaggi con il calendario iOS per visualizzare gli impegni di viaggio insieme agli altri eventi personali.
-* **Nuovi Widget:** Widget dinamici per la Home Screen che mostrano informazioni sullo stato dell'abbonamento e i tuoi biglietti imminenti, con un design in vetro smerigliato per un look elegante e moderno.
+* **Nuovi Widget:** Widget dinamici per la Home Screen che mostrano informazioni sullo stato dell'abbonamento, i tuoi biglietti imminenti e il tuo treno preferito, con un design elegante e moderno.
 
 ## 🛠 Tech Stack & Architettura
 
@@ -45,6 +45,7 @@ Il progetto adotta un approccio pragmatico che combina le più recenti API Apple
 * **Vision Framework:** Utilizzato per la scansione automatica e l'estrazione di dati dai QR code dei biglietti digitali.
 
 ### Sfide Tecniche Risolte
+
 * **Normalizzazione Multi-Provider:** Layer di astrazione che unifica le risposte JSON eterogenee di provider differenti in un unico modello dati coerente.
 * **Widget Integration:** Implementazione di widget trasparenti tramite `WidgetKit` per visualizzare informazioni critiche in tempo reale.
 * **Algoritmi Custom:** Sviluppo di logiche per la normalizzazione dei binari e il calcolo delle distanze geospaziali tra le stazioni.
