@@ -1,5 +1,42 @@
+# macOS
 .DS_Store
-*.xcworkspace
-*.xcuserdata
+
+# Local editors
+.vscode/
+
+# Python
+.venv/
+.venv_rail/
+venv/
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Local databases
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+
+# Xcode user state
+xcuserdata/
 *.xcuserstate
-*.plist
+*.xcscmblueprint
+
+# Xcode build output
+DerivedData/
+build/
+*.ipa
+*.dSYM/
+
+# Swift Package Manager
+.build/
+.swiftpm/
+
+# Keep shared Xcode project configuration versioned.
+!*.xcodeproj/project.pbxproj
+!*.xcodeproj/project.xcworkspace/
+!*.xcodeproj/project.xcworkspace/contents.xcworkspacedata
+!*.xcodeproj/xcshareddata/
+!*.xcodeproj/xcshareddata/**
