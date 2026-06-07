@@ -4,6 +4,7 @@ import PhotosUI
 import Vision
 import CoreImage.CIFilterBuiltins
 import WidgetKit
+import StoreKit
 
 extension String: @retroactive Identifiable {
     public var id: String { self }

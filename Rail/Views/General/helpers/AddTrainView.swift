@@ -1,7 +1,40 @@
 import SwiftUI
 import SwiftData
 import WidgetKit
+import StoreKit
 
+
+enum SearchType: String, CaseIterable {
+    case number
+    case stations
+}
+enum Daytime: String, CaseIterable {
+    case morning
+    case afternoon
+    case night
+
+    var label: String {
+        switch self {
+        case .morning: return NSLocalizedString("Morning", comment: "")
+        case .afternoon: return NSLocalizedString("Afternoon", comment: "")
+        case .night: return NSLocalizedString("Night", comment: "")
+        }
+    }
+    var startHour: Int {
+        switch self {
+        case .morning: return 0
+        case .afternoon: return 12
+        case .night: return 18
+        }
+    }
+    var endHour: Int {
+        switch self {
+        case .morning: return 12
+        case .afternoon: return 18
+        case .night: return 24
+        }
+    }
+}
 enum current_view: String, CaseIterable {
     case add_train
     case choose_train
@@ -94,7 +127,11 @@ struct AddTrainView: View {
     let add_favorite_sheet: Bool
     
     // focus variables
-    @FocusState private var is_focused: Bool
+    enum FocusField: Hashable { case number, departure, arrival }
+    @FocusState private var focused_field: FocusField?
+    private var is_focused: Bool { focused_field != nil }
+    // measured height of the keyboard/back button so the suggestions pill can match it
+    @State private var keyboard_button_height: CGFloat = 56
     
     // train search variables
     @State private var trains_fetched: [UUID: [String: Any]] = [:]
@@ -102,7 +139,24 @@ struct AddTrainView: View {
     @State private var stops_fetched: [[String: Any]] = []
     @State private var stops_selected: [[String: Any]] = []
     
+    @State private var search_type: SearchType = .number
     @State private var train_number: String = ""
+    @State private var departure_station: String = ""
+    @State private var arrival_station: String = ""
+    @State private var departure_code: String = ""
+    @State private var arrival_code: String = ""
+    @State private var station_suggestions: [StationSuggestion] = []
+    // true while a suggestion is being applied, so the text onChange doesn't clear the code
+    @State private var is_selecting_station = false
+
+    // stations search results
+    @State private var solutions_fetched: [Solution] = []
+    @State private var solutionID_selected: UUID? = nil
+    @State private var selected_daytime: Daytime = .morning
+    // suppress the picker's auto-scroll when we set the daytime programmatically
+    @State private var suppress_daytime_scroll = false
+    // bumped by the "Now" toolbar button to scroll to the next departure
+    @State private var scroll_to_now_trigger = 0
     @State private var date_selected: Date = Date()
     
     @AppStorage("autoSyncToCalendar") private var autoSyncToCalendar: Bool = true
@@ -127,7 +181,10 @@ struct AddTrainView: View {
             } else {
                 return "chevron.right"
             }
-        case .choose_train, .choose_stops:
+        case .choose_train:
+            // stations: choosing a solution is the final step
+            return search_type == .stations ? "checkmark" : "chevron.right"
+        case .choose_stops:
             return "chevron.right"
         case .choose_date:
             return "checkmark"
@@ -141,24 +198,31 @@ struct AddTrainView: View {
             } else {
                 return NSLocalizedString("Next", comment: "")
             }
-        case .choose_train, .choose_stops:
+        case .choose_train:
+            return search_type == .stations ? NSLocalizedString("Save", comment: "") : NSLocalizedString("Next", comment: "")
+        case .choose_stops:
             return NSLocalizedString("Next", comment: "")
         case .choose_date:
             return NSLocalizedString("Save", comment: "")
         }
     }
-    
+
     private var button_is_active: Bool {
         switch current_view {
         case .add_train:
-            return train_number.count >= 2 || !stops_selected.isEmpty
-            
+            switch search_type {
+            case .number:
+                return train_number.count >= 2 || !stops_selected.isEmpty
+            case .stations:
+                return !departure_code.isEmpty && !arrival_code.isEmpty
+            }
+
         case .choose_train:
-            return trainID_selected != nil
-            
+            return search_type == .stations ? solutionID_selected != nil : trainID_selected != nil
+
         case .choose_stops:
             return stops_selected.count >= 2
-            
+
         case .choose_date:
             return true
         }
@@ -174,6 +238,13 @@ struct AddTrainView: View {
         /// reset variables
         trains_fetched = [:]
         train_number = ""
+        departure_station = ""
+        arrival_station = ""
+        departure_code = ""
+        arrival_code = ""
+        station_suggestions = []
+        solutions_fetched = []
+        solutionID_selected = nil
         trainID_selected = nil
         date_selected = Date()
     }
@@ -184,11 +255,11 @@ struct AddTrainView: View {
         switch current_view {
         case .add_train:
             /// reset variables
-            is_focused = false
-            
+            focused_field = nil
+
         case .choose_train:
             /// update focus
-            is_focused = true
+            focused_field = search_type == .number ? .number : .departure
             
             /// change view
             current_view = .add_train
@@ -196,7 +267,9 @@ struct AddTrainView: View {
             /// reset variables
             trains_fetched.removeAll()
             trainID_selected = nil
-            
+            solutions_fetched.removeAll()
+            solutionID_selected = nil
+
             /// fetching status
             current_fetching = .idle
             
@@ -224,13 +297,17 @@ struct AddTrainView: View {
                 UIImpactFeedbackGenerator(style: .medium).impactOccurred()
                 
                 /// reset focus
-                is_focused = false
-                
+                focused_field = nil
+
                 /// change view
                 current_view = .choose_train
-                
+
                 /// actions
-                Task { await fetch_trains() }
+                if search_type == .number {
+                    Task { await fetch_trains() }
+                } else {
+                    Task { await fetch_solutions() }
+                }
             } else {
                 /// haptic feedback
                 UIImpactFeedbackGenerator(style: .heavy).impactOccurred()
@@ -243,15 +320,26 @@ struct AddTrainView: View {
             }
             
         case .choose_train:
-            /// haptic feedback
-            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-            
-            /// change view
-            current_view = .choose_stops
-            
-            /// actions
-            save_stops()
-            
+            if search_type == .stations {
+                /// haptic feedback
+                UIImpactFeedbackGenerator(style: .heavy).impactOccurred()
+
+                /// stations: a solution is fully specified, save it directly
+                Task {
+                    await save_solution()
+                    dismiss()
+                }
+            } else {
+                /// haptic feedback
+                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+
+                /// change view
+                current_view = .choose_stops
+
+                /// actions
+                save_stops()
+            }
+
         case .choose_stops:
             /// haptic feedback
             UIImpactFeedbackGenerator(style: .medium).impactOccurred()
@@ -290,60 +378,12 @@ struct AddTrainView: View {
                     choose_date_view()
                 }
                 
-                // MARK: - bottom buttons
-                HStack (spacing: 8) {
-                    // back button
-                    if !(!is_focused && current_view == .add_train) {
-                        Button {
-                            back_button_action()
-                        } label: {
-                            Image(systemName: back_button_icon)
-                                .padding(.horizontal, is_focused ? 16 : 24)
-                                .padding(.vertical, is_focused ? 16 : 24)
-                                .contentTransition(.symbolEffect(.replace.downUp.wholeSymbol, options: .nonRepeating))
-                        }
-                        .font(.title3)
-                        .fontWeight(.medium)
-                        .fontDesign(app_font_design)
-                        .buttonStyle(.glassProminent)
-                        .foregroundStyle(Color.accentColor)
-                        .tint(Color.accentColor.opacity(0.15))
-                        .transition(.asymmetric(
-                            insertion: .scale(scale: 0.8).combined(with: .opacity),
-                            removal: .scale(scale: 0.8).combined(with: .opacity)
-                        ))
-                    }
-                    
-                    // next button
-                    Button {
-                        if button_is_active {
-                            next_button_action()
-                        }
-                    } label: {
-                        HStack {
-                            Text(next_button_text)
-                                .contentTransition(.numericText(value: Double(next_button_text.hashValue)))
-                                .animation(.snappy, value: next_button_text)
-                            
-                            Image(systemName: next_button_icon)
-                                .symbolEffect(.wiggle.byLayer, options: .repeat(.periodic(delay: 5.0)))
-                                .contentTransition(.symbolEffect(.replace.downUp.wholeSymbol, options: .nonRepeating))
-                        }
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, is_focused ? 16 : 24)
-                    }
-                    .font(.title3)
-                    .fontWeight(.medium)
-                    .fontDesign(app_font_design)
-                    .buttonStyle(.glassProminent)
-                    .foregroundStyle(button_is_active ? Color.accentColor : Color.primary)
-                    .tint(button_is_active ? Color.accentColor.opacity(0.15) : colorScheme == .dark ? Color.black.opacity(0.1) : Color.clear)
-                }
-                .padding(.bottom, is_focused ? 8 : 16).padding(.horizontal)
+                // MARK: - bottom bar
+                bottom_bar()
             }
             .navigationTitle(current_view.title)
             .navigationBarTitleDisplayMode(.inline)
-            .ignoresSafeArea(edges: is_focused ? [] : [.top, .bottom])
+            .ignoresSafeArea(edges: is_focused ? [.top] : [.top, .bottom])
             .background(Color(UIColor.systemBackground))
             .toolbar(.hidden, for: .tabBar)
             .toolbar {
@@ -364,13 +404,21 @@ struct AddTrainView: View {
                         .contentTransition(.numericText(value: Double(current_view.title.hashValue)))
                         .animation(.snappy, value: current_view.title)
                 }
+
+                // jump the solutions list to the next departure from now
+                if current_view == .choose_train && search_type == .stations && current_fetching == .success {
+                    ToolbarItem(placement: .navigationBarTrailing) {
+                        Button("Now") {
+                            scroll_to_now_trigger += 1
+                        }
+                        .fontDesign(app_font_design)
+                    }
+                }
             }
         }
         .onAppear {
-            is_focused = true
-            
             Task { await fetch_favorites() }
-                
+
             ReviewManager.shared.requestReviewIfAppropriate(action: requestReview)
         }
         .onChange(of: current_fetching) { old_value, new_value in
@@ -384,32 +432,344 @@ struct AddTrainView: View {
             }
         }
         .onChange(of: train_number) { _, new_value in
-            // reset variables
+            // only reset while editing on the add-train page (skip when a
+            // favorite sets the number and jumps straight to choose_train)
+            guard current_view == .add_train else { return }
             trains_fetched = [:]
             trainID_selected = nil
             stops_fetched = []
             stops_selected = []
             current_fetching = .idle
         }
+        .onChange(of: search_type) { _, new_value in
+            // move focus to the relevant field and clear stale suggestions
+            station_suggestions = []
+            focused_field = new_value == .number ? .number : .departure
+        }
+        .onChange(of: focused_field) { _, new_value in
+            // refresh suggestions for whichever station field becomes active
+            station_suggestions = []
+            if new_value == .departure, departure_station.count >= 3 {
+                Task { await fetch_stations(for: departure_station, field: .departure) }
+            } else if new_value == .arrival, arrival_station.count >= 3 {
+                Task { await fetch_stations(for: arrival_station, field: .arrival) }
+            }
+        }
+        .onChange(of: departure_station) { _, new_value in
+            // ignore the programmatic change made when applying a suggestion
+            if is_selecting_station { is_selecting_station = false; return }
+            departure_code = ""  // invalidate until a suggestion is picked
+            Task { await fetch_stations(for: new_value, field: .departure) }
+        }
+        .onChange(of: arrival_station) { _, new_value in
+            if is_selecting_station { is_selecting_station = false; return }
+            arrival_code = ""  // invalidate until a suggestion is picked
+            Task { await fetch_stations(for: new_value, field: .arrival) }
+        }
     }
     
     // MARK: - views functions
     @ViewBuilder func add_train_view() -> some View {
-        ScrollView {
-            TextField("0", text: $train_number)
-                .font(.system(size: 80))
+        VStack(spacing: 0) {
+            // segmented picker — pinned, everything below it scrolls
+            Picker("Search Type", selection: $search_type) {
+                Text("Train number").tag(SearchType.number)
+                Text("Stations").tag(SearchType.stations)
+            }
+            .pickerStyle(.segmented)
+            .padding(.horizontal, 48)
+            .padding(.top, 72)
+            .padding(.bottom, 8)
+
+            if search_type == .number {
+                // number field + favorites all scroll together
+                List {
+                    TextField("0", text: $train_number)
+                        .font(.system(size: 80))
+                        .fontDesign(app_font_design)
+                        .fontWeight(.bold)
+                        .keyboardType(.numberPad)
+                        .multilineTextAlignment(.center)
+                        .focused($focused_field, equals: .number)
+                        .padding(.top, 32)
+                        .listRowSeparator(.hidden)
+                        .listRowBackground(Color.clear)
+
+                    if !favorites.isEmpty {
+                        // scrolling section header
+                        HStack(spacing: 4) {
+                            Image(systemName: "heart.fill")
+                            Text("Favorites")
+                        }
+                        .font(.headline)
+                        .fontWeight(.semibold)
+                        .fontDesign(app_font_design)
+                        .foregroundStyle(Color.secondary)
+                        .listRowSeparator(.hidden)
+                        .listRowBackground(Color.clear)
+                        .listRowInsets(EdgeInsets(top: 32, leading: 16, bottom: 4, trailing: 16))
+
+                        ForEach(favorites.sorted(by: { $0.index < $1.index })) { favorite in
+                            Button {
+                                select_favorite(favorite)
+                            } label: {
+                                favorite_card(favorite)
+                            }
+                            .buttonStyle(.plain)
+                            // while typing a number: dim, disable tapping, allow swipe-to-delete
+                            .disabled(focused_field == .number)
+                            .listRowSeparator(.hidden)
+                            .listRowBackground(Color.clear)
+                            .opacity(focused_field == .number ? 0.4 : 1.0)
+                            .animation(.snappy, value: focused_field)
+                            .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                                if focused_field == .number {
+                                    Button(role: .destructive) {
+                                        delete_favorite(favorite)
+                                    } label: {
+                                        Label("Delete", systemImage: "trash")
+                                    }
+                                }
+                            }
+                        }
+                        .onMove(perform: move_favorites)
+                    }
+                }
+                .listStyle(.plain)
+                .scrollContentBackground(.hidden)
+                .scrollIndicators(.hidden)
+                .safeAreaInset(edge: .bottom) { Color.clear.frame(height: 96) }
+            } else {
+                VStack(alignment: .leading, spacing: 20) {
+                    TextField("Departure", text: $departure_station)
+                        .focused($focused_field, equals: .departure)
+                        .submitLabel(.next)
+                        .onSubmit {
+                            if let first = station_suggestions.first {
+                                select_station(first, field: .departure)
+                            } else {
+                                focused_field = .arrival
+                            }
+                        }
+
+                    TextField("Arrival", text: $arrival_station)
+                        .focused($focused_field, equals: .arrival)
+                        .submitLabel(.done)
+                        .onSubmit {
+                            if let first = station_suggestions.first {
+                                select_station(first, field: .arrival)
+                            } else {
+                                focused_field = nil
+                            }
+                        }
+                }
+                .font(.system(size: 28))
                 .fontDesign(app_font_design)
                 .fontWeight(.bold)
-                .keyboardType(.numberPad)
-                .multilineTextAlignment(.center)
-                .focused($is_focused)
-                .padding(.horizontal)
-                .padding(.top, is_focused ? 48 : 72)
-            
-            Color.clear
-                .frame(height: 80)
+                .multilineTextAlignment(.leading)
+                .lineLimit(1)
+                .minimumScaleFactor(0.5)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 32)
+                .padding(.top, 56)
+
+                Spacer()
+            }
         }
-        .scrollDisabled(is_focused)
+    }
+
+    // favorite train card — same design as AddFavoriteView
+    @ViewBuilder func favorite_card(_ favorite: Favorite) -> some View {
+        VStack(spacing: 16) {
+            HStack {
+                Image(favorite.logo)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(height: UIFont.preferredFont(forTextStyle: .title3).lineHeight * 0.8)
+                Text(favorite.number)
+                    .font(.title3)
+                    .fontWeight(.semibold)
+                Spacer()
+            }
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Text(favorite.stop_names.first ?? "")
+                    Spacer()
+                    if let time = favorite.stop_ref_times.first {
+                        Text(time.formatted(Date.FormatStyle.dateTime.hour().minute()))
+                            .monospacedDigit()
+                    }
+                }
+                HStack {
+                    Text(favorite.stop_names.last ?? "")
+                    Spacer()
+                    if let time = favorite.stop_ref_times.last {
+                        Text(time.formatted(Date.FormatStyle.dateTime.hour().minute()))
+                            .monospacedDigit()
+                    }
+                }
+            }
+            .font(.subheadline)
+        }
+        .fontDesign(app_font_design)
+        .foregroundStyle(Color.primary)
+        .padding()
+        .contentShape(Rectangle())
+        .background(
+            RoundedRectangle(cornerRadius: 24)
+                .stroke(style: StrokeStyle(lineWidth: 1, dash: [5]))
+                .foregroundColor(Color.primary.opacity(0.5))
+        )
+    }
+
+    // MARK: - bottom bar
+    @ViewBuilder func bottom_bar() -> some View {
+        Group {
+            if current_view == .add_train && search_type == .stations,
+               let field = focused_field, field != .number {
+                station_suggestion_bar(field: field)
+            } else {
+                default_buttons()
+            }
+        }
+        .padding(.bottom, is_focused ? 8 : 16)
+        .padding(.horizontal)
+        .animation(.snappy, value: focused_field)
+        .animation(.snappy, value: search_type)
+    }
+
+    @ViewBuilder func default_buttons() -> some View {
+        HStack(spacing: 8) {
+            // back button
+            if !(!is_focused && current_view == .add_train) {
+                back_button()
+            }
+
+            // next button
+            next_button()
+        }
+    }
+
+    @ViewBuilder func back_button() -> some View {
+        Button {
+            back_button_action()
+        } label: {
+            Image(systemName: back_button_icon)
+                .padding(.horizontal, is_focused ? 16 : 24)
+                .padding(.vertical, is_focused ? 16 : 24)
+                .contentTransition(.symbolEffect(.replace.downUp.wholeSymbol, options: .nonRepeating))
+        }
+        .font(.title3)
+        .fontWeight(.medium)
+        .fontDesign(app_font_design)
+        .buttonStyle(.glassProminent)
+        .foregroundStyle(Color.accentColor)
+        .tint(Color.accentColor.opacity(0.15))
+        .transition(.asymmetric(
+            insertion: .scale(scale: 0.8).combined(with: .opacity),
+            removal: .scale(scale: 0.8).combined(with: .opacity)
+        ))
+    }
+
+    @ViewBuilder func next_button() -> some View {
+        Button {
+            if button_is_active {
+                next_button_action()
+            }
+        } label: {
+            HStack {
+                Text(next_button_text)
+                    .contentTransition(.numericText(value: Double(next_button_text.hashValue)))
+                    .animation(.snappy, value: next_button_text)
+
+                Image(systemName: next_button_icon)
+                    .symbolEffect(.wiggle.byLayer, options: .repeat(.periodic(delay: 5.0)))
+                    .contentTransition(.symbolEffect(.replace.downUp.wholeSymbol, options: .nonRepeating))
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, is_focused ? 16 : 24)
+        }
+        .font(.title3)
+        .fontWeight(.medium)
+        .fontDesign(app_font_design)
+        .buttonStyle(.glassProminent)
+        .foregroundStyle(button_is_active ? Color.accentColor : Color.primary)
+        .tint(button_is_active ? Color.accentColor.opacity(0.15) : colorScheme == .dark ? Color.black.opacity(0.1) : Color.clear)
+    }
+
+    // floating bar shown while typing a station: a keyboard/back pill on the
+    // left and a horizontally scrolling pill of station suggestions.
+    @ViewBuilder func station_suggestion_bar(field: FocusField) -> some View {
+        HStack(spacing: 8) {
+            // departure → dismiss keyboard, arrival → back to departure
+            // same style/size as the train-number back button
+            Button {
+                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                focused_field = field == .departure ? nil : .departure
+            } label: {
+                Image(systemName: field == .departure ? "keyboard.chevron.compact.down" : "chevron.left")
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 16)
+                    .contentTransition(.symbolEffect(.replace.downUp.wholeSymbol, options: .nonRepeating))
+            }
+            .font(.title3)
+            .fontWeight(.medium)
+            .fontDesign(app_font_design)
+            .buttonStyle(.glassProminent)
+            .foregroundStyle(Color.accentColor)
+            .tint(Color.accentColor.opacity(0.15))
+            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { keyboard_button_height = $0 }
+
+            if station_suggestions.isEmpty {
+                Spacer(minLength: 0)
+            } else {
+                suggestions_pill(field: field)
+            }
+        }
+    }
+
+    @ViewBuilder func suggestions_pill(field: FocusField) -> some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(station_suggestions, id: \.self) { station in
+                    station_chip(station, field: field)
+                }
+            }
+            .padding(.horizontal, 12)
+            .frame(maxHeight: .infinity)
+        }
+        .frame(maxWidth: .infinity)
+        .frame(height: keyboard_button_height)
+        // fade the chips at the edges, masking before the glass keeps the pill solid
+        .mask(
+            LinearGradient(
+                stops: [
+                    .init(color: .clear, location: 0),
+                    .init(color: .black, location: 0.12),
+                    .init(color: .black, location: 0.88),
+                    .init(color: .clear, location: 1),
+                ],
+                startPoint: .leading,
+                endPoint: .trailing
+            )
+        )
+        .glassEffect(.regular)
+    }
+
+    @ViewBuilder func station_chip(_ station: StationSuggestion, field: FocusField) -> some View {
+        Button {
+            select_station(station, field: field)
+        } label: {
+            Text(station.name)
+                .font(.subheadline).fontWeight(.medium)
+                .fontDesign(app_font_design)
+                .foregroundStyle(.primary)
+                .lineLimit(1)
+                .frame(height: 32)
+                .padding(.vertical, 6).padding(.horizontal, 16)
+                .background(.thinMaterial, in: Capsule())
+        }
+        .buttonStyle(.plain)
     }
     
     @ViewBuilder func choose_train_view() -> some View {
@@ -431,79 +791,84 @@ struct AddTrainView: View {
             .padding(.bottom, 80)
             
         case .success:
-            ScrollView {
-                VStack {
-                    ForEach(Array(trains_fetched.keys).enumerated(), id: \.element) { index, id in
-                        // get useful parameter for displaying
-                        let number = trains_fetched[id]?["number"] as? String ?? ""
-                        let logo = trains_fetched[id]?["logo"] as? String ?? ""
-                        
-                        let stops = trains_fetched[id]?["stops"] as? [[String: Any]] ?? []
-                        let firstStop_name = stops.first?["name"] as? String ?? ""
-                        let lastStop_name = stops.last?["name"] as? String ?? ""
-                        let firstStop_refTime = stops.first?["ref_time"] as? Date ?? .distantPast
-                        let lastStop_refTime = stops.last?["ref_time"] as? Date ?? .distantPast
-                        
-                        // display button for each train
-                        Button {
-                            /// toggle behavior
-                            if trainID_selected == id {
-                                trainID_selected = nil
-                            } else {
-                                trainID_selected = id
-                            }
-                        } label: {
-                            VStack (spacing: 16) {
-                                /// logo +  number
-                                HStack {
-                                    Image(logo)
-                                        .resizable()
-                                        .scaledToFit()
-                                        .frame(height: UIFont.preferredFont(forTextStyle: .title3).lineHeight * 0.8)
-                                    
-                                    Text(number)
-                                        .font(.title3)
-                                        .fontWeight(.semibold)
-                                    
-                                    Spacer()
+            if search_type == .stations {
+                choose_solution_view()
+            } else {
+                ScrollView {
+                    VStack {
+                        ForEach(Array(trains_fetched.keys).enumerated(), id: \.element) { index, id in
+                            // get useful parameter for displaying
+                            let number = trains_fetched[id]?["number"] as? String ?? ""
+                            let logo = trains_fetched[id]?["logo"] as? String ?? ""
+                            
+                            let stops = trains_fetched[id]?["stops"] as? [[String: Any]] ?? []
+                            let firstStop_name = stops.first?["name"] as? String ?? ""
+                            let lastStop_name = stops.last?["name"] as? String ?? ""
+                            let firstStop_refTime = stops.first?["ref_time"] as? Date ?? .distantPast
+                            let lastStop_refTime = stops.last?["ref_time"] as? Date ?? .distantPast
+                            
+                            // display button for each train
+                            Button {
+                                /// toggle behavior
+                                if trainID_selected == id {
+                                    trainID_selected = nil
+                                } else {
+                                    trainID_selected = id
                                 }
-                                
-                                /// departure and arrival stop name + time
-                                VStack(alignment: .leading, spacing: 4) {
+                            } label: {
+                                VStack (spacing: 16) {
+                                    /// logo +  number
                                     HStack {
-                                        Text(firstStop_name)
+                                        Image(logo)
+                                            .resizable()
+                                            .scaledToFit()
+                                            .frame(height: UIFont.preferredFont(forTextStyle: .title3).lineHeight * 0.8)
+                                        
+                                        Text(number)
+                                            .font(.title3)
+                                            .fontWeight(.semibold)
+                                        
                                         Spacer()
-                                        Text(firstStop_refTime.formatted(Date.FormatStyle.dateTime.hour().minute()))
-                                            .monospacedDigit()
                                     }
                                     
-                                    HStack {
-                                        Text(lastStop_name)
-                                        Spacer()
-                                        Text(lastStop_refTime.formatted(Date.FormatStyle.dateTime.hour().minute()))
-                                            .monospacedDigit()
+                                    /// departure and arrival stop name + time
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        HStack {
+                                            Text(firstStop_name)
+                                            Spacer()
+                                            Text(firstStop_refTime.formatted(Date.FormatStyle.dateTime.hour().minute()))
+                                                .monospacedDigit()
+                                        }
+                                        
+                                        HStack {
+                                            Text(lastStop_name)
+                                            Spacer()
+                                            Text(lastStop_refTime.formatted(Date.FormatStyle.dateTime.hour().minute()))
+                                                .monospacedDigit()
+                                        }
                                     }
+                                    .font(.subheadline)
                                 }
-                                .font(.subheadline)
+                                .fontDesign(app_font_design)
+                                .foregroundStyle(Color.primary)
+                                .padding()
+                                .background(
+                                    RoundedRectangle(cornerRadius: 24)
+                                        .stroke(style: trainID_selected == id ? StrokeStyle(lineWidth: 2) : StrokeStyle(lineWidth: 1, dash: [5]))
+                                        .foregroundColor(trainID_selected == id ? Color.accentColor : Color.primary.opacity(0.5))
+                                )
                             }
-                            .fontDesign(app_font_design)
-                            .foregroundStyle(Color.primary)
                             .padding()
-                            .background(
-                                RoundedRectangle(cornerRadius: 24)
-                                    .stroke(style: trainID_selected == id ? StrokeStyle(lineWidth: 2) : StrokeStyle(lineWidth: 1, dash: [5]))
-                                    .foregroundColor(trainID_selected == id ? Color.accentColor : Color.primary.opacity(0.5))
-                            )
                         }
-                        .padding()
                     }
+                    
+                    Color.clear
+                        .frame(height: 80)
                 }
-                
-                Color.clear
-                    .frame(height: 80)
+                .contentMargins(.top, 72, for: .scrollContent)
+                .contentMargins(.bottom, 104)
             }
-            .contentMargins(.top, 72, for: .scrollContent)
-            
+
         case .failure:
             ContentUnavailableView(
                 current_fetching.title,
@@ -513,6 +878,197 @@ struct AddTrainView: View {
             .padding()
             .foregroundColor(current_fetching.color)
         }
+    }
+
+    // MARK: - stations solutions list
+    @ViewBuilder func choose_solution_view() -> some View {
+        ScrollViewReader { proxy in
+            VStack(spacing: 0) {
+                // daytime quick-nav: scrolls to the first solution in the interval
+                Picker("Daytime", selection: $selected_daytime) {
+                    ForEach(Daytime.allCases, id: \.self) { daytime in
+                        Text(daytime.label).tag(daytime)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .padding(.horizontal)
+                .padding(.top, 80)
+                .padding(.bottom, 40)
+                .onChange(of: selected_daytime) { _, daytime in
+                    // ignore the programmatic set we do when opening the list
+                    if suppress_daytime_scroll { suppress_daytime_scroll = false; return }
+                    guard let target = solutions_fetched.first(where: {
+                        let hour = Calendar.current.component(.hour, from: $0.departureTime)
+                        return hour >= daytime.startHour && hour < daytime.endHour
+                    }) else { return }
+                    withAnimation { proxy.scrollTo(target.id, anchor: .top) }
+                }
+
+                ScrollView {
+                    VStack(spacing: 48) {
+                        ForEach(solutions_fetched) { solution in
+                            let isSelected = solutionID_selected == solution.id
+
+                            // one dashed card per train; the connection assistant sits
+                            // between cards (outside the borders). Larger spacing between
+                            // solutions keeps multi-train journeys visually grouped.
+                            VStack(spacing: 8) {
+                                ForEach(Array(solution.segments.enumerated()), id: \.offset) { index, segment in
+                                    Button {
+                                        solutionID_selected = isSelected ? nil : solution.id
+                                    } label: {
+                                        if segment.isBus {
+                                            // bus-substitution leg → blue assistant with a bus icon
+                                            bus_segment_view(segment)
+                                                .frame(maxWidth: .infinity)
+                                                .background(
+                                                    RoundedRectangle(cornerRadius: 24)
+                                                        .fill(isSelected ? Color.blue.opacity(0.12) : Color.clear)
+                                                )
+                                        } else {
+                                            solution_segment_view(segment)
+                                                .fontDesign(app_font_design)
+                                                .foregroundStyle(Color.primary)
+                                                .padding()
+                                                .frame(maxWidth: .infinity)
+                                                .background(
+                                                    RoundedRectangle(cornerRadius: 24)
+                                                        .stroke(style: isSelected ? StrokeStyle(lineWidth: 2) : StrokeStyle(lineWidth: 1, dash: [5]))
+                                                        .foregroundColor(isSelected ? Color.accentColor : Color.primary.opacity(0.5))
+                                                )
+                                        }
+                                    }
+
+                                    if index < solution.segments.count - 1 {
+                                        connection_view(from: segment, to: solution.segments[index + 1])
+                                    }
+                                }
+                            }
+                            .id(solution.id)
+                        }
+                    }
+                    .padding(.horizontal)
+                    .padding(.top, 8)
+
+                    // bottom clearance so the back/save buttons don't overlay the last solution
+                    Color.clear
+                        .frame(height: 120)
+                }
+                .scrollIndicators(.hidden)
+            }
+            .onAppear { scroll_to_next_solution(proxy: proxy) }
+            .onChange(of: scroll_to_now_trigger) { _, _ in scroll_to_next_solution(proxy: proxy) }
+        }
+    }
+
+    // on open, jump straight to the next departure from now so the user can catch it
+    private func scroll_to_next_solution(proxy: ScrollViewProxy) {
+        let now = Date()
+        guard let target = solutions_fetched.first(where: { $0.departureTime >= now }) else { return }
+
+        // reflect the next train's interval in the picker without triggering its scroll
+        let hour = Calendar.current.component(.hour, from: target.departureTime)
+        if let daytime = Daytime.allCases.first(where: { hour >= $0.startHour && hour < $0.endHour }) {
+            suppress_daytime_scroll = true
+            selected_daytime = daytime
+        }
+
+        DispatchQueue.main.async {
+            proxy.scrollTo(target.id, anchor: .top)
+        }
+    }
+
+    @ViewBuilder func solution_segment_view(_ segment: SolutionSegment) -> some View {
+        VStack(spacing: 16) {
+            // logo + number
+            HStack {
+                Image(segment.logo)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(height: UIFont.preferredFont(forTextStyle: .title3).lineHeight * 0.8)
+
+                Text(segment.number)
+                    .font(.title3)
+                    .fontWeight(.semibold)
+
+                Spacer()
+            }
+
+            // origin/destination + times
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Text(segment.origin)
+                    Spacer()
+                    Text(segment.departureTime.formatted(Date.FormatStyle.dateTime.hour().minute()))
+                        .monospacedDigit()
+                }
+                HStack {
+                    Text(segment.destination)
+                    Spacer()
+                    Text(segment.arrivalTime.formatted(Date.FormatStyle.dateTime.hour().minute()))
+                        .monospacedDigit()
+                }
+            }
+            .font(.subheadline)
+        }
+    }
+
+    // bus-substitution leg, styled like the connection assistant but blue with a bus icon
+    @ViewBuilder func bus_segment_view(_ segment: SolutionSegment) -> some View {
+        HStack(alignment: .center, spacing: 8) {
+            Rectangle()
+                .fill(Color.blue.opacity(0.3))
+                .frame(width: 3)
+                .cornerRadius(1.5)
+
+            Image(systemName: "bus.fill")
+                .font(.title3)
+                .frame(width: 32)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("\(NSLocalizedString("Bus", comment: "")) \(segment.number)")
+                    .font(.footnote).fontWeight(.semibold)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack {
+                        Text(segment.origin)
+                        Spacer()
+                        Text(segment.departureTime.formatted(Date.FormatStyle.dateTime.hour().minute()))
+                            .monospacedDigit()
+                    }
+                    HStack {
+                        Text(segment.destination)
+                        Spacer()
+                        Text(segment.arrivalTime.formatted(Date.FormatStyle.dateTime.hour().minute()))
+                            .monospacedDigit()
+                    }
+                }
+                .font(.caption)
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(.vertical, 8).padding(.horizontal)
+        .fontDesign(app_font_design)
+        .foregroundColor(.blue)
+    }
+
+    @ViewBuilder func connection_view(from: SolutionSegment, to: SolutionSegment) -> some View {
+        let totalMinutes = max(0, Int(to.departureTime.timeIntervalSince(from.arrivalTime)) / 60)
+        let hours = totalMinutes / 60
+        let minutes = totalMinutes % 60
+        let durationString = hours > 0 ? "\(hours)h \(minutes)m" : "\(minutes)m"
+
+        ConnectionIntervalView(
+            durationString: durationString,
+            totalMinutes: totalMinutes,
+            connectionStatus: ConnectionStatus(minutes: totalMinutes),
+            station: from.destination,
+            weather: nil,
+            index: 0,
+            total: 1,
+            manualRefreshCounter: 0
+        )
     }
     
     @ViewBuilder func choose_stops_view() -> some View {
@@ -583,6 +1139,130 @@ struct AddTrainView: View {
     }
     
     // MARK: - fetching functions
+    private func fetch_stations(for query: String, field: FocusField) async {
+        guard query.count >= 3 else {
+            station_suggestions = []
+            return
+        }
+        let results = await TrenitaliaAPI().station_autocomplete(name: query)
+        await MainActor.run {
+            // discard results that arrived after the focus or text changed
+            guard focused_field == field else { return }
+            let current = field == .departure ? departure_station : arrival_station
+            guard current == query else { return }
+            station_suggestions = results
+        }
+    }
+
+    private func select_station(_ station: StationSuggestion, field: FocusField) {
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        station_suggestions = []
+        is_selecting_station = true
+        if field == .departure {
+            departure_station = station.name
+            departure_code = station.code
+            focused_field = .arrival
+        } else {
+            arrival_station = station.name
+            arrival_code = station.code
+            focused_field = nil
+        }
+    }
+
+    private func fetch_solutions() async {
+        current_fetching = .fetching
+
+        let results = await TrenitaliaAPI().train_solutions(
+            departureLocationId: departure_code,
+            arrivalLocationId: arrival_code,
+            departureTime: Date()
+        )
+
+        await MainActor.run {
+            solutions_fetched = results
+            current_fetching = results.isEmpty ? .failure : .success
+        }
+    }
+
+    // saves the selected solution: each leg becomes its own train, so connected
+    // journeys render with the connection manager just like in TodayView.
+    private func save_solution() async {
+        guard let solution = solutions_fetched.first(where: { $0.id == solutionID_selected }) else { return }
+
+        for segment in solution.segments {
+            let identifiers = await TrenitaliaAPI().train_list(number: segment.number, code: segment.stationCode)
+
+            // train_list can return the same train on several days — pick the run
+            // whose date matches this leg's departure day.
+            let segmentDay = Calendar.current.startOfDay(for: segment.departureTime)
+            let identifier = identifiers.first(where: { id in
+                guard let tsString = id.split(separator: "/").last, let ms = Double(tsString) else { return false }
+                return Calendar.current.isDate(Date(timeIntervalSince1970: ms / 1000), inSameDayAs: segmentDay)
+            }) ?? identifiers.first
+
+            guard let identifier,
+                  let info = await TrenitaliaAPI().info(identifier: identifier, should_fetch_weather: false) else { continue }
+
+            await MainActor.run {
+                save_segment(info: info, fromStation: segment.origin, toStation: segment.destination)
+            }
+        }
+
+        await MainActor.run {
+            try? modelContext.save()
+            WidgetCenter.shared.reloadAllTimelines()
+        }
+    }
+
+    private func save_segment(info: [String: Any], fromStation: String, toStation: String) {
+        let id = UUID()
+
+        let train = Train(
+            id: id,
+            logo: info["logo"] as? String ?? "",
+            number: info["number"] as? String ?? "",
+            identifier: info["identifier"] as? String ?? "",
+            provider: info["provider"] as? String ?? "",
+            last_update_time: info["last_update_time"] as? Date ?? Date(),
+            delay: info["delay"] as? Int ?? 0,
+            direction: info["direction"] as? String ?? "",
+            issue: info["issue"] as? String ?? ""
+        )
+        modelContext.insert(train)
+
+        let stops = info["stops"] as? [[String: Any]] ?? []
+        let names = stops.map { $0["name"] as? String ?? "" }
+        let fromIdx = names.firstIndex(of: fromStation)
+        let toIdx = names.firstIndex(of: toStation)
+
+        for (i, stop) in stops.enumerated() {
+            // mark only the stops on the ridden segment (origin → destination) as selected
+            let is_selected: Bool = {
+                guard let f = fromIdx, let t = toIdx else { return false }
+                return i >= f && i <= t
+            }()
+
+            let stop_to_add = Stop(
+                id: id,
+                name: stop["name"] as? String ?? "",
+                platform: stop["platform"] as? String ?? "",
+                weather: stop["weather"] as? String ?? "",
+                is_selected: is_selected,
+                status: stop["status"] as? Int ?? 0,
+                is_completed: stop["is_completed"] as? Bool ?? false,
+                is_in_station: stop["is_in_station"] as? Bool ?? false,
+                dep_delay: stop["dep_delay"] as? Int ?? 0,
+                arr_delay: stop["arr_delay"] as? Int ?? 0,
+                dep_time_id: stop["dep_time_id"] as? Date ?? .distantPast,
+                arr_time_id: stop["arr_time_id"] as? Date ?? .distantPast,
+                dep_time_eff: stop["dep_time_eff"] as? Date ?? .distantPast,
+                arr_time_eff: stop["arr_time_eff"] as? Date ?? .distantPast,
+                ref_time: stop["ref_time"] as? Date ?? .distantPast
+            )
+            modelContext.insert(stop_to_add)
+        }
+    }
+
     private func fetch_trains() async {
         // fetching status
         current_fetching = .fetching
@@ -823,6 +1503,32 @@ struct AddTrainView: View {
             modelContext.delete(favorite)
         }
     }
+
+    private func delete_favorite(_ favorite: Favorite) {
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        modelContext.delete(favorite)
+
+        // re-index the remaining favorites to keep the order contiguous
+        let remaining = favorites.filter { $0.id != favorite.id }.sorted(by: { $0.index < $1.index })
+        for (i, fav) in remaining.enumerated() { fav.index = i }
+
+        try? modelContext.save()
+    }
+
+    // tap a favorite → only fill the number field; the user taps Next manually
+    private func select_favorite(_ favorite: Favorite) {
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        train_number = favorite.number
+    }
+
+    private func move_favorites(from source: IndexSet, to destination: Int) {
+        var ordered = favorites.sorted(by: { $0.index < $1.index })
+        ordered.move(fromOffsets: source, toOffset: destination)
+        for (i, favorite) in ordered.enumerated() {
+            favorite.index = i
+        }
+        try? modelContext.save()
+    }
 }
 
 // MARK: - previews
@@ -837,6 +1543,22 @@ extension AddTrainView {
         self._stops_fetched = State(initialValue: stopsFetched)
         self._stops_selected = State(initialValue: stopsSelected)
     }
+
+    // preview helper for the "Choose Train" step (number search → trains, stations search → solutions)
+    init(
+        previewView: current_view,
+        searchType: SearchType,
+        fetching: current_fetching,
+        trainsFetched: [UUID: [String: Any]] = [:],
+        solutionsFetched: [Solution] = []
+    ) {
+        self.init(add_favorite_sheet: false)
+        self._current_view = State(initialValue: previewView)
+        self._search_type = State(initialValue: searchType)
+        self._current_fetching = State(initialValue: fetching)
+        self._trains_fetched = State(initialValue: trainsFetched)
+        self._solutions_fetched = State(initialValue: solutionsFetched)
+    }
 }
 
 #Preview("Add Train View") {
@@ -844,8 +1566,11 @@ extension AddTrainView {
     let container = try! ModelContainer(for: Schema([Train.self, Stop.self]), configurations: ModelConfiguration(isStoredInMemoryOnly: true))
     
     // view
-    return AddTrainView(previewView: .add_train)
-        .modelContainer(container)
+    return Color(uiColor: .systemBackground)
+        .sheet(isPresented: .constant(true)) {
+            AddTrainView(previewView: .add_train)
+                .modelContainer(container)
+        }
 }
 
 #Preview("Add Train View - with favorites") {
@@ -940,10 +1665,13 @@ extension AddTrainView {
     container.mainContext.insert(fav4)
     container.mainContext.insert(fav5)
     container.mainContext.insert(fav6)
-    
+
     // view
-    return AddTrainView(previewView: .add_train)
-        .modelContainer(container)
+    return Color(uiColor: .systemBackground)
+        .sheet(isPresented: .constant(true)) {
+            AddTrainView(previewView: .add_train)
+                .modelContainer(container)
+        }
 }
 
 #Preview("Choose Stops View") {
@@ -971,14 +1699,111 @@ extension AddTrainView {
         let container = try ModelContainer(for: schema, configurations: modelConfiguration)
         
         // view
-        return AddTrainView(
-            previewView: .choose_stops,
-            stopsFetched: mockStops,
-            stopsSelected: [mockStops[0], mockStops[1]]
-        )
-        .modelContainer(container)
+        return Color(uiColor: .systemBackground)
+            .sheet(isPresented: .constant(true)) {
+                AddTrainView(
+                    previewView: .choose_stops,
+                    stopsFetched: mockStops,
+                    stopsSelected: [mockStops[0], mockStops[1]]
+                )
+                .modelContainer(container)
+            }
         
     } catch {
         return ContentUnavailableView("SwiftData Error", systemImage: "xmark.octagon", description: Text(error.localizedDescription))
     }
+}
+
+#Preview("Choose Train - number search") {
+    // memory container
+    let container = try! ModelContainer(for: Schema([Train.self, Stop.self, Favorite.self]), configurations: ModelConfiguration(isStoredInMemoryOnly: true))
+
+    let start = Calendar.current.date(bySettingHour: 9, minute: 0, second: 0, of: Date())!
+
+    // mock trains for number "757"
+    let trainsFetched: [UUID: [String: Any]] = [
+        UUID(): [
+            "number": "757",
+            "logo": "FR",
+            "stops": [
+                ["name": "Milano Centrale", "ref_time": start],
+                ["name": "Roma Termini", "ref_time": start.addingTimeInterval(3 * 3600)]
+            ]
+        ],
+        UUID(): [
+            "number": "757",
+            "logo": "IC",
+            "stops": [
+                ["name": "Torino Porta Nuova", "ref_time": start.addingTimeInterval(1800)],
+                ["name": "Napoli Centrale", "ref_time": start.addingTimeInterval(6 * 3600)]
+            ]
+        ]
+    ]
+
+    return Color(uiColor: .systemBackground)
+        .sheet(isPresented: .constant(true)) {
+            AddTrainView(
+                previewView: .choose_train,
+                searchType: .number,
+                fetching: .success,
+                trainsFetched: trainsFetched
+            )
+            .modelContainer(container)
+        }
+}
+
+#Preview("Choose Train - stations search") {
+    // memory container
+    let container = try! ModelContainer(for: Schema([Train.self, Stop.self, Favorite.self]), configurations: ModelConfiguration(isStoredInMemoryOnly: true))
+
+    let start = Calendar.current.date(bySettingHour: 8, minute: 30, second: 0, of: Date())!
+
+    // mock solutions for Milano Centrale → Roma Termini
+    let solutionsFetched: [Solution] = [
+        // direct
+        Solution(segments: [
+            SolutionSegment(
+                origin: "Milano Centrale", destination: "Roma Termini",
+                departureTime: start, arrivalTime: start.addingTimeInterval(3 * 3600),
+                logo: "FR", number: "9612", stationCode: "S01700", isBus: false
+            )
+        ]),
+        // with a connection in Bologna
+        Solution(segments: [
+            SolutionSegment(
+                origin: "Milano Centrale", destination: "Bologna Centrale",
+                departureTime: start.addingTimeInterval(900), arrivalTime: start.addingTimeInterval(900 + 64 * 60),
+                logo: "FR", number: "9613", stationCode: "S01700", isBus: false
+            ),
+            SolutionSegment(
+                origin: "Bologna Centrale", destination: "Roma Termini",
+                departureTime: start.addingTimeInterval(900 + 90 * 60), arrivalTime: start.addingTimeInterval(900 + 90 * 60 + 125 * 60),
+                logo: "IC", number: "605", stationCode: "S05043", isBus: false
+            )
+        ]),
+        // train + replacement bus
+        Solution(segments: [
+            SolutionSegment(
+                origin: "Milano Centrale", destination: "Firenze S.M.N.",
+                departureTime: start.addingTimeInterval(1800), arrivalTime: start.addingTimeInterval(1800 + 110 * 60),
+                logo: "FR", number: "9615", stationCode: "S01700", isBus: false
+            ),
+            SolutionSegment(
+                origin: "Firenze S.M.N.", destination: "Roma Termini",
+                departureTime: start.addingTimeInterval(1800 + 140 * 60), arrivalTime: start.addingTimeInterval(1800 + 140 * 60 + 95 * 60),
+                logo: "BU", number: "FI451", stationCode: "S06421", isBus: true
+            )
+        ])
+    ]
+
+    return Color(uiColor: .systemBackground)
+        .sheet(isPresented: .constant(true)) {
+            AddTrainView(
+                previewView: .choose_train,
+                searchType: .stations,
+                fetching: .success,
+                solutionsFetched: solutionsFetched
+            )
+            .modelContainer(container)
+        }
 }

@@ -156,6 +156,7 @@
 				2C0E47A02ED8D7330024EF08 /* Frameworks */,
 				2C0E47A12ED8D7330024EF08 /* Resources */,
 				2C68D1E52F2610BB002C0EAA /* Embed Foundation Extensions */,
+				2CAA0001000000000000A001 /* Strip iCloud xattrs */,
 			);
 			buildRules = (
 			);
@@ -179,6 +180,7 @@
 				2C68D1CA2F2610B9002C0EAA /* Sources */,
 				2C68D1CB2F2610B9002C0EAA /* Frameworks */,
 				2C68D1CC2F2610B9002C0EAA /* Resources */,
+				2CAA0002000000000000A002 /* Strip iCloud xattrs */,
 			);
 			buildRules = (
 			);
@@ -251,6 +253,47 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		2CAA0001000000000000A001 /* Strip iCloud xattrs */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Strip iCloud xattrs";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "# Remove extended attributes that iCloud Drive adds and that codesign rejects\nxattr -cr \"${CODESIGNING_FOLDER_PATH}\"\n";
+		};
+		2CAA0002000000000000A002 /* Strip iCloud xattrs */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Strip iCloud xattrs";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "# Remove extended attributes that iCloud Drive adds and that codesign rejects\nxattr -cr \"${CODESIGNING_FOLDER_PATH}\"\n";
+		};
+/* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		2C0E479F2ED8D7330024EF08 /* Sources */ = {
@@ -443,7 +486,7 @@
 				DEVELOPMENT_TEAM = 7QM8T4XA98;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
-				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GCC_C_LANGUAGE_STANDARD = gnu17;
 				GCC_DYNAMIC_NO_PIC = NO;
 				GCC_NO_COMMON_BLOCKS = YES;
@@ -507,7 +550,7 @@
 				DEVELOPMENT_TEAM = 7QM8T4XA98;
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
-				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GCC_C_LANGUAGE_STANDARD = gnu17;
 				GCC_NO_COMMON_BLOCKS = YES;
 				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;

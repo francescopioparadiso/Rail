@@ -1,5 +1,33 @@
 import Foundation
 
+// a station name paired with its lefrecce location id (e.g. "830001700"),
+// used as departureLocationId / arrivalLocationId when fetching solutions.
+struct StationSuggestion: Hashable {
+    let name: String
+    let code: String
+}
+
+// one leg of a journey solution (a train or a replacement bus).
+struct SolutionSegment: Hashable {
+    let origin: String
+    let destination: String
+    let departureTime: Date
+    let arrivalTime: Date
+    let logo: String        // train type acronym, e.g. "FR", "REG"
+    let number: String      // train/bus number, e.g. "9512", "FI451"
+    let stationCode: String // bdoOrigin, e.g. "S08409", used to resolve the identifier
+    let isBus: Bool         // true for bus-substitution legs (acronym "BU" / "Autobus")
+}
+
+// a full journey from departure to arrival; more than one segment means a connection.
+struct Solution: Hashable, Identifiable {
+    let id = UUID()
+    let segments: [SolutionSegment]
+
+    var departureTime: Date { segments.first?.departureTime ?? .distantPast }
+    var arrivalTime: Date { segments.last?.arrivalTime ?? .distantPast }
+}
+
 // MARK: - Common functions
 func fetch_common_train_list(number: String) async -> [[String: Any]] {
     var resultsArray: [[String: Any]] = []
@@ -88,6 +116,151 @@ class TrenitaliaAPI {
         }
     }
     
+    func station_autocomplete(name: String) async -> [StationSuggestion] {
+        // use the lefrecce locations endpoint so the returned id can be reused as
+        // departureLocationId / arrivalLocationId when fetching solutions.
+        guard let encoded = name.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+              let url = URL(string: "https://www.lefrecce.it/Channels.Website.BFF.WEB/website/locations/search?name=\(encoded)&limit=6") else { return [] }
+
+        do {
+            let (data, _) = try await URLSession.shared.data(from: url)
+            guard let jsonArray = try JSONSerialization.jsonObject(with: data) as? [[String: Any]] else { return [] }
+
+            return jsonArray.compactMap { station in
+                let stationName = station["name"] as? String ?? ""
+                // skip aggregate entries like "Milano ( Tutte Le Stazioni )"
+                guard !stationName.contains("("), let id = station["id"] as? Int else { return nil }
+                return StationSuggestion(name: stationName.lowercased().capitalized, code: String(id))
+            }
+        } catch {
+            print("Error fetching station autocomplete: \(error)")
+            return []
+        }
+    }
+
+    // lightweight solutions fetch for display: parses the journey legs directly
+    // from the JSON without the per-train viaggiatreno lookups (those are done
+    // only when a solution is actually saved). Fetches the whole day in parallel
+    // 3-hour windows (from midnight) so the list isn't capped at a single request.
+    func train_solutions(departureLocationId: String, arrivalLocationId: String, departureTime: Date) async -> [Solution] {
+        guard let depId = Int(departureLocationId), let arrId = Int(arrivalLocationId) else { return [] }
+
+        // build 3-hour windows covering the whole day (midnight → midnight)
+        let calendar = Calendar.current
+        let startOfDay = calendar.startOfDay(for: departureTime)
+        let endOfDay = calendar.date(byAdding: .day, value: 1, to: startOfDay) ?? departureTime
+
+        var windows: [Date] = []
+        var t = startOfDay
+        while t < endOfDay {
+            windows.append(t)
+            t = calendar.date(byAdding: .hour, value: 3, to: t) ?? endOfDay
+        }
+        if windows.isEmpty { windows = [departureTime] }
+
+        // fetch all windows in parallel
+        let allSolutions = await withTaskGroup(of: [Solution].self) { group in
+            for window in windows {
+                group.addTask {
+                    await self.solutions_request(departureLocationId: depId, arrivalLocationId: arrId, departureTime: window)
+                }
+            }
+            var collected: [Solution] = []
+            for await result in group { collected.append(contentsOf: result) }
+            return collected
+        }
+
+        // de-duplicate (windows overlap) by the trains + departure times, then sort.
+        // keep only solutions departing on the search day (the last window can
+        // return next-day departures).
+        var seen = Set<String>()
+        var unique: [Solution] = []
+        for solution in allSolutions.sorted(by: { $0.departureTime < $1.departureTime }) {
+            guard solution.departureTime >= startOfDay, solution.departureTime < endOfDay else { continue }
+            let signature = solution.segments
+                .map { "\($0.number)@\($0.departureTime.timeIntervalSince1970)" }
+                .joined(separator: "|")
+            if seen.insert(signature).inserted { unique.append(solution) }
+        }
+        return unique
+    }
+
+    // single solutions request for one departure time
+    private func solutions_request(departureLocationId: Int, arrivalLocationId: Int, departureTime: Date) async -> [Solution] {
+        guard let url = URL(string: "https://www.lefrecce.it/Channels.Website.BFF.WEB/website/ticket/solutions") else { return [] }
+
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ss.SSS"
+
+        let payload: [String: Any] = [
+            "departureLocationId": departureLocationId,
+            "arrivalLocationId": arrivalLocationId,
+            "departureTime": formatter.string(from: departureTime),
+            "adults": 1,
+            "children": 0,
+            "criteria": [
+                "frecceOnly": false,
+                "regionalOnly": false,
+                "noChanges": false,
+                "order": "DEPARTURE_DATE",
+                "limit": 10,
+                "offset": 0
+            ],
+            "advancedSearchRequest": ["bestFare": false]
+        ]
+
+        let isoFormatter = ISO8601DateFormatter()
+        isoFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+
+        do {
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.httpBody = try JSONSerialization.data(withJSONObject: payload)
+
+            let (data, _) = try await URLSession.shared.data(for: request)
+            guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let solutions = json["solutions"] as? [[String: Any]] else { return [] }
+
+            var results: [Solution] = []
+            for solutionDict in solutions {
+                guard let solution = solutionDict["solution"] as? [String: Any],
+                      let nodes = solution["nodes"] as? [[String: Any]] else { continue }
+
+                var segments: [SolutionSegment] = []
+                for node in nodes {
+                    let train = node["train"] as? [String: Any]
+                    guard let number = train?["name"] as? String, !number.isEmpty,
+                          let depString = node["departureTime"] as? String,
+                          let arrString = node["arrivalTime"] as? String,
+                          let dep = isoFormatter.date(from: depString),
+                          let arr = isoFormatter.date(from: arrString) else { continue }
+
+                    let acronym = train?["acronym"] as? String ?? ""
+                    let isBus = acronym == "BU" || (train?["trainCategory"] as? String) == "Autobus"
+
+                    segments.append(SolutionSegment(
+                        origin: node["origin"] as? String ?? "",
+                        destination: node["destination"] as? String ?? "",
+                        departureTime: dep,
+                        arrivalTime: arr,
+                        logo: acronym,
+                        number: number,
+                        stationCode: node["bdoOrigin"] as? String ?? "",
+                        isBus: isBus
+                    ))
+                }
+
+                if !segments.isEmpty { results.append(Solution(segments: segments)) }
+            }
+            return results
+        } catch {
+            print("Error fetching solutions: \(error)")
+            return []
+        }
+    }
+
     func train_list(number: String, code: String) async -> [String] {
         let url_string = "http://www.viaggiatreno.it/infomobilita/resteasy/viaggiatreno/cercaNumeroTrenoTrenoAutocomplete/\(number)"
         guard let url = URL(string: url_string) else { return [] }
