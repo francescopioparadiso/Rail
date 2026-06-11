@@ -108,6 +108,7 @@ enum current_fetching: CaseIterable {
 }
 
 struct AddTrainView: View {
+    var focus_initially: Bool = false
     // MARK: - variables
     // enviroment variables
     @Environment(\.colorScheme) private var colorScheme
@@ -124,7 +125,6 @@ struct AddTrainView: View {
     @State private var current_view: current_view = .add_train
     @State private var current_provider: current_provider = .trenitalia
     @State private var current_fetching: current_fetching = .idle
-    let add_favorite_sheet: Bool
     
     // focus variables
     enum FocusField: Hashable { case number, departure, arrival }
@@ -139,7 +139,7 @@ struct AddTrainView: View {
     @State private var stops_fetched: [[String: Any]] = []
     @State private var stops_selected: [[String: Any]] = []
     
-    @State private var search_type: SearchType = .number
+    @State private var search_type: SearchType = .stations
     @State private var train_number: String = ""
     @State private var departure_station: String = ""
     @State private var arrival_station: String = ""
@@ -158,6 +158,29 @@ struct AddTrainView: View {
     // bumped by the "Now" toolbar button to scroll to the next departure
     @State private var scroll_to_now_trigger = 0
     @State private var date_selected: Date = Date()
+    @State private var show_date_picker_popover = false
+    @State private var visible_solution_ids: Set<UUID> = []
+    
+    private var is_now_visible: Bool {
+        let now = Date()
+        guard let target = solutions_fetched.first(where: { $0.departureTime >= now }) else { return false }
+        return visible_solution_ids.contains(target.id)
+    }
+    
+    private var date_subtitle: String {
+        let cal = Calendar.current
+        let dateString = date_selected.formatted(.dateTime.day().month(.abbreviated))
+        
+        if cal.isDateInYesterday(date_selected) {
+            return "Yesterday, \(dateString)"
+        } else if cal.isDateInToday(date_selected) {
+            return "Today, \(dateString)"
+        } else if cal.isDateInTomorrow(date_selected) {
+            return "Tomorrow, \(dateString)"
+        } else {
+            return dateString
+        }
+    }
     
     @AppStorage("autoSyncToCalendar") private var autoSyncToCalendar: Bool = true
     @AppStorage("calendarTitleFormat") private var titleFormat: String = "Train {number}"
@@ -259,7 +282,7 @@ struct AddTrainView: View {
 
         case .choose_train:
             /// update focus
-            focused_field = search_type == .number ? .number : .departure
+            focused_field = nil
             
             /// change view
             current_view = .add_train
@@ -398,25 +421,93 @@ struct AddTrainView: View {
                 
                 // navigation title
                 ToolbarItem(placement: .principal) {
-                    Text(current_view.title)
-                        .font(.headline)
-                        .fontDesign(app_font_design)
-                        .contentTransition(.numericText(value: Double(current_view.title.hashValue)))
-                        .animation(.snappy, value: current_view.title)
+                    VStack(spacing: 0) {
+                        Text(current_view.title)
+                            .font(.headline)
+                            .fontDesign(app_font_design)
+                            .contentTransition(.numericText(value: Double(current_view.title.hashValue)))
+                            .animation(.snappy, value: current_view.title)
+                            
+                        if current_view == .choose_train && search_type == .stations {
+                            Text(date_subtitle)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .fontDesign(app_font_design)
+                                .contentTransition(.numericText(value: date_selected.timeIntervalSince1970))
+                                .animation(.snappy, value: date_selected)
+                        }
+                    }
+                    .padding(.horizontal, 16)
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        guard current_view == .choose_train && search_type == .stations else { return }
+                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                        
+                        show_date_picker_popover = true
+                    }
+                    .gesture(
+                        DragGesture(minimumDistance: 10)
+                            .onEnded { value in
+                                guard current_view == .choose_train && search_type == .stations else { return }
+                                
+                                let direction = value.translation.width
+                                guard abs(direction) > 20 else { return }
+                                
+                                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                                
+                                if direction < 0 {
+                                    date_selected = Calendar.current.date(byAdding: .day, value: 1, to: date_selected) ?? date_selected
+                                } else {
+                                    date_selected = Calendar.current.date(byAdding: .day, value: -1, to: date_selected) ?? date_selected
+                                }
+                                Task { await fetch_solutions() }
+                            }
+                    )
+                    .popover(isPresented: $show_date_picker_popover) {
+                        DatePicker("", selection: $date_selected, displayedComponents: [.date])
+                            .datePickerStyle(.graphical)
+                            .padding()
+                            .presentationDetents([.medium])
+                            .onChange(of: date_selected) { _, _ in
+                                show_date_picker_popover = false
+                                Task { await fetch_solutions() }
+                            }
+                    }
                 }
 
-                // jump the solutions list to the next departure from now
+                // jump the solutions list to the next departure from now, or return to today
                 if current_view == .choose_train && search_type == .stations && current_fetching == .success {
-                    ToolbarItem(placement: .navigationBarTrailing) {
-                        Button("Now") {
-                            scroll_to_now_trigger += 1
+                    if Calendar.current.isDateInToday(date_selected) {
+                        if !is_now_visible {
+                            ToolbarItem(placement: .navigationBarTrailing) {
+                                Button("Now") {
+                                    withAnimation {
+                                        scroll_to_now_trigger += 1
+                                    }
+                                }
+                                .fontDesign(app_font_design)
+                            }
                         }
-                        .fontDesign(app_font_design)
+                    } else {
+                        ToolbarItem(placement: .navigationBarTrailing) {
+                            Button("Today") {
+                                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                                date_selected = Date()
+                                Task { await fetch_solutions() }
+                            }
+                            .fontDesign(app_font_design)
+                        }
                     }
                 }
             }
         }
         .onAppear {
+            if focus_initially {
+                // Short delay ensures the sheet is presented before the keyboard tries to slide up
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                    focused_field = search_type == .number ? .number : .departure
+                }
+            }
             Task { await fetch_favorites() }
 
             ReviewManager.shared.requestReviewIfAppropriate(action: requestReview)
@@ -470,20 +561,10 @@ struct AddTrainView: View {
     
     // MARK: - views functions
     @ViewBuilder func add_train_view() -> some View {
-        VStack(spacing: 0) {
-            // segmented picker — pinned, everything below it scrolls
-            Picker("Search Type", selection: $search_type) {
-                Text("Train number").tag(SearchType.number)
-                Text("Stations").tag(SearchType.stations)
-            }
-            .pickerStyle(.segmented)
-            .padding(.horizontal, 48)
-            .padding(.top, 72)
-            .padding(.bottom, 8)
-
-            if search_type == .number {
-                // number field + favorites all scroll together
-                List {
+        List {
+            ZStack(alignment: .top) {
+                if search_type == .number {
+                    // number field
                     TextField("0", text: $train_number)
                         .font(.system(size: 80))
                         .fontDesign(app_font_design)
@@ -492,13 +573,57 @@ struct AddTrainView: View {
                         .multilineTextAlignment(.center)
                         .focused($focused_field, equals: .number)
                         .padding(.top, 32)
-                        .listRowSeparator(.hidden)
-                        .listRowBackground(Color.clear)
+                } else {
+                    // stations fields
+                    VStack(alignment: .leading, spacing: 20) {
+                        TextField("Departure", text: $departure_station)
+                            .focused($focused_field, equals: .departure)
+                            .submitLabel(.next)
+                            .onSubmit {
+                                if let first = station_suggestions.first {
+                                    select_station(first, field: .departure)
+                                } else {
+                                    focused_field = .arrival
+                                }
+                            }
 
-                    if !favorites.isEmpty {
+                        TextField("Arrival", text: $arrival_station)
+                            .focused($focused_field, equals: .arrival)
+                            .submitLabel(.done)
+                            .onSubmit {
+                                if let first = station_suggestions.first {
+                                    select_station(first, field: .arrival)
+                                } else {
+                                    focused_field = nil
+                                }
+                            }
+                            
+                        DatePicker("", selection: $date_selected)
+                            .datePickerStyle(.compact)
+                            .labelsHidden()
+                            .font(.system(size: 22))
+                    }
+                    .font(.system(size: 28))
+                    .fontDesign(app_font_design)
+                    .fontWeight(.bold)
+                    .multilineTextAlignment(.leading)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.5)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 16)
+                    .padding(.top, 16)
+                }
+            }
+            .listRowSeparator(.hidden)
+            .listRowBackground(Color.clear)
+            .frame(height: 200, alignment: .top)
+
+            if !favorites.isEmpty {
                         // scrolling section header
-                        HStack(spacing: 4) {
+                        HStack(spacing: 8) {
                             Image(systemName: "heart.fill")
+                                .symbolColorRenderingMode(.gradient)
+                            
                             Text("Favorites")
                         }
                         .font(.headline)
@@ -507,7 +632,9 @@ struct AddTrainView: View {
                         .foregroundStyle(Color.secondary)
                         .listRowSeparator(.hidden)
                         .listRowBackground(Color.clear)
-                        .listRowInsets(EdgeInsets(top: 32, leading: 16, bottom: 4, trailing: 16))
+                        .listRowInsets(EdgeInsets(top: 32, leading: 24, bottom: 4, trailing: 16))
+                        .opacity(is_focused ? 0.4 : 1.0)
+                        .animation(.snappy, value: focused_field)
 
                         ForEach(favorites.sorted(by: { $0.index < $1.index })) { favorite in
                             Button {
@@ -516,65 +643,68 @@ struct AddTrainView: View {
                                 favorite_card(favorite)
                             }
                             .buttonStyle(.plain)
-                            // while typing a number: dim, disable tapping, allow swipe-to-delete
-                            .disabled(focused_field == .number)
+                            // while typing: dim, disable tapping
+                            .disabled(is_focused)
                             .listRowSeparator(.hidden)
                             .listRowBackground(Color.clear)
-                            .opacity(focused_field == .number ? 0.4 : 1.0)
+                            .opacity(is_focused ? 0.4 : 1.0)
                             .animation(.snappy, value: focused_field)
                             .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                                if focused_field == .number {
-                                    Button(role: .destructive) {
-                                        delete_favorite(favorite)
-                                    } label: {
-                                        Label("Delete", systemImage: "trash")
-                                    }
+                                Button(role: .destructive) {
+                                    delete_favorite(favorite)
+                                } label: {
+                                    Label("Delete", systemImage: "trash")
                                 }
                             }
                         }
                         .onMove(perform: move_favorites)
+
+                        Text("You can reorder items by dragging and dropping them.")
+                            .font(.footnote)
+                            .fontDesign(app_font_design)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                            .frame(maxWidth: .infinity, alignment: .center)
+                            .listRowSeparator(.hidden)
+                            .listRowBackground(Color.clear)
+                            .padding(.top, 8)
+                            .padding(.bottom, 32)
+                            .opacity(is_focused ? 0.4 : 1.0)
+                            .animation(.snappy, value: focused_field)
                     }
-                }
-                .listStyle(.plain)
-                .scrollContentBackground(.hidden)
-                .scrollIndicators(.hidden)
-                .safeAreaInset(edge: .bottom) { Color.clear.frame(height: 96) }
-            } else {
-                VStack(alignment: .leading, spacing: 20) {
-                    TextField("Departure", text: $departure_station)
-                        .focused($focused_field, equals: .departure)
-                        .submitLabel(.next)
-                        .onSubmit {
-                            if let first = station_suggestions.first {
-                                select_station(first, field: .departure)
-                            } else {
-                                focused_field = .arrival
-                            }
-                        }
-
-                    TextField("Arrival", text: $arrival_station)
-                        .focused($focused_field, equals: .arrival)
-                        .submitLabel(.done)
-                        .onSubmit {
-                            if let first = station_suggestions.first {
-                                select_station(first, field: .arrival)
-                            } else {
-                                focused_field = nil
-                            }
-                        }
-                }
-                .font(.system(size: 28))
-                .fontDesign(app_font_design)
-                .fontWeight(.bold)
-                .multilineTextAlignment(.leading)
-                .lineLimit(1)
-                .minimumScaleFactor(0.5)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 32)
-                .padding(.top, 56)
-
-                Spacer()
+        }
+        .listStyle(.plain)
+        .scrollContentBackground(.hidden)
+        .scrollIndicators(.hidden)
+        .safeAreaInset(edge: .bottom) { Color.clear.frame(height: 96) }
+        .safeAreaInset(edge: .top) {
+            Picker("Search Type", selection: $search_type) {
+                Text("Stations").tag(SearchType.stations)
+                Text("Train number").tag(SearchType.number)
             }
+            .pickerStyle(.segmented)
+            .padding(.horizontal, 48)
+            .padding(.top, 72)
+            .padding(.bottom, 36)
+            .background(
+                Rectangle()
+                    .fill(.regularMaterial)
+                    .ignoresSafeArea(.all, edges: .top)
+                    .mask(
+                        LinearGradient(
+                            stops: [
+                                .init(color: .black, location: 0),
+                                .init(color: .black, location: 0.75),
+                                .init(color: .black.opacity(0.85), location: 0.8),
+                                .init(color: .black.opacity(0.6), location: 0.85),
+                                .init(color: .black.opacity(0.3), location: 0.9),
+                                .init(color: .clear, location: 1)
+                            ],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    )
+            )
         }
     }
 
@@ -883,29 +1013,8 @@ struct AddTrainView: View {
     // MARK: - stations solutions list
     @ViewBuilder func choose_solution_view() -> some View {
         ScrollViewReader { proxy in
-            VStack(spacing: 0) {
-                // daytime quick-nav: scrolls to the first solution in the interval
-                Picker("Daytime", selection: $selected_daytime) {
-                    ForEach(Daytime.allCases, id: \.self) { daytime in
-                        Text(daytime.label).tag(daytime)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .padding(.horizontal)
-                .padding(.top, 80)
-                .padding(.bottom, 40)
-                .onChange(of: selected_daytime) { _, daytime in
-                    // ignore the programmatic set we do when opening the list
-                    if suppress_daytime_scroll { suppress_daytime_scroll = false; return }
-                    guard let target = solutions_fetched.first(where: {
-                        let hour = Calendar.current.component(.hour, from: $0.departureTime)
-                        return hour >= daytime.startHour && hour < daytime.endHour
-                    }) else { return }
-                    withAnimation { proxy.scrollTo(target.id, anchor: .top) }
-                }
-
-                ScrollView {
-                    VStack(spacing: 48) {
+            ScrollView {
+                LazyVStack(spacing: 48) {
                         ForEach(solutions_fetched) { solution in
                             let isSelected = solutionID_selected == solution.id
 
@@ -945,6 +1054,16 @@ struct AddTrainView: View {
                                 }
                             }
                             .id(solution.id)
+                            .onAppear {
+                                withAnimation {
+                                    _ = visible_solution_ids.insert(solution.id)
+                                }
+                            }
+                            .onDisappear {
+                                withAnimation {
+                                    _ = visible_solution_ids.remove(solution.id)
+                                }
+                            }
                         }
                     }
                     .padding(.horizontal)
@@ -955,14 +1074,45 @@ struct AddTrainView: View {
                         .frame(height: 120)
                 }
                 .scrollIndicators(.hidden)
-            }
-            .onAppear { scroll_to_next_solution(proxy: proxy) }
-            .onChange(of: scroll_to_now_trigger) { _, _ in scroll_to_next_solution(proxy: proxy) }
+                .safeAreaInset(edge: .top) {
+                    // daytime quick-nav: scrolls to the first solution in the interval
+                    Picker("Daytime", selection: $selected_daytime) {
+                        ForEach(Daytime.allCases, id: \.self) { daytime in
+                            Text(daytime.label).tag(daytime)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .padding(.horizontal)
+                    .padding(.top, 80)
+                    .padding(.bottom, 40)
+                    .background(
+                        LinearGradient(
+                            stops: [
+                                .init(color: Color(UIColor.systemBackground), location: 0),
+                                .init(color: Color(UIColor.systemBackground), location: 0.75),
+                                .init(color: Color(UIColor.systemBackground).opacity(0), location: 1)
+                            ],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    )
+                    .onChange(of: selected_daytime) { _, daytime in
+                        // ignore the programmatic set we do when opening the list
+                        if suppress_daytime_scroll { suppress_daytime_scroll = false; return }
+                        guard let target = solutions_fetched.first(where: {
+                            let hour = Calendar.current.component(.hour, from: $0.departureTime)
+                            return hour >= daytime.startHour && hour < daytime.endHour
+                        }) else { return }
+                        withAnimation { proxy.scrollTo(target.id, anchor: .top) }
+                    }
+                }
+            .onAppear { scroll_to_next_solution(proxy: proxy, animated: false) }
+            .onChange(of: scroll_to_now_trigger) { _, _ in scroll_to_next_solution(proxy: proxy, animated: true) }
         }
     }
 
     // on open, jump straight to the next departure from now so the user can catch it
-    private func scroll_to_next_solution(proxy: ScrollViewProxy) {
+    private func scroll_to_next_solution(proxy: ScrollViewProxy, animated: Bool = false) {
         let now = Date()
         guard let target = solutions_fetched.first(where: { $0.departureTime >= now }) else { return }
 
@@ -974,7 +1124,11 @@ struct AddTrainView: View {
         }
 
         DispatchQueue.main.async {
-            proxy.scrollTo(target.id, anchor: .top)
+            if animated {
+                withAnimation { proxy.scrollTo(target.id, anchor: .top) }
+            } else {
+                proxy.scrollTo(target.id, anchor: .top)
+            }
         }
     }
 
@@ -1175,7 +1329,7 @@ struct AddTrainView: View {
         let results = await TrenitaliaAPI().train_solutions(
             departureLocationId: departure_code,
             arrivalLocationId: arrival_code,
-            departureTime: Date()
+            departureTime: date_selected
         )
 
         await MainActor.run {
@@ -1192,19 +1346,27 @@ struct AddTrainView: View {
         for segment in solution.segments {
             let identifiers = await TrenitaliaAPI().train_list(number: segment.number, code: segment.stationCode)
 
-            // train_list can return the same train on several days — pick the run
-            // whose date matches this leg's departure day.
             let segmentDay = Calendar.current.startOfDay(for: segment.departureTime)
-            let identifier = identifiers.first(where: { id in
+            var targetIdentifier = identifiers.first
+            var dayOffset = 0
+            
+            if let exactId = identifiers.first(where: { id in
                 guard let tsString = id.split(separator: "/").last, let ms = Double(tsString) else { return false }
                 return Calendar.current.isDate(Date(timeIntervalSince1970: ms / 1000), inSameDayAs: segmentDay)
-            }) ?? identifiers.first
+            }) {
+                targetIdentifier = exactId
+            } else if let firstId = identifiers.first {
+                if let tsString = firstId.split(separator: "/").last, let ms = Double(tsString) {
+                    let firstIdDay = Calendar.current.startOfDay(for: Date(timeIntervalSince1970: ms / 1000))
+                    dayOffset = Calendar.current.dateComponents([.day], from: firstIdDay, to: segmentDay).day ?? 0
+                }
+            }
 
-            guard let identifier,
+            guard let identifier = targetIdentifier,
                   let info = await TrenitaliaAPI().info(identifier: identifier, should_fetch_weather: false) else { continue }
 
             await MainActor.run {
-                save_segment(info: info, fromStation: segment.origin, toStation: segment.destination)
+                save_segment(info: info, fromStation: segment.origin, toStation: segment.destination, dayOffset: dayOffset)
             }
         }
 
@@ -1214,8 +1376,13 @@ struct AddTrainView: View {
         }
     }
 
-    private func save_segment(info: [String: Any], fromStation: String, toStation: String) {
+    private func save_segment(info: [String: Any], fromStation: String, toStation: String, dayOffset: Int = 0) {
         let id = UUID()
+        
+        func offsetDate(_ date: Date) -> Date {
+            if dayOffset == 0 { return date }
+            return Calendar.current.date(byAdding: .day, value: dayOffset, to: date) ?? date
+        }
 
         let train = Train(
             id: id,
@@ -1223,8 +1390,8 @@ struct AddTrainView: View {
             number: info["number"] as? String ?? "",
             identifier: info["identifier"] as? String ?? "",
             provider: info["provider"] as? String ?? "",
-            last_update_time: info["last_update_time"] as? Date ?? Date(),
-            delay: info["delay"] as? Int ?? 0,
+            last_update_time: offsetDate(info["last_update_time"] as? Date ?? Date()),
+            delay: dayOffset != 0 ? 0 : (info["delay"] as? Int ?? 0),
             direction: info["direction"] as? String ?? "",
             issue: info["issue"] as? String ?? ""
         )
@@ -1248,16 +1415,16 @@ struct AddTrainView: View {
                 platform: stop["platform"] as? String ?? "",
                 weather: stop["weather"] as? String ?? "",
                 is_selected: is_selected,
-                status: stop["status"] as? Int ?? 0,
-                is_completed: stop["is_completed"] as? Bool ?? false,
-                is_in_station: stop["is_in_station"] as? Bool ?? false,
-                dep_delay: stop["dep_delay"] as? Int ?? 0,
-                arr_delay: stop["arr_delay"] as? Int ?? 0,
-                dep_time_id: stop["dep_time_id"] as? Date ?? .distantPast,
-                arr_time_id: stop["arr_time_id"] as? Date ?? .distantPast,
-                dep_time_eff: stop["dep_time_eff"] as? Date ?? .distantPast,
-                arr_time_eff: stop["arr_time_eff"] as? Date ?? .distantPast,
-                ref_time: stop["ref_time"] as? Date ?? .distantPast
+                status: dayOffset != 0 ? 0 : (stop["status"] as? Int ?? 0),
+                is_completed: dayOffset != 0 ? false : (stop["is_completed"] as? Bool ?? false),
+                is_in_station: dayOffset != 0 ? false : (stop["is_in_station"] as? Bool ?? false),
+                dep_delay: dayOffset != 0 ? 0 : (stop["dep_delay"] as? Int ?? 0),
+                arr_delay: dayOffset != 0 ? 0 : (stop["arr_delay"] as? Int ?? 0),
+                dep_time_id: offsetDate(stop["dep_time_id"] as? Date ?? .distantPast),
+                arr_time_id: offsetDate(stop["arr_time_id"] as? Date ?? .distantPast),
+                dep_time_eff: dayOffset != 0 ? offsetDate(stop["dep_time_id"] as? Date ?? .distantPast) : offsetDate(stop["dep_time_eff"] as? Date ?? .distantPast),
+                arr_time_eff: dayOffset != 0 ? offsetDate(stop["arr_time_id"] as? Date ?? .distantPast) : offsetDate(stop["arr_time_eff"] as? Date ?? .distantPast),
+                ref_time: offsetDate(stop["ref_time"] as? Date ?? .distantPast)
             )
             modelContext.insert(stop_to_add)
         }
@@ -1515,10 +1682,36 @@ struct AddTrainView: View {
         try? modelContext.save()
     }
 
-    // tap a favorite → only fill the number field; the user taps Next manually
+    // tap a favorite → fill the appropriate fields and automatically search
     private func select_favorite(_ favorite: Favorite) {
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-        train_number = favorite.number
+        focused_field = nil
+        
+        if search_type == .number {
+            train_number = favorite.number
+            current_view = .choose_train
+            Task { await fetch_trains() }
+        } else {
+            departure_station = favorite.stop_names.first ?? ""
+            arrival_station = favorite.stop_names.last ?? ""
+            current_view = .choose_train
+            
+            Task {
+                current_fetching = .fetching
+                
+                let dep_suggs = await TrenitaliaAPI().station_autocomplete(name: departure_station)
+                if let dep = dep_suggs.first {
+                    departure_code = dep.code
+                }
+                
+                let arr_suggs = await TrenitaliaAPI().station_autocomplete(name: arrival_station)
+                if let arr = arr_suggs.first {
+                    arrival_code = arr.code
+                }
+                
+                await fetch_solutions()
+            }
+        }
     }
 
     private func move_favorites(from source: IndexSet, to destination: Int) {
@@ -1538,7 +1731,6 @@ extension AddTrainView {
         stopsFetched: [[String: Any]] = [],
         stopsSelected: [[String: Any]] = [],
     ) {
-        self.init(add_favorite_sheet: false)
         self._current_view = State(initialValue: previewView)
         self._stops_fetched = State(initialValue: stopsFetched)
         self._stops_selected = State(initialValue: stopsSelected)
@@ -1552,7 +1744,6 @@ extension AddTrainView {
         trainsFetched: [UUID: [String: Any]] = [:],
         solutionsFetched: [Solution] = []
     ) {
-        self.init(add_favorite_sheet: false)
         self._current_view = State(initialValue: previewView)
         self._search_type = State(initialValue: searchType)
         self._current_fetching = State(initialValue: fetching)

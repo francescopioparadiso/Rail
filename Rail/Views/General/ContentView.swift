@@ -14,6 +14,7 @@ struct ContentView: View {
     // MARK: - variables
     // enviroment variables
     @Environment(\.requestReview) var requestReview
+    @ObservedObject private var profile = UserProfile.shared
     
     // database variables
     @Environment(\.modelContext) private var modelContext
@@ -25,20 +26,15 @@ struct ContentView: View {
     @State private var selectedTab: current_tab = .today
     
     // sheet variables
+    @State private var profile_sheet = false
     @State private var add_train_sheet = false
-    @State private var add_favorite_sheet = false
     @State private var add_pass_sheet = false
-    @State private var calendar_sheet = false
     
     // deep link variables
     @State private var ticketTrainID: UUID? = nil
     @State private var ticketSeatID: UUID? = nil
     @State private var show_ticket_view = false
     
-    // favorites variables
-    @State var favorites_fetched: [UUID: [String: Any]] = [:]
-    @State var favoriteID_selected: UUID? = nil
-
     // MARK: - main view
     var body: some View {
         NavigationStack {
@@ -60,7 +56,6 @@ struct ContentView: View {
                     UIImpactFeedbackGenerator(style: .medium).impactOccurred()
                     // Small delay to let the TabView finish its transition
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                        add_favorite_sheet = false
                         add_train_sheet = true
                         selectedTab = .today
                     }
@@ -70,20 +65,29 @@ struct ContentView: View {
                 ToolbarItem(placement: .topBarLeading) {
                     Button {
                         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                        calendar_sheet = true
+                        profile_sheet = true
                     } label: {
-                        Image(systemName: "calendar")
+                        HStack(spacing: 8) {
+                            if let data = profile.imageData, let uiImage = UIImage(data: data) {
+                                Image(uiImage: uiImage)
+                                    .resizable()
+                                    .scaledToFill()
+                                    .frame(width: 32, height: 32)
+                                    .clipShape(Circle())
+                            } else {
+                                Image(systemName: "person.crop.circle")
+                                    .resizable()
+                                    .scaledToFit()
+                                    .frame(width: 30, height: 30)
+                            }
+                            
+                            if !profile.firstName.isEmpty {
+                                Text(profile.firstName)
+                                    .font(.headline)
+                                    .foregroundColor(.primary)
+                            }
+                        }
                     }
-                }
-                
-                ToolbarItem {
-                    Button {
-                        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                        add_favorite_sheet = true
-                    } label: {
-                        Image(systemName: "heart")
-                    }
-                    .tint(Color.red)
                 }
                 
                 ToolbarSpacer(.flexible)
@@ -93,34 +97,25 @@ struct ContentView: View {
                         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
                         add_pass_sheet = true
                     } label: {
-                        Image(systemName: "ticket")
+                        HStack {
+                            Image(systemName: "ticket")
+                            Text("Pass")
+                        }
                     }
                 }
             }
         }
         .onAppear {
             ReviewManager.shared.requestReviewIfAppropriate(action: requestReview)
-            
-            Task {
-                let results = await fetch_favorites(favorites: favorites)
-                self.favorites_fetched = results
-            }
         }
-        .sheet(isPresented: $calendar_sheet) {
-            CalendarView()
+        .sheet(isPresented: $profile_sheet) {
+            ProfileView()
         }
         .sheet(isPresented: $add_train_sheet) {
-            AddTrainView(add_favorite_sheet: add_favorite_sheet)
-        }
-        .sheet(isPresented: $add_favorite_sheet) {
-            AddFavoriteView(
-                favorites_fetched: $favorites_fetched,
-                favoriteID_selected: $favoriteID_selected
-            )
+            AddTrainView(focus_initially: true)
         }
         .sheet(isPresented: $add_pass_sheet) {
             AddPassView()
-                .interactiveDismissDisabled()
         }
         .onOpenURL { url in
             if url.scheme == "railapp" && url.host == "view-pass" {

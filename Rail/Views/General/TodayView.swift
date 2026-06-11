@@ -112,7 +112,7 @@ struct TodayView: View {
             }
         }
         .sheet(isPresented: $add_journey_sheet) {
-            AddTrainView(add_favorite_sheet: false)
+            AddTrainView()
         }
         .onAppear {
             ReviewManager.shared.requestReviewIfAppropriate(action: requestReview)

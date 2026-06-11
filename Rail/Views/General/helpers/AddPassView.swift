@@ -306,7 +306,6 @@ struct AddPassView: View {
                 }
             }
         }
-        .interactiveDismissDisabled()
     }
     
     // MARK: - functions
