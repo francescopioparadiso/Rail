@@ -169,7 +169,7 @@ struct SeatsView: View {
                                 HStack {
                                     VStack(alignment: .leading, spacing: 8) {
                                         TextField("Francesco", text: $new_name)
-                                            .font(.headline)
+                                            .font(.title3).fontWeight(.medium)
                                             .keyboardType(.default)
                                             .focused($seat_row_focus, equals: .name)
                                             .onTapGesture {
@@ -221,9 +221,9 @@ struct SeatsView: View {
                                                     }
                                             }
                                         }
-                                        .font(.body)
-                                        .fontDesign(app_font_design)
+                                        .font(.headline)
                                     }
+                                    .fontDesign(app_font_design)
                                     
                                     Spacer()
                                     
@@ -244,80 +244,77 @@ struct SeatsView: View {
                             }
                             
                             // existing seats list
-                            ForEach(seats.filter({ seat in
-                                if let seat_to_edit = seat_to_edit {
-                                    return seat.id == seat_to_edit.id
-                                }
-                                return true
-                            }).sorted(by: { lhs, rhs in
-                                if lhs.carriage != rhs.carriage {
-                                    return lhs.carriage.localizedStandardCompare(rhs.carriage) == .orderedAscending
-                                    
-                                } else if lhs.number != rhs.number {
-                                    return lhs.number.localizedStandardCompare(rhs.number) == .orderedAscending
-                                    
-                                } else {
-                                    return lhs.name < rhs.name
-                                }
-                            })) { seat in
-                                HStack {
-                                    HStack {
-                                        VStack(alignment: .leading, spacing: 8) {
-                                            Text(seat.name)
-                                                .font(.headline)
-                                                .lineLimit(1)
-                                                .truncationMode(.tail)
-                                            
-                                            if !seat.carriage.isEmpty && !seat.number.isEmpty {
-                                                HStack {
-                                                    HStack(spacing: 8) {
-                                                        Image(systemName: "train.side.rear.car")
-                                                        Text(seat.carriage)
-                                                        Spacer(minLength: 0)
-                                                    }
-                                                    .frame(maxWidth: 64)
-                                                    
-                                                    HStack(spacing: 8) {
-                                                        Image(systemName: "carseat.left.fill")
-                                                        Text(seat.number)
-                                                    }
-                                                }
-                                                .font(.body)
-                                            }
-                                        }
-                                        .fontDesign(app_font_design)
+                            if seat_to_edit == nil {
+                                ForEach(seats.sorted(by: { lhs, rhs in
+                                    if lhs.carriage != rhs.carriage {
+                                        return lhs.carriage.localizedStandardCompare(rhs.carriage) == .orderedAscending
                                         
-                                        Spacer()
+                                    } else if lhs.number != rhs.number {
+                                        return lhs.number.localizedStandardCompare(rhs.number) == .orderedAscending
+                                        
+                                    } else {
+                                        return lhs.name < rhs.name
                                     }
-                                    .contentShape(Rectangle())
-                                    .onLongPressGesture {
-                                        UIImpactFeedbackGenerator(style: .heavy).impactOccurred()
-                                        seat_to_edit = seat
-                                        new_name = seat.name
-                                        new_carriage = seat.carriage
-                                        new_number = seat.number
-                                        qr_image_data = seat.image
-                                        image_status = seat.image != nil ? .saved : .empty
-                                        show_adding_row = true
-                                        seat_row_focus = .name
-                                    }
-                                    
-                                    // QR code button
-                                    if let _ = seat.image {
-                                        Button {
-                                            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                                            seat_to_view = seat
-                                            show_ticket_view = true
-                                        } label: {
-                                            Image(systemName: "qrcode")
-                                                .font(.title)
-                                                .foregroundStyle(Color.accentColor)
+                                })) { seat in
+                                    HStack {
+                                        HStack {
+                                            VStack(alignment: .leading, spacing: 8) {
+                                                Text(seat.name)
+                                                    .font(.headline)
+                                                    .lineLimit(1)
+                                                    .truncationMode(.tail)
+                                                
+                                                if !seat.carriage.isEmpty && !seat.number.isEmpty {
+                                                    HStack {
+                                                        HStack(spacing: 8) {
+                                                            Image(systemName: "train.side.rear.car")
+                                                            Text(seat.carriage)
+                                                            Spacer(minLength: 0)
+                                                        }
+                                                        .frame(maxWidth: 64)
+                                                        
+                                                        HStack(spacing: 8) {
+                                                            Image(systemName: "carseat.left.fill")
+                                                            Text(seat.number)
+                                                        }
+                                                    }
+                                                    .font(.body)
+                                                }
+                                            }
+                                            .fontDesign(app_font_design)
+                                            
+                                            Spacer()
                                         }
-                                        .buttonStyle(PlainButtonStyle())
+                                        .contentShape(Rectangle())
+                                        .onLongPressGesture {
+                                            UIImpactFeedbackGenerator(style: .heavy).impactOccurred()
+                                            seat_to_edit = seat
+                                            new_name = seat.name
+                                            new_carriage = seat.carriage
+                                            new_number = seat.number
+                                            qr_image_data = seat.image
+                                            image_status = seat.image != nil ? .saved : .empty
+                                            show_adding_row = true
+                                            seat_row_focus = .name
+                                        }
+                                        
+                                        // QR code button
+                                        if let _ = seat.image {
+                                            Button {
+                                                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                                                seat_to_view = seat
+                                                show_ticket_view = true
+                                            } label: {
+                                                Image(systemName: "qrcode")
+                                                    .font(.title)
+                                                    .foregroundStyle(Color.accentColor)
+                                            }
+                                            .buttonStyle(PlainButtonStyle())
+                                        }
                                     }
                                 }
+                                .onDelete(perform: delete_seat)
                             }
-                            .onDelete(perform: delete_seat)
                         }
                         .safeAreaInset(edge: .bottom) {
                             Color.clear.frame(height: 80)
@@ -331,12 +328,20 @@ struct SeatsView: View {
                         Button {
                             UIImpactFeedbackGenerator(style: .medium).impactOccurred()
                             show_adding_row = false
+                            seat_to_edit = nil
+                            seat_row_focus = nil
+                            image_status = .empty
+                            new_name = name_placeholder
+                            new_carriage = ""
+                            new_number = ""
+                            picked_image = nil
+                            qr_image_data = nil
                         } label: {
                             HStack {
                                 Image(systemName: "arrow.uturn.backward")
                                     .contentTransition(.symbolEffect(.replace.downUp.wholeSymbol, options: .nonRepeating))
                             }
-                            .padding(.horizontal).padding(.vertical, seat_row_focus == nil ? 24 : 16)
+                            .padding()
                         }
                         .font(.title3)
                         .fontWeight(.medium)
@@ -362,7 +367,7 @@ struct SeatsView: View {
                                 .animation(.snappy, value: addNew_text)
                         }
                         .frame(maxWidth: .infinity)
-                        .padding(.vertical, seat_row_focus == nil ? 24 : 16)
+                        .padding()
                     }
                     .font(.title3)
                     .fontWeight(.medium)

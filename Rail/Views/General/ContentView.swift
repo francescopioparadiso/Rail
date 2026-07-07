@@ -62,7 +62,18 @@ struct ContentView: View {
                 }
             }
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
+                // Pass
+                ToolbarItem {
+                    Button {
+                        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                        add_pass_sheet = true
+                    } label: {
+                        Image(systemName: "ticket")
+                    }
+                }
+                
+                // Profile
+                ToolbarItem {
                     Button {
                         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
                         profile_sheet = true
@@ -80,28 +91,9 @@ struct ContentView: View {
                                     .scaledToFit()
                                     .frame(width: 30, height: 30)
                             }
-                            
-                            if !profile.firstName.isEmpty {
-                                Text(profile.firstName)
-                                    .font(.headline)
-                                    .foregroundColor(.primary)
-                            }
                         }
                     }
-                }
-                
-                ToolbarSpacer(.flexible)
-                
-                ToolbarItem {
-                    Button {
-                        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                        add_pass_sheet = true
-                    } label: {
-                        HStack {
-                            Image(systemName: "ticket")
-                            Text("Pass")
-                        }
-                    }
+                    .buttonStyle(.plain)
                 }
             }
         }

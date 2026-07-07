@@ -56,9 +56,7 @@ struct TodayView: View {
             }
     }
     
-    @AppStorage("calendarTitleFormat") private var titleFormat: String = "Train {number}"
-    @AppStorage("selectedCalendarIdentifier") private var selectedCalendarIdentifier: String = ""
-    @AppStorage("calendarTravelTime") private var travelTime: Double = 0
+    @ObservedObject private var profile = UserProfile.shared
     
     // MARK: - main view
     var body: some View {
@@ -293,9 +291,9 @@ struct TodayView: View {
                                     train: train,
                                     stops: today_stops,
                                     seats: trainSeats,
-                                    titleFormat: titleFormat,
-                                    calendarIdentifier: selectedCalendarIdentifier,
-                                    travelTime: travelTime
+                                    titleFormat: profile.calendarTitleFormat,
+                                    calendarIdentifier: profile.selectedCalendarIdentifier,
+                                    travelTime: profile.calendarTravelTime
                                 )
                             }
                         }

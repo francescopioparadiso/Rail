@@ -27,8 +27,11 @@ struct AccountSettingsView: View {
                 }
                 .onChange(of: selectedItem) { _, newItem in
                     Task {
-                        if let data = try? await newItem?.loadTransferable(type: Data.self) {
-                            profile.imageData = data
+                        if let data = try? await newItem?.loadTransferable(type: Data.self),
+                           let preparedData = UserProfile.preparedProfileImageData(from: data) {
+                            await MainActor.run {
+                                profile.imageData = preparedData
+                            }
                         }
                     }
                 }
@@ -57,6 +60,9 @@ struct AccountSettingsView: View {
                         .shadow(color: .black.opacity(0.05), radius: 2, y: 1)
                 }
             }
+        }
+        .onDisappear {
+            profile.saveAll()
         }
     }
 }

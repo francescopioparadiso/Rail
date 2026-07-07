@@ -62,30 +62,12 @@ class CalendarManager {
         }
         
         // Title
-        var title = NSLocalizedString(titleFormat, comment: "")
-            .replacingOccurrences(of: "{logo}", with: train.logo)
-            .replacingOccurrences(of: "{direction}", with: train.direction)
-            .replacingOccurrences(of: "{first_stop}", with: firstStop.name)
-        
-        if let firstSeat = seats.first {
-            title = title
-                .replacingOccurrences(of: "{carriage}", with: firstSeat.carriage)
-                .replacingOccurrences(of: "{number}", with: firstSeat.number)
-        } else {
-            // Remove seat placeholders if no seats are available
-            title = title
-                .replacingOccurrences(of: "{carriage}", with: "")
-                .replacingOccurrences(of: "{number}", with: train.number) // Fallback to train number if {number} is used but it was meant for seat? 
-                // Wait, if the format is "Train {number}" it should be the train number.
-                // If the format is "Train {carriage}/{number}" and no seats, it should probably fallback to "Train" or "Train 9808".
-        }
-        
-        // Final fallback for {number} if it wasn't replaced by seat info
-        title = title.replacingOccurrences(of: "{number}", with: train.number)
-        // Clean up any double slashes or trailing slashes if carriage was empty
-        title = title.replacingOccurrences(of: "//", with: "/").trimmingCharacters(in: CharacterSet(charactersIn: "/ "))
-        
-        event.title = title
+        event.title = calendarTitle(
+            for: train,
+            firstStop: firstStop,
+            seats: seats,
+            titleFormat: titleFormat
+        )
         
         // Date
         event.startDate = firstStop.dep_time_eff
@@ -97,8 +79,7 @@ class CalendarManager {
         }
         
         // Location
-        let stationSuffix = NSLocalizedString("station", comment: "")
-        event.location = "\(firstStop.name) \(stationSuffix)"
+        event.location = firstStop.name
         
         // Notes
         var notes = NSLocalizedString("Train details:", comment: "") + "\n"
@@ -169,5 +150,32 @@ class CalendarManager {
         for train in trains {
             await removeTrainEvent(train: train)
         }
+    }
+    
+    private func calendarTitle(for train: Train, firstStop: Stop, seats: [Seat], titleFormat: String) -> String {
+        let localizedFormat = NSLocalizedString(titleFormat, comment: "")
+        let needsSeatDetails = localizedFormat.contains("{carriage}")
+        
+        if needsSeatDetails {
+            guard let firstSeat = seats.first,
+                  !firstSeat.carriage.isEmpty,
+                  !firstSeat.number.isEmpty else {
+                return NSLocalizedString("Train", comment: "")
+            }
+            
+            return localizedFormat
+                .replacingOccurrences(of: "{logo}", with: train.logo)
+                .replacingOccurrences(of: "{direction}", with: train.direction)
+                .replacingOccurrences(of: "{first_stop}", with: firstStop.name)
+                .replacingOccurrences(of: "{carriage}", with: firstSeat.carriage)
+                .replacingOccurrences(of: "{number}", with: firstSeat.number)
+        }
+        
+        return localizedFormat
+            .replacingOccurrences(of: "{logo}", with: train.logo)
+            .replacingOccurrences(of: "{direction}", with: train.direction)
+            .replacingOccurrences(of: "{first_stop}", with: firstStop.name)
+            .replacingOccurrences(of: "{number}", with: train.number)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }

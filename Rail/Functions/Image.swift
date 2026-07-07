@@ -11,7 +11,7 @@ enum image_status: CaseIterable {
     var icon: String {
         switch self {
         case .empty:
-            return "qrcode.viewfinder"
+            return "photo.badge.plus"
         case .saved:
             return "checkmark.circle.fill"
         case .error:

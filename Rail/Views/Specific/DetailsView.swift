@@ -101,9 +101,7 @@ struct DetailsView: View {
         stops.lastIndex(where: { $0.status != 3 }) ?? (stops.indices.last ?? 0)
     }
     
-    @AppStorage("calendarTitleFormat") private var titleFormat: String = "Train {number}"
-    @AppStorage("selectedCalendarIdentifier") private var selectedCalendarIdentifier: String = ""
-    @AppStorage("calendarTravelTime") private var travelTime: Double = 0
+    @ObservedObject private var profile = UserProfile.shared
     
     // MARK: - main view
     var body: some View {
@@ -899,6 +897,7 @@ struct DetailsView: View {
                     return [:]
             }
         }()
+        guard !results.isEmpty else { return }
         
         /// update train data
         train.last_update_time = results["last_update_time"] as? Date ?? .distantPast
@@ -935,9 +934,9 @@ struct DetailsView: View {
                 train: train,
                 stops: today_stops,
                 seats: seats,
-                titleFormat: titleFormat,
-                calendarIdentifier: selectedCalendarIdentifier,
-                travelTime: travelTime
+                titleFormat: profile.calendarTitleFormat,
+                calendarIdentifier: profile.selectedCalendarIdentifier,
+                travelTime: profile.calendarTravelTime
             )
         }
         
@@ -991,6 +990,76 @@ struct DetailsView: View {
 
     NavigationStack {
         DetailsView(train: mockTrain, stops: mockStops, seats: mockSeats, show_ticket_initially: .constant(false), ticketSeatID: .constant(nil))
+            .modelContainer(container)
+    }
+}
+
+#Preview("Issue") {
+    let container: ModelContainer = {
+        let schema = Schema([Train.self, Stop.self, Seat.self])
+        let config = ModelConfiguration(isStoredInMemoryOnly: true)
+        return try! ModelContainer(for: schema, configurations: config)
+    }()
+    
+    let trainId = UUID()
+    let now = Date()
+    
+    let mockTrain = Train(
+        id: trainId,
+        logo: "FR",
+        number: "9612",
+        identifier: "TS/9612/123456",
+        provider: "trenitalia",
+        last_update_time: now,
+        delay: 0,
+        direction: "Salerno",
+        issue: "Treno cancellato"
+    )
+    
+    let mockStops = [
+        Stop(id: trainId, name: "Torino Porta Nuova", platform: "3", weather: "☀️ 2°C", is_selected: true, status: 0, is_completed: false, is_in_station: false, dep_delay: 0, arr_delay: 0, dep_time_id: now, arr_time_id: now, dep_time_eff: now, arr_time_eff: now, ref_time: now),
+        Stop(id: trainId, name: "Milano Centrale", platform: "14", weather: "⛅️ 1°C", is_selected: true, status: 0, is_completed: false, is_in_station: false, dep_delay: 0, arr_delay: 0, dep_time_id: now.addingTimeInterval(3600), arr_time_id: now.addingTimeInterval(3600), dep_time_eff: now.addingTimeInterval(3600), arr_time_eff: now.addingTimeInterval(3600), ref_time: now.addingTimeInterval(3600)),
+        Stop(id: trainId, name: "Bologna Centrale", platform: "17", weather: "🌧️ 4°C", is_selected: true, status: 0, is_completed: false, is_in_station: false, dep_delay: 0, arr_delay: 0, dep_time_id: now.addingTimeInterval(8400), arr_time_id: now.addingTimeInterval(8400), dep_time_eff: now.addingTimeInterval(8400), arr_time_eff: now.addingTimeInterval(8400), ref_time: now.addingTimeInterval(8400)),
+        Stop(id: trainId, name: "Roma Termini", platform: "1", weather: "🌧️ 10°C", is_selected: true, status: 0, is_completed: false, is_in_station: false, dep_delay: 0, arr_delay: 0, dep_time_id: now.addingTimeInterval(18000), arr_time_id: now.addingTimeInterval(18000), dep_time_eff: now.addingTimeInterval(18000), arr_time_eff: now.addingTimeInterval(18000), ref_time: now.addingTimeInterval(18000))
+    ]
+    
+    NavigationStack {
+        DetailsView(train: mockTrain, stops: mockStops, seats: [], show_ticket_initially: .constant(false), ticketSeatID: .constant(nil))
+            .modelContainer(container)
+    }
+}
+
+#Preview("Generic Issue") {
+    let container: ModelContainer = {
+        let schema = Schema([Train.self, Stop.self, Seat.self])
+        let config = ModelConfiguration(isStoredInMemoryOnly: true)
+        return try! ModelContainer(for: schema, configurations: config)
+    }()
+    
+    let trainId = UUID()
+    let now = Date()
+    
+    let mockTrain = Train(
+        id: trainId,
+        logo: "FR",
+        number: "9612",
+        identifier: "TS/9612/123456",
+        provider: "trenitalia",
+        last_update_time: now,
+        delay: 0,
+        direction: "Salerno",
+        issue: "Circolazione rallentata per guasto tecnico"
+    )
+    
+    let mockStops = [
+        Stop(id: trainId, name: "Torino Porta Nuova", platform: "3", weather: "☀️ 2°C", is_selected: true, status: 0, is_completed: false, is_in_station: false, dep_delay: 0, arr_delay: 0, dep_time_id: now, arr_time_id: now, dep_time_eff: now, arr_time_eff: now, ref_time: now),
+        Stop(id: trainId, name: "Milano Centrale", platform: "14", weather: "⛅️ 1°C", is_selected: true, status: 0, is_completed: false, is_in_station: false, dep_delay: 0, arr_delay: 0, dep_time_id: now.addingTimeInterval(3600), arr_time_id: now.addingTimeInterval(3600), dep_time_eff: now.addingTimeInterval(3600), arr_time_eff: now.addingTimeInterval(3600), ref_time: now.addingTimeInterval(3600)),
+        Stop(id: trainId, name: "Bologna Centrale", platform: "17", weather: "🌧️ 4°C", is_selected: true, status: 0, is_completed: false, is_in_station: false, dep_delay: 0, arr_delay: 0, dep_time_id: now.addingTimeInterval(8400), arr_time_id: now.addingTimeInterval(8400), dep_time_eff: now.addingTimeInterval(8400), arr_time_eff: now.addingTimeInterval(8400), ref_time: now.addingTimeInterval(8400)),
+        Stop(id: trainId, name: "Roma Termini", platform: "1", weather: "🌧️ 10°C", is_selected: true, status: 0, is_completed: false, is_in_station: false, dep_delay: 0, arr_delay: 0, dep_time_id: now.addingTimeInterval(18000), arr_time_id: now.addingTimeInterval(18000), dep_time_eff: now.addingTimeInterval(18000), arr_time_eff: now.addingTimeInterval(18000), ref_time: now.addingTimeInterval(18000))
+    ]
+    
+    NavigationStack {
+        DetailsView(train: mockTrain, stops: mockStops, seats: [], show_ticket_initially: .constant(false), ticketSeatID: .constant(nil))
             .modelContainer(container)
     }
 }
