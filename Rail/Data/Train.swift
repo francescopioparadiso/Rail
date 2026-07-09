@@ -38,16 +38,17 @@ struct StopSummary {
     let lastNoIssues: Stop
     
     static func calculate(for trainID: UUID, in allStops: [Stop]) -> StopSummary {
-        let trainStops = allStops
-            .filter { $0.id == trainID }
-            .sorted(by: { $0.ref_time < $1.ref_time })
-        
-        let selectedStops = trainStops.filter { $0.is_selected }
+        calculate(in: allStops.filter { $0.id == trainID })
+    }
+
+    static func calculate(in trainStops: [Stop]) -> StopSummary {
+        let sortedStops = trainStops.sorted(by: { $0.ref_time < $1.ref_time })
+        let selectedStops = sortedStops.filter { $0.is_selected }
         let selectedNoIssues = selectedStops.filter { $0.status != 3 }
         
-        let first = selectedStops.first ?? trainStops.first ?? Stop.placeholder()
+        let first = selectedStops.first ?? sortedStops.first ?? Stop.placeholder()
         let last = selectedStops.last ?? Stop.placeholder()
-        let firstNoIssues = selectedNoIssues.first ?? selectedStops.first ?? trainStops.first ?? Stop.placeholder()
+        let firstNoIssues = selectedNoIssues.first ?? selectedStops.first ?? sortedStops.first ?? Stop.placeholder()
         let lastNoIssues = selectedNoIssues.last ?? selectedStops.last ?? Stop.placeholder()
         
         return StopSummary(

@@ -7,10 +7,11 @@ struct ListView: View {
     let train: Train
     let stops: [Stop]
     let summary: StopSummary
+    var now: Date = Date()
     
     // MARK: - main view
     var body: some View {
-        if Date() < summary.lastNoIssues.arr_time_eff {
+        if now < summary.lastNoIssues.arr_time_eff {
             VStack(spacing: 8) {
                 // MARK: - logo + number
                 HStack(spacing: 4) {
@@ -48,7 +49,7 @@ struct ListView: View {
                                 .fontDesign(app_font_design)
                                 .foregroundStyle(Color.red)
                                 .monospacedDigit()
-                        } else if Date() >= stops.first?.dep_time_id ?? Date() && summary.firstNoIssues.dep_delay != 0 {
+                        } else if now >= (stops.first?.dep_time_id ?? now) && summary.firstNoIssues.dep_delay != 0 {
                             Text(summary.firstNoIssues.dep_time_eff.formatted(.dateTime.hour().minute()))
                                 .font(.subheadline)
                                 .fontDesign(app_font_design)
@@ -58,7 +59,7 @@ struct ListView: View {
                             Text(summary.firstNoIssues.dep_time_id.formatted(.dateTime.hour().minute()))
                                 .font(.subheadline)
                                 .fontDesign(app_font_design)
-                                .foregroundStyle(Date() >= summary.first.dep_time_id && summary.firstNoIssues.dep_delay == 0 ? Color.green : Color.primary)
+                                .foregroundStyle(now >= summary.first.dep_time_id && summary.firstNoIssues.dep_delay == 0 ? Color.green : Color.primary)
                                 .monospacedDigit()
                         }
                     }
@@ -80,13 +81,13 @@ struct ListView: View {
                                 .fontDesign(app_font_design)
                                 .foregroundStyle(Color.red)
                                 .monospacedDigit()
-                        } else if Date() >= stops.first?.dep_time_id ?? Date() && summary.lastNoIssues.arr_delay != 0 {
+                        } else if now >= stops.first?.dep_time_id ?? now && summary.lastNoIssues.arr_delay != 0 {
                             Text(summary.lastNoIssues.arr_time_eff.formatted(.dateTime.hour().minute()))
                                 .font(.subheadline)
                                 .fontDesign(app_font_design)
                                 .foregroundStyle(summary.lastNoIssues.arr_delay > 0 ? Color.red : Color.green)
                                 .monospacedDigit()
-                        } else if Date() >= summary.first.dep_time_id && summary.lastNoIssues.arr_delay == 0 {
+                        } else if now >= summary.first.dep_time_id && summary.lastNoIssues.arr_delay == 0 {
                             Text(summary.lastNoIssues.arr_time_eff.formatted(.dateTime.hour().minute()))
                                 .font(.subheadline)
                                 .fontDesign(app_font_design)
@@ -116,7 +117,7 @@ struct ListView: View {
                     .background(Color.red.opacity(0.15))
                     .cornerRadius(16)
                     .padding(8)
-                } else if Date() < summary.firstNoIssues.dep_time_id {
+                } else if now < summary.firstNoIssues.dep_time_id {
                     HStack(spacing: 8) {
                         ZStack {
                             let dep_time = {
@@ -127,7 +128,7 @@ struct ListView: View {
                                 }
                             }()
                             
-                            let time_to_departure = Calendar.current.dateComponents([.day, .hour, .minute], from: Date(), to: dep_time)
+                            let time_to_departure = Calendar.current.dateComponents([.day, .hour, .minute], from: now, to: dep_time)
                             let day = time_to_departure.day ?? 0
                             let hour = time_to_departure.hour ?? 0
                             let minute = time_to_departure.minute ?? 0
@@ -155,9 +156,9 @@ struct ListView: View {
                         .background(Color.gray.opacity(0.15))
                         .cornerRadius(16)
                         .padding(.leading, 8).padding(.vertical, 8)
-                        .padding(.trailing, (Date() > summary.first.dep_time_id || Calendar.current.isDate(summary.first.dep_time_id, inSameDayAs: Date())) && summary.first.platform != "-" ? 0 : 8)
+                        .padding(.trailing, (now > summary.first.dep_time_id || Calendar.current.isDate(summary.first.dep_time_id, inSameDayAs: now)) && summary.first.platform != "-" ? 0 : 8)
                         
-                        if (Date() > summary.first.dep_time_id || Calendar.current.isDate(summary.first.dep_time_id, inSameDayAs: Date())) && summary.first.platform != "-" {
+                        if (now > summary.first.dep_time_id || Calendar.current.isDate(summary.first.dep_time_id, inSameDayAs: now)) && summary.first.platform != "-" {
                             HStack(spacing: 4) {
                                 Image(systemName: "arrow.up.right")
                                     .padding(.vertical, 8).padding(.leading)
@@ -231,7 +232,7 @@ struct ListView: View {
                     .stroke(style: StrokeStyle(lineWidth: 1, dash: [5]))
                     .foregroundColor(Color.primary.opacity(0.5))
             )
-        } else if Date() >= summary.last.arr_time_eff {
+        } else if now >= summary.last.arr_time_eff {
             HStack{
                 VStack {
                     Text("\(summary.lastNoIssues.arr_time_eff.formatted(.dateTime.day()))")
@@ -290,7 +291,7 @@ struct ListView: View {
                                     .fontDesign(app_font_design)
                                     .foregroundStyle(Color.red)
                                     .monospacedDigit()
-                            } else if Date() >= summary.first.dep_time_id && summary.firstNoIssues.dep_delay != 0 {
+                            } else if now >= summary.first.dep_time_id && summary.firstNoIssues.dep_delay != 0 {
                                 Text(summary.firstNoIssues.dep_time_eff.formatted(.dateTime.hour().minute()))
                                     .font(.subheadline)
                                     .fontDesign(app_font_design)
@@ -300,7 +301,7 @@ struct ListView: View {
                                 Text(summary.firstNoIssues.dep_time_id.formatted(.dateTime.hour().minute()))
                                     .font(.subheadline)
                                     .fontDesign(app_font_design)
-                                    .foregroundStyle(Date() >= summary.first.dep_time_id && summary.firstNoIssues.dep_delay == 0 ? Color.green : Color.primary)
+                                    .foregroundStyle(now >= summary.first.dep_time_id && summary.firstNoIssues.dep_delay == 0 ? Color.green : Color.primary)
                                     .monospacedDigit()
                             }
                         }
@@ -322,13 +323,13 @@ struct ListView: View {
                                     .fontDesign(app_font_design)
                                     .foregroundStyle(Color.red)
                                     .monospacedDigit()
-                            } else if Date() >= summary.first.dep_time_id && summary.lastNoIssues.arr_delay != 0 {
+                            } else if now >= summary.first.dep_time_id && summary.lastNoIssues.arr_delay != 0 {
                                 Text(summary.lastNoIssues.arr_time_eff.formatted(.dateTime.hour().minute()))
                                     .font(.subheadline)
                                     .fontDesign(app_font_design)
                                     .foregroundStyle(summary.lastNoIssues.arr_delay > 0 ? Color.red : Color.green)
                                     .monospacedDigit()
-                            } else if Date() >= summary.first.dep_time_id && summary.lastNoIssues.arr_delay == 0 {
+                            } else if now >= summary.first.dep_time_id && summary.lastNoIssues.arr_delay == 0 {
                                 Text(summary.lastNoIssues.arr_time_eff.formatted(.dateTime.hour().minute()))
                                     .font(.subheadline)
                                     .fontDesign(app_font_design)

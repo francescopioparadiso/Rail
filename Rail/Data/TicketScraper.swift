@@ -1,5 +1,6 @@
 import Foundation
 import WebKit
+import UIKit
 
 struct ScrapedJourney {
     var number: String
@@ -17,57 +18,136 @@ struct ScrapedPassenger {
 }
 
 @MainActor
-class TicketScraper: NSObject, WKNavigationDelegate {
+final class TicketScraper: NSObject, WKNavigationDelegate {
+    private static let userAgent = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1"
+
     private var webView: WKWebView!
-    private var continuation: CheckedContinuation<[ScrapedJourney], Error>?
-    
+    private var hostWindow: UIWindow?
+    private var navigationContinuation: CheckedContinuation<Void, Error>?
+
     override init() {
         super.init()
         let config = WKWebViewConfiguration()
-        webView = WKWebView(frame: .zero, configuration: config)
+        config.defaultWebpagePreferences.allowsContentJavaScript = true
+        config.websiteDataStore = .nonPersistent()
+        webView = WKWebView(frame: CGRect(x: 0, y: 0, width: 390, height: 844), configuration: config)
+        webView.customUserAgent = Self.userAgent
         webView.navigationDelegate = self
-        // Optional: add webView to a window if needed, but usually evaluating JS works off-screen
+        webView.isOpaque = false
+        webView.backgroundColor = .white
+        webView.alpha = 0.01
     }
-    
-    func scrapeTickets(url: String) async throws -> [ScrapedJourney] {
-        guard let reqURL = URL(string: url) else { return [] }
-        let request = URLRequest(url: reqURL)
-        
-        return try await withCheckedThrowingContinuation { cont in
-            self.continuation = cont
-            webView.load(request)
-            
-            // Timeout after 15 seconds
-            DispatchQueue.main.asyncAfter(deadline: .now() + 15.0) {
-                if let pendingCont = self.continuation {
-                    self.continuation = nil
-                    self.evaluateJSAndResume(cont: pendingCont)
+
+    func scrapeTickets(checkInID: String) async throws -> [ScrapedJourney] {
+        attachToWindow()
+        defer {
+            webView.removeFromSuperview()
+            hostWindow?.isHidden = true
+            hostWindow = nil
+        }
+
+        let urls = [
+            CheckInLink.url(for: checkInID),
+            "https://www.lefrecce.it/Channels.Website.WEB/#/self-check-in?id=\(CheckInLink.normalizeID(checkInID))"
+        ]
+
+        for urlString in urls {
+            guard let url = URL(string: urlString) else { continue }
+
+            do {
+                try await load(url)
+                try await Task.sleep(for: .seconds(2))
+
+                let deadline = Date().addingTimeInterval(15)
+                while Date() < deadline {
+                    if try await pageShowsLogin() {
+                        throw TicketScrapeError.loginPageShown
+                    }
+
+                    let journeys = await extractJourneys()
+                    if !journeys.isEmpty { return journeys }
+
+                    try await Task.sleep(for: .milliseconds(400))
                 }
+            } catch TicketScrapeError.loginPageShown {
+                throw TicketScrapeError.loginPageShown
+            } catch {
+                continue
             }
         }
+
+        throw TicketScrapeError.noJourneyFound
     }
-    
+
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-        // Wait an additional 4 seconds for JS rendering, like the python script
-        DispatchQueue.main.asyncAfter(deadline: .now() + 4.0) {
-            if let pendingCont = self.continuation {
-                self.continuation = nil
-                self.evaluateJSAndResume(cont: pendingCont)
+        navigationContinuation?.resume()
+        navigationContinuation = nil
+    }
+
+    func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+        navigationContinuation?.resume(throwing: error)
+        navigationContinuation = nil
+    }
+
+    func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+        navigationContinuation?.resume(throwing: error)
+        navigationContinuation = nil
+    }
+
+    private func load(_ url: URL) async throws {
+        try await withCheckedThrowingContinuation { (done: CheckedContinuation<Void, Error>) in
+            navigationContinuation = done
+            webView.load(URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 30))
+        }
+    }
+
+    private func attachToWindow() {
+        if let window = UIApplication.shared.connectedScenes
+            .compactMap({ $0 as? UIWindowScene })
+            .flatMap(\.windows)
+            .first(where: { $0.isKeyWindow }) {
+            window.insertSubview(webView, at: 0)
+            return
+        }
+
+        let window = UIWindow(frame: UIScreen.main.bounds)
+        window.windowLevel = .normal
+        window.alpha = 0.01
+        let controller = UIViewController()
+        controller.view.backgroundColor = .white
+        controller.view.addSubview(webView)
+        window.rootViewController = controller
+        window.makeKeyAndVisible()
+        hostWindow = window
+    }
+
+    private func pageShowsLogin() async throws -> Bool {
+        let js = """
+        (() => {
+            const text = (document.body && document.body.innerText) ? document.body.innerText.toLowerCase() : '';
+            return text.includes('username') && text.includes('password') && text.includes('login');
+        })();
+        """
+
+        return await withCheckedContinuation { done in
+            webView.evaluateJavaScript(js) { result, _ in
+                done.resume(returning: (result as? Bool) ?? false)
             }
         }
     }
-    
-    private func evaluateJSAndResume(cont: CheckedContinuation<[ScrapedJourney], Error>) {
+
+    private func extractJourneys() async -> [ScrapedJourney] {
         let js = """
         (() => {
             let result = [];
             function traverse(node) {
+                if (!node) return;
                 if (node.nodeType === Node.TEXT_NODE) {
                     let text = node.textContent.trim();
                     if (text) result.push({type: 'text', val: text});
                 } else if (node.nodeType === Node.ELEMENT_NODE) {
                     if (node.tagName === 'SCRIPT' || node.tagName === 'STYLE') return;
-                    if (node.tagName === 'IMG' && node.src.includes('data:image/')) {
+                    if (node.tagName === 'IMG' && node.src && node.src.includes('data:image/')) {
                         result.push({type: 'qr', val: node.src});
                     }
                     for (let child of node.childNodes) traverse(child);
@@ -77,112 +157,160 @@ class TicketScraper: NSObject, WKNavigationDelegate {
             return result;
         })();
         """
-        
-        webView.evaluateJavaScript(js) { result, error in
-            if let error = error {
-                cont.resume(throwing: error)
-                return
-            }
-            
-            guard let nodes = result as? [[String: Any]] else {
-                cont.resume(returning: [])
-                return
-            }
-            
-            var journeys: [ScrapedJourney] = []
-            var current_train: ScrapedJourney?
-            var current_passenger: ScrapedPassenger?
-            
-            var i = 0
-            while i < nodes.count {
-                let node = nodes[i]
-                guard let type = node["type"] as? String, let val = node["val"] as? String else {
-                    i += 1; continue
+
+        return await withCheckedContinuation { done in
+            webView.evaluateJavaScript(js) { result, _ in
+                guard let nodes = result as? [[String: Any]] else {
+                    done.resume(returning: [])
+                    return
                 }
-                
-                if type == "text" {
-                    let lowerVal = val.lowercased()
-                    if lowerVal.contains(" numero ") {
-                        let parts = val.components(separatedBy: " numero ")
-                        let train_num = parts.last?.trimmingCharacters(in: .whitespaces) ?? ""
-                        if current_train == nil || current_train?.number != train_num {
-                            if let cp = current_passenger {
-                                current_train?.passengers.append(cp)
-                            }
-                            if let ct = current_train {
-                                journeys.append(ct)
-                            }
-                            current_train = ScrapedJourney(number: train_num, date: "Unknown", dep_station: "Unknown", arr_station: "Unknown", passengers: [])
-                            current_passenger = nil
+                done.resume(returning: Self.parse(nodes: nodes))
+            }
+        }
+    }
+
+    // Mirrors Sketch/Scripts/fetch_checkin_qr.py extract_all_tickets
+    private static func parse(nodes: [[String: Any]]) -> [ScrapedJourney] {
+        var journeys: [ScrapedJourney] = []
+        var currentTrainIndex: Int?
+        var currentPassengerIndex: Int?
+
+        var index = 0
+        while index < nodes.count {
+            let node = nodes[index]
+            guard let type = node["type"] as? String, let value = node["val"] as? String else {
+                index += 1
+                continue
+            }
+
+            if type == "text" {
+                let lower = value.lowercased()
+
+                if lower.contains(" numero ") {
+                    let trainNumber = value.components(separatedBy: " numero ").last?.trimmingCharacters(in: .whitespaces) ?? ""
+                    if currentTrainIndex == nil || journeys[currentTrainIndex!].number != trainNumber {
+                        journeys.append(
+                            ScrapedJourney(number: trainNumber, date: "Unknown", dep_station: "Unknown", arr_station: "Unknown", passengers: [])
+                        )
+                        currentTrainIndex = journeys.count - 1
+                        currentPassengerIndex = nil
+                    }
+                } else if lower.hasPrefix("partenza ") {
+                    if let trainIndex = currentTrainIndex {
+                        journeys[trainIndex].dep_station = String(value.dropFirst(9)).trimmingCharacters(in: .whitespaces)
+                        if index + 1 < nodes.count,
+                           nodes[index + 1]["type"] as? String == "text",
+                           let nextValue = nodes[index + 1]["val"] as? String,
+                           nextValue.contains(" - ") {
+                            journeys[trainIndex].date = nextValue.components(separatedBy: " - ").first?.trimmingCharacters(in: .whitespaces) ?? "Unknown"
                         }
-                    } else if lowerVal.hasPrefix("partenza ") {
-                        let startIndex = val.index(val.startIndex, offsetBy: 9)
-                        current_train?.dep_station = String(val[startIndex...]).trimmingCharacters(in: .whitespaces)
-                        if i + 1 < nodes.count, let nType = nodes[i+1]["type"] as? String, let nVal = nodes[i+1]["val"] as? String, nType == "text", nVal.contains(" - ") {
-                            current_train?.date = nVal.components(separatedBy: " - ")[0].trimmingCharacters(in: .whitespaces)
-                        }
-                    } else if lowerVal.hasPrefix("arrivo ") {
-                        let startIndex = val.index(val.startIndex, offsetBy: 7)
-                        current_train?.arr_station = String(val[startIndex...]).trimmingCharacters(in: .whitespaces)
-                    } else if lowerVal.hasPrefix("passenger ") || lowerVal.hasPrefix("passeggero ") {
-                        if let cp = current_passenger {
-                            current_train?.passengers.append(cp)
-                        }
-                        current_passenger = ScrapedPassenger(name: "Unknown", coach: "N/A", seat: "N/A", qrData: nil)
-                        
+                    }
+                } else if lower.hasPrefix("arrivo ") {
+                    if let trainIndex = currentTrainIndex {
+                        journeys[trainIndex].arr_station = String(value.dropFirst(7)).trimmingCharacters(in: .whitespaces)
+                    }
+                } else if lower.hasPrefix("passenger ") || lower.hasPrefix("passeggero ") {
+                    if let trainIndex = currentTrainIndex {
+                        journeys[trainIndex].passengers.append(
+                            ScrapedPassenger(name: "Unknown", coach: "N/A", seat: "N/A", qrData: nil)
+                        )
+                        currentPassengerIndex = journeys[trainIndex].passengers.count - 1
+
                         var offset = 1
-                        if i + 1 < nodes.count, let nextVal = nodes[i+1]["val"] as? String, nextVal.count <= 3, nextVal == nextVal.uppercased() {
+                        if index + 1 < nodes.count,
+                           let nextValue = nodes[index + 1]["val"] as? String,
+                           nextValue.count <= 3,
+                           nextValue == nextValue.uppercased() {
                             offset = 2
                         }
-                        
+
                         var firstName = ""
                         var lastName = ""
-                        if i + offset < nodes.count, nodes[i+offset]["type"] as? String == "text" {
-                            firstName = nodes[i+offset]["val"] as? String ?? ""
+                        if index + offset < nodes.count, nodes[index + offset]["type"] as? String == "text" {
+                            firstName = nodes[index + offset]["val"] as? String ?? ""
                         }
-                        if i + offset + 1 < nodes.count, nodes[i+offset+1]["type"] as? String == "text" {
-                            let nxt = nodes[i+offset+1]["val"] as? String ?? ""
-                            if !nxt.hasPrefix("Code:") && !nxt.hasPrefix("Offer") && !nxt.hasPrefix("EXPIRED") {
-                                lastName = nxt
+                        if index + offset + 1 < nodes.count, nodes[index + offset + 1]["type"] as? String == "text" {
+                            let next = nodes[index + offset + 1]["val"] as? String ?? ""
+                            if !next.hasPrefix("Code:") && !next.hasPrefix("Offer") && !next.hasPrefix("EXPIRED") {
+                                lastName = next
                             }
                         }
-                        
-                        if !firstName.isEmpty {
-                            let nameStr = "\(firstName) \(lastName)".trimmingCharacters(in: .whitespaces)
-                            let lettersOnly = nameStr.components(separatedBy: CharacterSet.letters.union(.whitespaces).inverted).joined()
-                            current_passenger?.name = lettersOnly
-                        }
-                    } else if lowerVal == "coach" || lowerVal == "carrozza" {
-                        if current_passenger != nil, i + 1 < nodes.count, nodes[i+1]["type"] as? String == "text" {
-                            current_passenger?.coach = nodes[i+1]["val"] as? String ?? ""
-                        }
-                    } else if lowerVal == "seat" || lowerVal == "posto" {
-                        if current_passenger != nil, i + 1 < nodes.count, nodes[i+1]["type"] as? String == "text" {
-                            current_passenger?.seat = nodes[i+1]["val"] as? String ?? ""
+
+                        if !firstName.isEmpty, let passengerIndex = currentPassengerIndex {
+                            let name = "\(firstName) \(lastName)".trimmingCharacters(in: .whitespaces)
+                            journeys[trainIndex].passengers[passengerIndex].name = name.filter { $0.isLetter || $0.isWhitespace }
                         }
                     }
-                } else if type == "qr" {
-                    if current_passenger != nil {
-                        if val.starts(with: "data:image/") {
-                            let components = val.components(separatedBy: ",")
-                            if components.count > 1, let data = Data(base64Encoded: components[1]) {
-                                current_passenger?.qrData = data
-                            }
-                        }
+                } else if lower == "coach" || lower == "carrozza" {
+                    if let trainIndex = currentTrainIndex,
+                       let passengerIndex = currentPassengerIndex,
+                       index + 1 < nodes.count,
+                       nodes[index + 1]["type"] as? String == "text" {
+                        journeys[trainIndex].passengers[passengerIndex].coach = nodes[index + 1]["val"] as? String ?? ""
+                    }
+                } else if lower == "seat" || lower == "posto" {
+                    if let trainIndex = currentTrainIndex,
+                       let passengerIndex = currentPassengerIndex,
+                       index + 1 < nodes.count,
+                       nodes[index + 1]["type"] as? String == "text" {
+                        journeys[trainIndex].passengers[passengerIndex].seat = nodes[index + 1]["val"] as? String ?? ""
                     }
                 }
-                
-                i += 1
+            } else if type == "qr",
+                      let trainIndex = currentTrainIndex,
+                      let passengerIndex = currentPassengerIndex,
+                      value.hasPrefix("data:image/") {
+                let parts = value.components(separatedBy: ",")
+                if parts.count > 1, let data = Data(base64Encoded: parts[1]) {
+                    journeys[trainIndex].passengers[passengerIndex].qrData = data
+                }
             }
-            
-            if let cp = current_passenger {
-                current_train?.passengers.append(cp)
-            }
-            if let ct = current_train {
-                journeys.append(ct)
-            }
-            
-            cont.resume(returning: journeys)
+
+            index += 1
+        }
+
+        return journeys
+    }
+}
+
+@MainActor
+func fetchTicketDetails(checkInID: String) async throws -> EmailContent {
+    let scraper = TicketScraper()
+    let journeys = try await scraper.scrapeTickets(checkInID: checkInID)
+    guard let journey = journeys.first else {
+        throw TicketScrapeError.noJourneyFound
+    }
+
+    let passengers = journey.passengers.map { passenger in
+        EmailContentPassenger(
+            name: passenger.name,
+            carriage: Int(passenger.coach.filter(\.isNumber)) ?? 0,
+            seat: passenger.seat,
+            qrcode: passenger.qrData ?? Data()
+        )
+    }
+
+    return EmailContent(
+        imapUID: "",
+        date: .now,
+        link: checkInID,
+        trainNumber: journey.number,
+        departureStation: journey.dep_station,
+        arrivalStation: journey.arr_station,
+        passengers: passengers
+    )
+}
+
+enum TicketScrapeError: LocalizedError {
+    case noJourneyFound
+    case loginPageShown
+
+    var errorDescription: String? {
+        switch self {
+        case .noJourneyFound:
+            return "Could not read ticket details from the check-in page."
+        case .loginPageShown:
+            return "The check-in page did not load correctly."
         }
     }
 }

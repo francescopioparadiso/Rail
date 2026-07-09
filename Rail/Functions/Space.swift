@@ -1,129 +1,57 @@
 import Foundation
 import CoreLocation
 
+enum StationLookup {
+    private static let coordinatesByName: [String: (lat: Double, lon: Double)] = buildIndex()
+
+    private static func buildIndex() -> [String: (lat: Double, lon: Double)] {
+        guard let filePath = Bundle.main.path(forResource: "stations", ofType: "csv"),
+              let content = try? String(contentsOfFile: filePath, encoding: .utf8) else {
+            print("❌ Error: stations.csv not found in bundle")
+            return [:]
+        }
+
+        var index: [String: (lat: Double, lon: Double)] = [:]
+        for row in content.components(separatedBy: "\n").dropFirst().filter({ !$0.isEmpty }) {
+            let columns = row.components(separatedBy: ",").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            guard columns.count >= 3,
+                  let lat = Double(columns[0]),
+                  let lon = Double(columns[1]) else { continue }
+
+            let coord = (lat: lat, lon: lon)
+            let nameField = columns[2]
+
+            if nameField.contains("|") {
+                for variant in nameField.split(separator: "|") {
+                    index[String(variant)] = coord
+                }
+            } else {
+                index[nameField] = coord
+            }
+        }
+        return index
+    }
+
+    static func coordinates(for station: String) -> (lat: Double, lon: Double)? {
+        coordinatesByName[station.lowercased()]
+    }
+}
+
 func distance_between_stations(from station1: String, to station2: String) -> Int? {
-    guard let filePath = Bundle.main.path(forResource: "stations", ofType: "csv") else {
-        print("❌ Error: stations.csv not found in bundle")
+    guard let c1 = StationLookup.coordinates(for: station1),
+          let c2 = StationLookup.coordinates(for: station2) else {
         return nil
     }
 
-    do {
-        let content = try String(contentsOfFile: filePath, encoding: .utf8)
-        let rows = content.components(separatedBy: "\n").filter { !$0.isEmpty }
-
-        var coord1: CLLocationCoordinate2D?
-        var coord2: CLLocationCoordinate2D?
-
-        for row in rows.dropFirst() {
-            let columns = row.components(separatedBy: ",").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-
-            let latitude = columns[0]
-            let longitude = columns[1]
-            let name = columns[2]
-
-            if name.contains("|") {
-                for name in name.split(separator: "|") {
-                    if name == station1.lowercased() {
-                        coord1 = CLLocationCoordinate2D(latitude: Double(latitude) ?? 0, longitude: Double(longitude) ?? 0)
-                    } else if name == station2.lowercased() {
-                        coord2 = CLLocationCoordinate2D(latitude: Double(latitude) ?? 0, longitude: Double(longitude) ?? 0)
-                    }
-                }
-            } else {
-                if name == station1.lowercased() {
-                    coord1 = CLLocationCoordinate2D(latitude: Double(latitude) ?? 0, longitude: Double(longitude) ?? 0)
-                } else if name == station2.lowercased() {
-                    coord2 = CLLocationCoordinate2D(latitude: Double(latitude) ?? 0, longitude: Double(longitude) ?? 0)
-                }
-            }
-
-            if coord1 != nil && coord2 != nil {
-                break
-            }
-        }
-
-        if let c1 = coord1, let c2 = coord2 {
-            let location1 = CLLocation(latitude: c1.latitude, longitude: c1.longitude)
-            let location2 = CLLocation(latitude: c2.latitude, longitude: c2.longitude)
-            let distanceInMeters = location1.distance(from: location2)
-            return Int(round(distanceInMeters / 1000))
-        } else {
-            print("❌ Error: One or both stations not found")
-        }
-
-    } catch {
-        print("❌ Error reading CSV file: \(error)")
-    }
-
-    return nil
+    let location1 = CLLocation(latitude: c1.lat, longitude: c1.lon)
+    let location2 = CLLocation(latitude: c2.lat, longitude: c2.lon)
+    return Int(round(location1.distance(from: location2) / 1000))
 }
 
 func get_latitude(for station: String) -> Double {
-    guard let filePath = Bundle.main.path(forResource: "stations", ofType: "csv") else {
-        print("❌ Error: stations.csv not found in bundle")
-        return 0
-    }
-
-    do {
-        let content = try String(contentsOfFile: filePath, encoding: .utf8)
-        let rows = content.components(separatedBy: "\n").filter { !$0.isEmpty }
-
-        for row in rows.dropFirst() {
-            let columns = row.components(separatedBy: ",").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-
-            let latitude = columns[0]
-            let name = columns[2]
-
-            if name.contains("|") {
-                for name in name.split(separator: "|") {
-                    if name == station.lowercased() {
-                        return Double(latitude) ?? 0
-                    }
-                }
-            } else {
-                if name == station.lowercased() {
-                    return Double(latitude) ?? 0
-                }
-            }
-        }
-    } catch {
-        print("❌ Error reading CSV file: \(error)")
-    }
-
-    return 0
+    StationLookup.coordinates(for: station)?.lat ?? 0
 }
 
 func get_longitude(for station: String) -> Double {
-    guard let filePath = Bundle.main.path(forResource: "stations", ofType: "csv") else {
-        print("❌ Error: stations.csv not found in bundle")
-        return 0
-    }
-
-    do {
-        let content = try String(contentsOfFile: filePath, encoding: .utf8)
-        let rows = content.components(separatedBy: "\n").filter { !$0.isEmpty }
-
-        for row in rows.dropFirst() {
-            let columns = row.components(separatedBy: ",").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-
-            let longitude = columns[1]
-            let name = columns[2]
-
-            if name.contains("|") {
-                for name in name.split(separator: "|") {
-                    if name == station.lowercased() {
-                        return Double(longitude) ?? 0
-                    }
-                }
-            } else {
-                if name == station.lowercased() {
-                    return Double(longitude) ?? 0
-                }
-            }
-        }
-    } catch {
-        print("❌ Error reading CSV file: \(error)")
-    }
-
-    return 0
+    StationLookup.coordinates(for: station)?.lon ?? 0
 }

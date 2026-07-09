@@ -1,172 +1,207 @@
 import SwiftUI
 import SwiftData
+import UIKit
 
 struct EmailInboxView: View {
-    let linkedEmail: LinkedEmail
-    
-    @State private var emails: [IMAPClient.EmailResult] = []
-    @State private var isLoading = true
-    @State private var errorMsg: String?
-    
-    @Query private var trains: [Train]
+    let emailID: UUID
+
     @Environment(\.modelContext) private var modelContext
-    
+    @Query private var profiles: [UserProfile]
+    @State private var isSyncing = false
+    @State private var isLoadingDetails = false
+    @State private var errorMessage: String?
+
+    private var emailAccount: Emails? {
+        profiles.first?.emails.first { $0.id == emailID }
+    }
+
+    private var tickets: [EmailContent] {
+        (emailAccount?.content ?? []).sorted {
+            ($0.departureDate ?? $0.date) > ($1.departureDate ?? $1.date)
+        }
+    }
+
     var body: some View {
-        List {
-            if isLoading {
-                HStack {
-                    Spacer()
-                    ProgressView("Connecting to \(linkedEmail.provider)...")
-                        .padding()
-                    Spacer()
+        Group {
+            if let emailAccount {
+                Group {
+                    if isSyncing && tickets.isEmpty {
+                        ProgressView("Syncing emails...")
+                    } else if let errorMessage, tickets.isEmpty {
+                        ContentUnavailableView(errorMessage, systemImage: "exclamationmark.triangle")
+                    } else if tickets.isEmpty {
+                        ContentUnavailableView(
+                            "No check-in emails",
+                            systemImage: "envelope",
+                            description: Text("No Trenitalia self-check-in emails were found.")
+                        )
+                    } else {
+                        List {
+                            ForEach(tickets) { ticket in
+                                NavigationLink {
+                                    emailTicketDetail(ticket)
+                                } label: {
+                                    EmailTicketRow(ticket: ticket)
+                                }
+                            }
+                        }
+                        .scrollContentBackground(.hidden)
+                        .background(app_background_color)
+                    }
                 }
-            } else if let errorMsg = errorMsg {
-                Text(errorMsg)
-                    .foregroundColor(.red)
-            } else if emails.isEmpty {
-                Text("No Trenitalia check-in emails found.")
-                    .foregroundColor(.secondary)
+                .navigationTitle(emailAccount.email)
+                .navigationSubtitle(isSyncing ? "Syncing emails..." : isLoadingDetails ? "Loading ticket details..." : "")
+                .fontDesign(.rounded)
+                .toolbar {
+                    ToolbarItem(placement: .primaryAction) {
+                        Menu {
+                            Button {
+                                Task { await syncEmails(for: emailAccount) }
+                            } label: {
+                                Label("Refresh new emails", systemImage: "arrow.clockwise")
+                            }
+                            .disabled(isSyncing || isLoadingDetails)
+
+                            Section("Danger zone") {
+                                Button(role: .destructive) {
+                                    Task { await reloadAllEmails(for: emailAccount) }
+                                } label: {
+                                    Label("Reload all emails", systemImage: "trash")
+                                }
+                                .disabled(isSyncing || isLoadingDetails)
+                            }
+                        } label: {
+                            Image(systemName: "ellipsis")
+                        }
+                    }
+                }
             } else {
-                ForEach(emails) { email in
-                    EmailRowView(emailResult: email, isAlreadySaved: isTrainSaved(email), scraper: TicketScraper())
+                ContentUnavailableView(
+                    "Email account not found",
+                    systemImage: "envelope.badge.exclamationmark"
+                )
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(app_background_color)
+    }
+
+    @ViewBuilder
+    private func emailTicketDetail(_ ticket: EmailContent) -> some View {
+        let liveTicket = tickets.first { $0.id == ticket.id } ?? ticket
+
+        List {
+            Section("Journey") {
+                LabeledContent("Train", value: liveTicket.trainNumber.isEmpty ? "—" : liveTicket.trainNumber)
+                LabeledContent("From", value: liveTicket.departureStation.isEmpty ? "—" : liveTicket.departureStation)
+                LabeledContent("To", value: liveTicket.arrivalStation.isEmpty ? "—" : liveTicket.arrivalStation)
+                LabeledContent("Departure") {
+                    Text((liveTicket.departureDate ?? liveTicket.date), format: .dateTime.day().month().year().hour().minute())
+                }
+                LabeledContent("Email date") {
+                    Text(liveTicket.date, format: .dateTime.day().month().year().hour().minute())
+                }
+            }
+
+            Section("Check-in ID") {
+                Text(liveTicket.link)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Section("Passengers") {
+                if liveTicket.passengers.isEmpty {
+                    Text("No passengers loaded")
+                        .foregroundStyle(.secondary)
+                } else {
+                    ForEach(liveTicket.passengers) { passenger in
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text(passenger.name)
+                                .font(.headline)
+
+                            HStack(spacing: 16) {
+                                LabeledContent("Carriage", value: passenger.carriage == 0 ? "—" : "\(passenger.carriage)")
+                                LabeledContent("Seat", value: passenger.seat.isEmpty ? "—" : passenger.seat)
+                            }
+                            .font(.subheadline)
+
+                            if let image = qrImage(from: passenger.qrcode) {
+                                image
+                                    .resizable()
+                                    .interpolation(.none)
+                                    .scaledToFit()
+                                    .frame(maxWidth: 180, maxHeight: 180)
+                                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                            }
+                        }
+                        .padding(.vertical, 4)
+                    }
                 }
             }
         }
-        .navigationTitle(linkedEmail.email)
+        .navigationTitle(liveTicket.trainNumber.isEmpty ? "Ticket" : "Train \(liveTicket.trainNumber)")
+        .navigationBarTitleDisplayMode(.inline)
         .fontDesign(.rounded)
-        .onAppear {
-            Task {
-                await fetchEmails()
-            }
-        }
+        .background(app_background_color)
     }
-    
-    private func fetchEmails() async {
-        let client = IMAPClient()
+
+    private func qrImage(from data: Data) -> Image? {
+        guard !data.isEmpty, let uiImage = UIImage(data: data) else { return nil }
+        return Image(uiImage: uiImage)
+    }
+
+    private func syncEmails(for account: Emails) async {
+        guard !isSyncing, let profile = profiles.first else { return }
+        isSyncing = true
+        isLoadingDetails = true
+        errorMessage = nil
+        defer {
+            isSyncing = false
+            isLoadingDetails = false
+        }
+
         do {
-            let fetched = try await client.fetchTrenitaliaEmails(provider: linkedEmail.provider, email: linkedEmail.email, appPassword: linkedEmail.appPassword)
-            await MainActor.run {
-                self.emails = fetched
-                self.isLoading = false
-            }
+            try await EmailTicketSyncService.syncAccount(
+                accountID: account.id,
+                profile: profile,
+                modelContext: modelContext
+            )
         } catch {
-            await MainActor.run {
-                self.errorMsg = "Failed to fetch emails: \(error.localizedDescription)"
-                self.isLoading = false
-            }
+            errorMessage = error.localizedDescription
         }
     }
-    
-    private func isTrainSaved(_ email: IMAPClient.EmailResult) -> Bool {
-        guard let tNum = email.trainNumber else { return false }
-        // Simple check by train number, optionally date
-        return trains.contains { $0.number.contains(tNum) }
+
+    private func reloadAllEmails(for account: Emails) async {
+        guard !isSyncing, let profile = profiles.first else { return }
+        isSyncing = true
+        isLoadingDetails = true
+        errorMessage = nil
+        defer {
+            isSyncing = false
+            isLoadingDetails = false
+        }
+
+        do {
+            try await EmailTicketSyncService.syncAccount(
+                accountID: account.id,
+                profile: profile,
+                modelContext: modelContext,
+                reloadAll: true
+            )
+        } catch {
+            errorMessage = error.localizedDescription
+        }
     }
 }
 
-struct EmailRowView: View {
-    let emailResult: IMAPClient.EmailResult
-    let isAlreadySaved: Bool
-    let scraper: TicketScraper
-    
-    @State private var isScraping = false
-    @State private var showError = false
-    @Environment(\.modelContext) private var modelContext
-    
-    private var isFuture: Bool {
-        guard let dStr = emailResult.depDate else { return true }
-        let formatter = DateFormatter()
-        formatter.dateFormat = "dd/MM/yyyy"
-        if let d = formatter.date(from: dStr) {
-            return d > Date()
-        }
-        return true
-    }
-    
-    var body: some View {
-        HStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(emailResult.dateString)
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                
-                if let tNum = emailResult.trainNumber {
-                    Text("Train \(tNum)")
-                        .font(.headline)
-                } else {
-                    Text("Train Ticket")
-                        .font(.headline)
-                }
-                
-                if let dep = emailResult.depStation, let arr = emailResult.arrStation {
-                    Text("\(dep) -> \(arr)")
-                        .font(.subheadline)
-                }
-            }
-            
-            Spacer()
-            
-            if isAlreadySaved {
-                Image(systemName: "checkmark.circle.fill")
-                    .foregroundColor(.green)
-                    .font(.title2)
-            } else if !isFuture {
-                Image(systemName: "xmark.circle.fill")
-                    .foregroundColor(.red)
-                    .font(.title2)
-            } else {
-                if isScraping {
-                    ProgressView()
-                } else {
-                    Button {
-                        Task { await addTrain() }
-                    } label: {
-                        Text("Add")
-                            .font(.subheadline)
-                            .fontWeight(.bold)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 6)
-                            .background(Color.blue.opacity(0.1))
-                            .foregroundColor(.blue)
-                            .cornerRadius(12)
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-        }
-        .padding(.vertical, 4)
-        .alert("Scraping Failed", isPresented: $showError) {
-            Button("OK", role: .cancel) { }
-        }
-    }
-    
-    private func addTrain() async {
-        isScraping = true
-        defer { isScraping = false }
-        
-        guard let url = emailResult.urls.first else { return }
-        do {
-            let journeys = try await scraper.scrapeTickets(url: url)
-            
-            for journey in journeys {
-                // Save logic here
-                let newTrain = Train(id: UUID(), logo: "trenitalia", number: journey.number, identifier: "\(journey.number)-\(journey.date)", provider: "Trenitalia", last_update_time: Date(), delay: 0, direction: journey.arr_station, issue: "")
-                modelContext.insert(newTrain)
-                
-                let stop1 = Stop(id: newTrain.id, name: journey.dep_station, platform: "", weather: "", is_selected: true, status: 0, is_completed: false, is_in_station: false, dep_delay: 0, arr_delay: 0, dep_time_id: Date(), arr_time_id: Date(), dep_time_eff: Date(), arr_time_eff: Date(), ref_time: Date())
-                modelContext.insert(stop1)
-                
-                let stop2 = Stop(id: newTrain.id, name: journey.arr_station, platform: "", weather: "", is_selected: true, status: 0, is_completed: false, is_in_station: false, dep_delay: 0, arr_delay: 0, dep_time_id: Date().addingTimeInterval(3600), arr_time_id: Date().addingTimeInterval(3600), dep_time_eff: Date().addingTimeInterval(3600), arr_time_eff: Date().addingTimeInterval(3600), ref_time: Date())
-                modelContext.insert(stop2)
-                
-                for pass in journey.passengers {
-                    let newSeat = Seat(id: UUID(), trainID: newTrain.id, name: pass.name, carriage: pass.coach, number: pass.seat, image: pass.qrData)
-                    modelContext.insert(newSeat)
-                }
-            }
-            try? modelContext.save()
-        } catch {
-            showError = true
-        }
+#Preview("Email Inbox View") {
+    let config = ModelConfiguration(isStoredInMemoryOnly: true)
+    let container = try! ModelContainer(for: UserProfile.self, configurations: config)
+    let emailAccount = Emails(provider: .apple, email: "francescopara2003@icloud.com", appPassword: "pqmy-ncsd-qzbi-zxte")
+    container.mainContext.insert(UserProfile(name: "Francesco", emails: [emailAccount]))
+
+    return NavigationStack {
+        EmailInboxView(emailID: emailAccount.id)
+            .modelContainer(container)
     }
 }

@@ -3,32 +3,49 @@ import SwiftData
 import StoreKit
 
 let app_font_design: Font.Design = .rounded
+let app_background_color = Color(.secondarySystemBackground)
+
+extension ToolbarContent {
+    @ToolbarContentBuilder
+    func blendedToolbarItemBackground() -> some ToolbarContent {
+        sharedBackgroundVisibility(.hidden)
+    }
+}
 
 enum current_tab: Hashable {
     case past
     case today
-    case add
 }
 
 struct ContentView: View {
     // MARK: - variables
     // enviroment variables
     @Environment(\.requestReview) var requestReview
-    @ObservedObject private var profile = UserProfile.shared
-    
-    // database variables
     @Environment(\.modelContext) private var modelContext
-    @Query private var trains: [Train]
-    @Query private var stops: [Stop]
-    @Query private var favorites: [Favorite]
 
-    // tab variables
-    @State private var selectedTab: current_tab = .today
-    
+    @State private var selectedSection: current_tab = .today
+    @State private var searchText = ""
+    @State private var navigationPath: [Train] = []
+
+    @Query(sort: \Favorite.index) private var favorites: [Favorite]
+    @Query private var profiles: [UserProfile]
+    @Query private var stops: [Stop]
+    @Query private var seats: [Seat]
     // sheet variables
     @State private var profile_sheet = false
     @State private var add_train_sheet = false
     @State private var add_pass_sheet = false
+    @State private var favorite_trains_sheet = false
+    @State private var email_import_sheet = false
+
+    @State private var favorite_preload_states: [UUID: PreloadState] = [:]
+    @State private var prepared_favorite_trains: [UUID: PreparedFavoriteTrain] = [:]
+    @State private var favorite_preload_task: Task<Void, Never>?
+    @State private var favorite_refresh_generation = 0
+
+    @State private var preloaded_email_tickets: [PreloadedEmailTicketItem] = []
+    @State private var prepared_email_trains: [UUID: PreparedEmailTrain] = [:]
+    @State private var email_preload_task: Task<Void, Never>?
     
     // deep link variables
     @State private var ticketTrainID: UUID? = nil
@@ -37,33 +54,54 @@ struct ContentView: View {
     
     // MARK: - main view
     var body: some View {
-        NavigationStack {
-            TabView(selection: $selectedTab) {
-                Tab("Past", systemImage: "tray.full", value: .past) {
-                    PastView(ticketTrainID: $ticketTrainID, ticketSeatID: $ticketSeatID, show_ticket_view: $show_ticket_view)
-                }
-                
-                Tab("Today", systemImage: "calendar.day.timeline.leading", value: .today) {
-                    TodayView(ticketTrainID: $ticketTrainID, ticketSeatID: $ticketSeatID, show_ticket_view: $show_ticket_view)
-                }
-                
-                Tab("Add", systemImage: "plus", value: .add, role: .search) {
-                    Color.clear
+        NavigationStack(path: $navigationPath) {
+            Group {
+                if selectedSection == .today {
+                    TodayView(
+                        ticketTrainID: $ticketTrainID,
+                        ticketSeatID: $ticketSeatID,
+                        show_ticket_view: $show_ticket_view,
+                        searchText: $searchText,
+                        navigationPath: $navigationPath,
+                        isActive: true
+                    )
+                } else {
+                    PastView(
+                        ticketTrainID: $ticketTrainID,
+                        ticketSeatID: $ticketSeatID,
+                        show_ticket_view: $show_ticket_view,
+                        searchText: $searchText,
+                        navigationPath: $navigationPath
+                    )
                 }
             }
-            .onChange(of: selectedTab) { oldValue, newValue in
-                if newValue == .add {
-                    UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                    // Small delay to let the TabView finish its transition
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                        add_train_sheet = true
-                        selectedTab = .today
-                    }
-                }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(app_background_color)
+            .navigationDestination(for: Train.self) { train in
+                let trainStops = stops
+                    .filter { $0.id == train.id }
+                    .sorted(by: { $0.ref_time < $1.ref_time })
+                let trainSeats = seats.filter { $0.trainID == train.id }
+                DetailsView(
+                    train: train,
+                    stops: trainStops,
+                    seats: trainSeats,
+                    show_ticket_initially: $show_ticket_view,
+                    ticketSeatID: $ticketSeatID
+                )
             }
             .toolbar {
-                // Pass
-                ToolbarItem {
+                ToolbarItem(placement: .topBarLeading) {
+                    sectionMenu
+                }
+                .blendedToolbarItemBackground()
+
+                ToolbarItem(placement: .topBarTrailing) {
+                    ProfileToolbarButton(profileSheet: $profile_sheet)
+                }
+                .blendedToolbarItemBackground()
+
+                ToolbarItem(placement: .bottomBar) {
                     Button {
                         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
                         add_pass_sheet = true
@@ -71,34 +109,61 @@ struct ContentView: View {
                         Image(systemName: "ticket")
                     }
                 }
-                
-                // Profile
-                ToolbarItem {
-                    Button {
-                        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                        profile_sheet = true
-                    } label: {
-                        HStack(spacing: 8) {
-                            if let data = profile.imageData, let uiImage = UIImage(data: data) {
-                                Image(uiImage: uiImage)
-                                    .resizable()
-                                    .scaledToFill()
-                                    .frame(width: 32, height: 32)
-                                    .clipShape(Circle())
-                            } else {
-                                Image(systemName: "person.crop.circle")
-                                    .resizable()
-                                    .scaledToFit()
-                                    .frame(width: 30, height: 30)
-                            }
+
+                ToolbarSpacer(.fixed, placement: .bottomBar)
+
+                DefaultToolbarItem(kind: .search, placement: .bottomBar)
+
+                ToolbarSpacer(.flexible, placement: .bottomBar)
+
+                ToolbarItem(placement: .bottomBar) {
+                    Menu {
+                        Button {
+                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                            add_train_sheet = true
+                        } label: {
+                            Label("Manual entry", systemImage: "keyboard")
                         }
+
+                        Button {
+                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                            email_import_sheet = true
+                        } label: {
+                            Label("From email", systemImage: "envelope")
+                        }
+
+                        Button {
+                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                            favorite_trains_sheet = true
+                        } label: {
+                            Label("Favorites", systemImage: "heart.fill")
+                        }
+                    } label: {
+                        Image(systemName: "plus")
+                            .imageScale(.large)
                     }
-                    .buttonStyle(.plain)
                 }
             }
+            .searchable(text: $searchText, prompt: "Search trains")
+        }
+        .background(app_background_color.ignoresSafeArea())
+        .onChange(of: selectedSection) { _, _ in
+            navigationPath = []
         }
         .onAppear {
             ReviewManager.shared.requestReviewIfAppropriate(action: requestReview)
+            reload_preloaded_favorites()
+            reload_preloaded_email_tickets()
+        }
+        .onChange(of: favorites.map(\.id)) { _, _ in
+            reload_preloaded_favorites()
+        }
+        .onChange(of: profiles.first?.emails.map(\.id)) { _, _ in
+            reload_preloaded_email_tickets()
+        }
+        .onDisappear {
+            favorite_preload_task?.cancel()
+            email_preload_task?.cancel()
         }
         .sheet(isPresented: $profile_sheet) {
             ProfileView()
@@ -108,6 +173,20 @@ struct ContentView: View {
         }
         .sheet(isPresented: $add_pass_sheet) {
             AddPassView()
+        }
+        .sheet(isPresented: $favorite_trains_sheet) {
+            FavoriteTrainsView(
+                preloadStates: $favorite_preload_states,
+                preparedTrains: $prepared_favorite_trains,
+                onTrainAdded: { selectedSection = .today }
+            )
+        }
+        .sheet(isPresented: $email_import_sheet) {
+            EmailTrainImportView(
+                preloadedTickets: $preloaded_email_tickets,
+                preparedTrains: prepared_email_trains,
+                onTrainAdded: { selectedSection = .today }
+            )
         }
         .onOpenURL { url in
             if url.scheme == "railapp" && url.host == "view-pass" {
@@ -130,7 +209,155 @@ struct ContentView: View {
                         }
                         
                         self.show_ticket_view = url.host == "view-ticket"
-                        self.selectedTab = .today
+                        self.selectedSection = .today
+                    }
+                }
+            }
+        }
+    }
+
+    private var sectionTitle: String {
+        selectedSection == .today ? "Today" : "Past"
+    }
+
+    private var sectionMenu: some View {
+        Menu {
+            Button {
+                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                selectedSection = .today
+            } label: {
+                Label {
+                    Text("Today")
+                } icon: {
+                    if selectedSection == .today {
+                        Image(systemName: "checkmark")
+                    } else {
+                        Image(systemName: "calendar.day.timeline.leading")
+                    }
+                }
+            }
+
+            Button {
+                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                selectedSection = .past
+            } label: {
+                Label {
+                    Text("Past")
+                } icon: {
+                    if selectedSection == .past {
+                        Image(systemName: "checkmark")
+                    } else {
+                        Image(systemName: "clock.arrow.circlepath")
+                    }
+                }
+            }
+        } label: {
+            HStack(alignment: .center, spacing: 6) {
+                Text(sectionTitle)
+                    .font(.largeTitle).fontWeight(.bold).fontDesign(app_font_design)
+
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.secondary)
+            }
+            .fixedSize()
+        }
+        .menuStyle(.borderlessButton)
+        .buttonStyle(.plain)
+        .padding(.leading, -8)
+    }
+
+    private func reload_preloaded_favorites() {
+        favorite_preload_task?.cancel()
+        favorite_preload_task = Task {
+            await refresh_preloaded_favorites()
+        }
+    }
+
+    private func refresh_preloaded_favorites() async {
+        favorite_refresh_generation &+= 1
+        let generation = favorite_refresh_generation
+
+        let currentFavorites = favorites
+        await MainActor.run {
+            favorite_preload_states = Dictionary(uniqueKeysWithValues: currentFavorites.map { ($0.id, PreloadState.loading) })
+            prepared_favorite_trains = [:]
+        }
+
+        await withTaskGroup(of: (UUID, PreparedFavoriteTrain?).self) { group in
+            for favorite in currentFavorites {
+                let favoriteID = favorite.id
+                group.addTask {
+                    let prepared = await FavoriteTrainService.loadTodayTrain(for: favorite)
+                    return (favoriteID, prepared)
+                }
+            }
+
+            for await (favoriteID, prepared) in group {
+                await MainActor.run {
+                    guard generation == favorite_refresh_generation else { return }
+
+                    var states = favorite_preload_states
+                    var trains = prepared_favorite_trains
+
+                    if let prepared {
+                        trains[favoriteID] = prepared
+                        states[favoriteID] = .ready
+                    } else {
+                        trains.removeValue(forKey: favoriteID)
+                        states[favoriteID] = .unavailable
+                    }
+
+                    favorite_preload_states = states
+                    prepared_favorite_trains = trains
+                }
+            }
+        }
+    }
+
+    private func reload_preloaded_email_tickets() {
+        email_preload_task?.cancel()
+
+        guard let profile = profiles.first else {
+            preloaded_email_tickets = []
+            prepared_email_trains = [:]
+            return
+        }
+
+        email_preload_task = Task {
+            await EmailTicketSyncService.syncAllAccounts(profile: profile, modelContext: modelContext)
+
+            let importable = await MainActor.run {
+                EmailTicketSyncService.importableTickets(from: profile)
+            }
+
+            await MainActor.run {
+                guard !Task.isCancelled else { return }
+                preloaded_email_tickets = importable.map { account, ticket in
+                    PreloadedEmailTicketItem(
+                        id: ticket.id,
+                        ticket: ticket,
+                        accountEmail: account.email,
+                        state: .loading
+                    )
+                }
+                prepared_email_trains = [:]
+            }
+
+            for item in importable {
+                guard !Task.isCancelled else { return }
+                let ticket = item.ticket
+                let prepared = await EmailTrainService.loadTrain(for: ticket)
+
+                await MainActor.run {
+                    guard !Task.isCancelled else { return }
+                    guard let index = preloaded_email_tickets.firstIndex(where: { $0.id == ticket.id }) else { return }
+
+                    if let prepared {
+                        prepared_email_trains[ticket.id] = prepared
+                        preloaded_email_tickets[index].state = .ready
+                    } else {
+                        preloaded_email_tickets[index].state = .unavailable
                     }
                 }
             }
@@ -138,10 +365,45 @@ struct ContentView: View {
     }
 }
 
+private struct ProfileToolbarButton: View {
+    @Query private var profiles: [UserProfile]
+    @Binding var profileSheet: Bool
+    @State private var profileImage: UIImage?
+
+    var body: some View {
+        Button {
+            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+            profileSheet = true
+        } label: {
+            Group {
+                if let profileImage {
+                    Image(uiImage: profileImage)
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: 38, height: 38)
+                        .clipShape(Circle())
+                } else {
+                    Image(systemName: "person.crop.circle")
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 38, height: 38)
+                }
+            }
+        }
+        .buttonStyle(.plain)
+        .onAppear { refreshImage() }
+        .onChange(of: profiles.first?.photo) { _, _ in refreshImage() }
+    }
+
+    private func refreshImage() {
+        profileImage = profiles.first?.photo.flatMap { UIImage(data: $0) }
+    }
+}
+
 // MARK: - previews
 #Preview {
     // MARK: - SwiftData Setup
-    let schema = Schema([Train.self, Stop.self, Seat.self, Favorite.self, Pass.self])
+    let schema = Schema([Train.self, Stop.self, Seat.self, Favorite.self, Pass.self, UserProfile.self])
     let config = ModelConfiguration(isStoredInMemoryOnly: true)
     let container = try! ModelContainer(for: schema, configurations: config)
     let context = container.mainContext

@@ -10,6 +10,7 @@ struct PassView: View {
     
     // data variables
     let pass: Pass
+    @State private var qrImage: UIImage?
     
     // MARK: - main content
     var body: some View {
@@ -18,8 +19,8 @@ struct PassView: View {
             
             VStack(spacing: 16) {
                 // code
-                if let imageData = pass.image, let uiImage = UIImage(data: imageData) {
-                    Image(uiImage: uiImage)
+                if let qrImage {
+                    Image(uiImage: qrImage)
                         .resizable()
                         .interpolation(.none)
                         .scaledToFit()
@@ -27,6 +28,10 @@ struct PassView: View {
                         .background(Color.white)
                         .cornerRadius(24)
                         
+                } else if pass.image != nil {
+                    ProgressView()
+                        .frame(maxWidth: .infinity)
+                        .padding()
                 } else {
                     ContentUnavailableView("No Code", systemImage: "qrcode.viewfinder")
                         .frame(maxWidth: .infinity)
@@ -57,7 +62,18 @@ struct PassView: View {
             
             Spacer(minLength: 0)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(app_background_color)
         .presentationDetents([.medium, .large])
+        .task(id: pass.id) {
+            guard let data = pass.image else {
+                qrImage = nil
+                return
+            }
+            qrImage = await Task.detached(priority: .userInitiated) {
+                UIImage(data: data)
+            }.value
+        }
     }
 }
 

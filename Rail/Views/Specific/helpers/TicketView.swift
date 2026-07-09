@@ -65,6 +65,8 @@ struct TicketView: View {
             
             Spacer(minLength: 0)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(app_background_color)
         .presentationDetents([.medium, .large])
         .onAppear {
             ReviewManager.shared.requestReviewIfAppropriate(action: request_review)

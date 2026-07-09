@@ -9,7 +9,8 @@ struct RailApp: App {
             Stop.self,
             Seat.self,
             Favorite.self,
-            Pass.self
+            Pass.self,
+            UserProfile.self
         ])
         
         let groupIdentifier = "group.com.francescoparadis.Rail"
@@ -23,7 +24,8 @@ struct RailApp: App {
                 groupIdentifier,
                 schema: schema,
                 url: databaseURL,
-                allowsSave: true
+                allowsSave: true,
+                cloudKitDatabase: .automatic
             )
         } else {
             modelConfiguration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
