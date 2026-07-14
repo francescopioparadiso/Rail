@@ -10,28 +10,38 @@
 ## 📱 Screenshots
 
 <p float="center">
-  <img src="Thumbnails/screen0.png" width="812" />
-  <img src="Thumbnails/screen1.png" width="268" />
-  <img src="Thumbnails/screen2.png" width="268" />
-  <img src="Thumbnails/screen3.png" width="268" />
-  <img src="Thumbnails/screen4.png" width="268" />
-  <img src="Thumbnails/screen5.png" width="268" />
-  <img src="Thumbnails/screen6.png" width="268" />
-  <img src="Thumbnails/screen7.png" width="268" />
-  <img src="Thumbnails/screen8.png" width="268" />
+  <img src="Thumbnails/1.png" width="268" />
+  <img src="Thumbnails/2.png" width="268" />
+  <img src="Thumbnails/3.png" width="268" />
+  <img src="Thumbnails/4.png" width="268" />
+  <img src="Thumbnails/5.png" width="268" />
+  <img src="Thumbnails/6.png" width="268" />
+  <img src="Thumbnails/7.png" width="268" />
+  <img src="Thumbnails/8.png" width="268" />
+  <img src="Thumbnails/9.png" width="268" />
 </p>
 
-## ✨ Nuove Funzionalità & Aggiornamenti
+## ✨ Ultimo aggiornamento
+
+Rail si evolve. Di nuovo.
+
+Un aggiornamento pensato per rendere ogni viaggio più semplice da seguire, dall'aggiunta del treno al widget sulla Home Screen.
+
+* **Nuovo design** — interfaccia più pulita e veloce, con navigazione più chiara e widget aggiornati
+* **Nuovi loghi Trenitalia** — icone dei treni rinnovate in app e widget, più nitide e coerenti
+* **Biglietti da email** — collega la tua casella e importa i check-in Trenitalia in pochi tap
+* **Cerca per stazioni** — trova treni e coincidenze partendo da partenza e arrivo, senza conoscere il numero
+
+## ✨ Funzionalità
 
 * **Gestione Abbonamenti (Pass):** Sistema integrato per digitalizzare abbonamenti settimanali, mensili o annuali.
 * **Scanner Intelligente:** Sfrutta il framework Vision per estrarre i QR code direttamente dalle immagini della galleria e monitorare i giorni rimanenti alla scadenza.
-* **Widget "Liquid Glass":** Nuovi widget per la Home Screen con design in vetro smerigliato per mostrare lo stato dell'abbonamento o del prossimo viaggio a colpo d'occhio.
-* **Treni Preferiti:** Salvataggio delle tratte frequenti per aggiungere i viaggi alla propria routine con un solo tocco, senza inserire manualmente il numero del treno.
+* **Widget "Liquid Glass":** Widget per la Home Screen con design in vetro smerigliato per mostrare lo stato dell'abbonamento, i biglietti imminenti o il prossimo viaggio a colpo d'occhio.
+* **Treni Preferiti:** Salvataggio delle tratte frequenti per aggiungere i viaggi alla propria routine con un solo tocco.
 * **Monitoraggio Live:** Tracking in tempo reale di orari, ritardi, binari e cancellazioni con calcolo dinamico dei tempi effettivi.
 * **Gestione Gruppi ("I tuoi Posti"):** Organizzazione e visualizzazione delle carrozze e dei posti a sedere per tutti i compagni di viaggio.
 * **Contesto Meteorologico:** Integrazione con servizi meteo per visualizzare le condizioni atmosferiche previste ad ogni singola fermata del tragitto.
 * **Integrazione con Calendario:** Sincronizzazione automatica dei viaggi con il calendario iOS per visualizzare gli impegni di viaggio insieme agli altri eventi personali.
-* **Nuovi Widget:** Widget dinamici per la Home Screen che mostrano informazioni sullo stato dell'abbonamento, i tuoi biglietti imminenti e il tuo treno preferito, con un design elegante e moderno.
 
 ## 🛠 Tech Stack & Architettura
 
