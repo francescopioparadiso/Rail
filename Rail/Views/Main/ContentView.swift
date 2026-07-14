@@ -35,6 +35,7 @@ struct ContentView: View {
     @State private var profile_sheet = false
     @State private var add_train_sheet = false
     @State private var add_pass_sheet = false
+    @State private var openPrincipalPassQR = false
     @State private var favorite_trains_sheet = false
     @State private var email_import_sheet = false
 
@@ -52,25 +53,28 @@ struct ContentView: View {
     // MARK: - Body
     var body: some View {
         NavigationStack(path: $navigationPath) {
-            Group {
-                if selectedSection == .today {
-                    TodayView(
-                        ticketTrainID: $ticketTrainID,
-                        ticketSeatID: $ticketSeatID,
-                        show_ticket_view: $show_ticket_view,
-                        searchText: $searchText,
-                        navigationPath: $navigationPath,
-                        isActive: true
-                    )
-                } else {
-                    PastView(
-                        ticketTrainID: $ticketTrainID,
-                        ticketSeatID: $ticketSeatID,
-                        show_ticket_view: $show_ticket_view,
-                        searchText: $searchText,
-                        navigationPath: $navigationPath
-                    )
-                }
+            ZStack {
+                PastView(
+                    ticketTrainID: $ticketTrainID,
+                    ticketSeatID: $ticketSeatID,
+                    show_ticket_view: $show_ticket_view,
+                    searchText: $searchText,
+                    navigationPath: $navigationPath,
+                    isActive: selectedSection == .past
+                )
+                .opacity(selectedSection == .past ? 1 : 0)
+                .allowsHitTesting(selectedSection == .past)
+
+                TodayView(
+                    ticketTrainID: $ticketTrainID,
+                    ticketSeatID: $ticketSeatID,
+                    show_ticket_view: $show_ticket_view,
+                    searchText: $searchText,
+                    navigationPath: $navigationPath,
+                    isActive: selectedSection == .today
+                )
+                .opacity(selectedSection == .today ? 1 : 0)
+                .allowsHitTesting(selectedSection == .today)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(app_background_color)
@@ -165,7 +169,12 @@ struct ContentView: View {
             AddTrainView(focus_initially: true)
         }
         .sheet(isPresented: $add_pass_sheet) {
-            PassView()
+            PassView(openPrincipalPassQR: openPrincipalPassQR)
+        }
+        .onChange(of: add_pass_sheet) { _, isPresented in
+            if !isPresented {
+                openPrincipalPassQR = false
+            }
         }
         .sheet(isPresented: $favorite_trains_sheet) {
             FavoriteTrainsView(
@@ -181,6 +190,7 @@ struct ContentView: View {
         }
         .onOpenURL { url in
             if url.scheme == "railapp" && url.host == "view-pass" {
+                openPrincipalPassQR = true
                 if !add_pass_sheet {
                     add_pass_sheet = true
                 }
@@ -245,14 +255,19 @@ struct ContentView: View {
             }
         } label: {
             HStack(alignment: .center, spacing: 6) {
-                Text(sectionTitle)
-                    .font(.largeTitle).fontWeight(.bold).fontDesign(app_font_design)
+                ZStack(alignment: .leading) {
+                    Text("Today").opacity(0)
+                    Text(sectionTitle)
+                }
+                .font(.largeTitle).fontWeight(.bold).fontDesign(app_font_design)
+                .fixedSize(horizontal: true, vertical: false)
 
                 Image(systemName: "chevron.up.chevron.down")
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(.secondary)
+                    .frame(width: 16, height: 16)
             }
-            .fixedSize()
+            .animation(nil, value: selectedSection)
         }
         .menuStyle(.borderlessButton)
         .buttonStyle(.plain)

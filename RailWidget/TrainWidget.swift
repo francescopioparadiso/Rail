@@ -1,6 +1,7 @@
 import WidgetKit
 import SwiftUI
 import SwiftData
+import os
 
 // MARK: - Train Widget Data Struct
 struct TrainWidgetData {
@@ -36,18 +37,12 @@ struct TrainEntry: TimelineEntry {
 struct TrainProvider: TimelineProvider {
     typealias Entry = TrainEntry
 
+    private static let logger = Logger(subsystem: "com.francescoparadis.Rail", category: "TrainWidget")
+
     @MainActor
     func fetchActiveTrain() -> TrainWidgetData? {
         do {
-            let groupIdentifier = "group.com.francescoparadis.Rail"
-            guard let groupURL = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: groupIdentifier) else {
-                return nil
-            }
-            let databaseURL = groupURL.appendingPathComponent("default.store")
-            
-            let schema = Schema([Train.self, Stop.self, Seat.self, Favorite.self, Pass.self])
-            let config = ModelConfiguration(groupIdentifier, schema: schema, url: databaseURL, allowsSave: false)
-            let container = try ModelContainer(for: schema, configurations: config)
+            let container = try SharedSwiftData.makeReadOnlyContainer()
             let context = container.mainContext
             
             let now = Date()
@@ -105,7 +100,7 @@ struct TrainProvider: TimelineProvider {
                 )
             }
         } catch {
-            print("Errore SwiftData Train Widget: \(error)")
+            Self.logger.error("Failed to load train widget data: \(error.localizedDescription, privacy: .public)")
         }
         return nil
     }
@@ -175,6 +170,8 @@ struct TrainWidgetEntryView: View {
                         
                         Spacer()
                     }
+                    .padding(.horizontal, 4)
+                    .padding(.top, 2)
                     
                     Spacer()
                     
@@ -374,7 +371,7 @@ struct TrainWidget: Widget {
         date: .now,
         data: TrainWidgetData(
             trainID: UUID(),
-            logo: "FR",
+            logo: "R",
             number: "9612",
             issue: "",
             delay: 5,

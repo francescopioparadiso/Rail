@@ -156,7 +156,7 @@ enum EmailTrainService {
             }
         }
 
-        WidgetCenter.shared.reloadAllTimelines()
+        reload_widget_timelines()
     }
 
     private static func matchesDepartureDay(info: [String: Any], departureDay: Date, fromStation: String) -> Bool {

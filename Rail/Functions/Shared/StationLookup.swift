@@ -2,7 +2,15 @@ import Foundation
 import CoreLocation
 
 enum StationLookup {
-    private nonisolated(unsafe) static let coordinatesByName: [String: (lat: Double, lon: Double)] = buildIndex()
+    private nonisolated static let coordinatesByName: [String: (lat: Double, lon: Double)] = buildIndex()
+
+    /// Builds the CSV index on a background thread so the first
+    /// `distance_between_stations` call doesn't block the main thread.
+    nonisolated static func warmUp() {
+        Task.detached(priority: .utility) {
+            _ = coordinatesByName.count
+        }
+    }
 
     private static func buildIndex() -> [String: (lat: Double, lon: Double)] {
         guard let filePath = Bundle.main.path(forResource: "stations", ofType: "csv"),

@@ -8,6 +8,64 @@ struct PreparedFavoriteTrain {
     let toStation: String
 }
 
+struct PreparedSolutionSegment {
+    let info: [String: Any]
+    let fromStation: String
+    let toStation: String
+    let dayOffset: Int
+}
+
+enum SolutionSegmentResolver {
+    static func resolve(_ segment: SolutionSegment) async -> PreparedSolutionSegment? {
+        let identifiers = await TrenitaliaAPI().train_list(number: segment.number, code: segment.stationCode)
+
+        let segmentDay = Calendar.current.startOfDay(for: segment.departureTime)
+        var targetIdentifier = identifiers.first
+        var dayOffset = 0
+
+        if let exactId = identifiers.first(where: { id in
+            guard let tsString = id.split(separator: "/").last, let ms = Double(tsString) else { return false }
+            return Calendar.current.isDate(Date(timeIntervalSince1970: ms / 1000), inSameDayAs: segmentDay)
+        }) {
+            targetIdentifier = exactId
+        } else if let firstId = identifiers.first {
+            if let tsString = firstId.split(separator: "/").last, let ms = Double(tsString) {
+                let firstIdDay = Calendar.current.startOfDay(for: Date(timeIntervalSince1970: ms / 1000))
+                dayOffset = Calendar.current.dateComponents([.day], from: firstIdDay, to: segmentDay).day ?? 0
+            }
+        }
+
+        guard let identifier = targetIdentifier,
+              let info = await TrenitaliaAPI().info(identifier: identifier, should_fetch_weather: false) else { return nil }
+
+        return PreparedSolutionSegment(
+            info: info,
+            fromStation: segment.origin,
+            toStation: segment.destination,
+            dayOffset: dayOffset
+        )
+    }
+
+    static func resolveAll(_ segments: [SolutionSegment]) async -> [PreparedSolutionSegment] {
+        await withTaskGroup(of: (Int, PreparedSolutionSegment?).self) { group in
+            for (index, segment) in segments.enumerated() {
+                group.addTask {
+                    let prepared = await resolve(segment)
+                    return (index, prepared)
+                }
+            }
+
+            var results: [(Int, PreparedSolutionSegment)] = []
+            for await (index, prepared) in group {
+                if let prepared {
+                    results.append((index, prepared))
+                }
+            }
+            return results.sorted(by: { $0.0 < $1.0 }).map(\.1)
+        }
+    }
+}
+
 enum FavoriteTrainService {
     static func loadTodayTrain(for favorite: Favorite) async -> PreparedFavoriteTrain? {
         let fromStation = favorite.stop_names.first ?? ""
@@ -112,7 +170,7 @@ enum FavoriteTrainService {
             }
         }
 
-        WidgetCenter.shared.reloadAllTimelines()
+        reload_widget_timelines()
     }
 
     private static func adjustedIdentifierForToday(_ identifier: String) -> String {
@@ -251,21 +309,13 @@ enum FavoriteTrainService {
         fromStation: String,
         toStation: String
     ) async -> PreparedFavoriteTrain? {
-        let identifiers = await TrenitaliaAPI().train_list(number: segment.number, code: segment.stationCode)
-        let segmentDay = Calendar.current.startOfDay(for: segment.departureTime)
+        guard let prepared = await SolutionSegmentResolver.resolve(segment),
+              trainContainsSegment(info: prepared.info, from: fromStation, to: toStation) else { return nil }
 
-        var targetIdentifier = identifiers.first
-        if let exactId = identifiers.first(where: { id in
-            guard let tsString = id.split(separator: "/").last, let ms = Double(tsString) else { return false }
-            return Calendar.current.isDate(Date(timeIntervalSince1970: ms / 1000), inSameDayAs: segmentDay)
-        }) {
-            targetIdentifier = exactId
-        }
-
-        guard let identifier = targetIdentifier,
-              let info = await TrenitaliaAPI().info(identifier: identifier, should_fetch_weather: false),
-              trainContainsSegment(info: info, from: fromStation, to: toStation) else { return nil }
-
-        return PreparedFavoriteTrain(info: info, fromStation: fromStation, toStation: toStation)
+        return PreparedFavoriteTrain(
+            info: prepared.info,
+            fromStation: fromStation,
+            toStation: toStation
+        )
     }
 }

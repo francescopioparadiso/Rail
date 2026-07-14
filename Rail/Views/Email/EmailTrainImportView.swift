@@ -65,15 +65,6 @@ struct EmailTrainImportView: View {
                         }
                         .buttonStyle(.glass)
                         .disabled(isWorking)
-
-                        #if DEBUG
-                        Button {
-                            loadSampleTicket()
-                        } label: {
-                            Label("Load sample ticket", systemImage: "ticket")
-                        }
-                        .buttonStyle(.glass)
-                        #endif
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .refreshable {
@@ -275,23 +266,6 @@ struct EmailTrainImportView: View {
     }
 
     @MainActor
-    private func loadSampleTicket() {
-        guard let profile = profiles.first,
-              !profile.emails.isEmpty else { return }
-
-        var updatedEmails = profile.emails
-        var account = updatedEmails[0]
-        account.content.append(EmailSampleTicketFactory.make())
-        updatedEmails[0] = account
-        profile.emails = updatedEmails
-        try? modelContext.save()
-
-        Task {
-            await reloadTicketsFromProfile()
-        }
-    }
-
-    @MainActor
     private func reloadTicketsFromProfile() async {
         guard let profile = profiles.first else { return }
 
@@ -411,13 +385,7 @@ struct EmailTrainImportView: View {
         for ticket: EmailContent,
         prepared: PreparedEmailTrain
     ) -> [EmailContentPassenger] {
-        let passengers = ticket.passengers.isEmpty ? prepared.passengers : ticket.passengers
-        #if DEBUG
-        if ticket.imapUID.hasPrefix("sample-") {
-            return EmailSampleTicketFactory.passengersWithSampleQRIfNeeded(passengers)
-        }
-        #endif
-        return passengers
+        ticket.passengers.isEmpty ? prepared.passengers : ticket.passengers
     }
 
     private func isAlreadyAdded(_ ticketID: UUID) -> Bool {

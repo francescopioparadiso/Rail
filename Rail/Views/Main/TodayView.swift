@@ -30,6 +30,9 @@ struct TodayView: View {
     @State private var rowItems: [TrainRowItem] = []
     @State private var listNow = Date()
     @State private var stopsByTrain: [UUID: [Stop]] = [:]
+    @State private var refreshTask: Task<Void, Never>?
+
+    private static let minUpdateInterval: TimeInterval = 25
 
     private var filteredRowItems: [TrainRowItem] {
         rowItems.filter { TrainListBuilder.matches($0, searchText: searchText) }
@@ -56,21 +59,20 @@ struct TodayView: View {
                     .fontDesign(app_font_design)
                 }
             } else {
-                TimelineView(.periodic(from: .now, by: 60)) { context in
-                    List {
-                        ForEach(filteredRowItems) { item in
-                            todayRow(item: item, now: context.date)
-                                .listRowInsets(EdgeInsets())
-                                .listRowSeparator(.hidden)
-                                .listRowBackground(Color.clear)
-                        }
-                        .onDelete(perform: delete_today_trains)
+                List {
+                    ForEach(filteredRowItems) { item in
+                        TodayTrainRow(item: item, now: listNow, manualRefreshCounter: manualRefreshCounter)
+                            .equatable()
+                            .listRowInsets(EdgeInsets())
+                            .listRowSeparator(.hidden)
+                            .listRowBackground(Color.clear)
                     }
-                    .scrollIndicators(.hidden)
-                    .scrollContentBackground(.hidden)
-                    .listStyle(.plain)
-                    .padding(.horizontal)
+                    .onDelete(perform: delete_today_trains)
                 }
+                .scrollIndicators(.hidden)
+                .scrollContentBackground(.hidden)
+                .listStyle(.plain)
+                .padding(.horizontal)
                 .refreshable {
                     refreshRowItems()
                     await update_today_trains(isManual: true)
@@ -89,11 +91,12 @@ struct TodayView: View {
         .background(app_background_color)
         .onAppear {
             ReviewManager.shared.requestReviewIfAppropriate(action: requestReview)
-            refreshRowItems()
+            if rowItems.isEmpty {
+                refreshRowItems()
+            }
         }
-        .onChange(of: trains.count) { _, _ in refreshRowItems() }
-        .onChange(of: stops.count) { _, _ in refreshRowItems() }
-        .onChange(of: navigationPath.count) { _, _ in refreshRowItems() }
+        .onChange(of: trains.count) { _, _ in scheduleRefreshRowItems() }
+        .onChange(of: stops.count) { _, _ in scheduleRefreshRowItems() }
         .task(id: isActive) {
             guard isActive else { return }
             refreshRowItems()
@@ -105,35 +108,22 @@ struct TodayView: View {
                 await update_today_trains()
             }
         }
+        .task(id: isActive) {
+            guard isActive else { return }
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 60_000_000_000)
+                if Task.isCancelled { break }
+                listNow = Date()
+            }
+        }
     }
 
-    @ViewBuilder
-    private func todayRow(item: TrainRowItem, now: Date) -> some View {
-        VStack(spacing: 0) {
-            ZStack {
-                ListView(train: item.train, stops: item.trainStops, summary: item.summary, now: now)
-                    .padding(.top, item.topPadding)
-                    .padding(.bottom, item.bottomPadding)
-
-                NavigationLink(value: item.train) {
-                    EmptyView()
-                }
-                .buttonStyle(.plain)
-                .opacity(0)
-            }
-
-            if let connection = item.connection {
-                ConnectionIntervalView(
-                    durationString: connection.durationString,
-                    totalMinutes: connection.totalMinutes,
-                    connectionStatus: connection.connectionStatus,
-                    station: connection.station,
-                    weather: connection.weather,
-                    index: connection.index,
-                    total: connection.total,
-                    manualRefreshCounter: manualRefreshCounter
-                )
-            }
+    private func scheduleRefreshRowItems() {
+        refreshTask?.cancel()
+        refreshTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 50_000_000)
+            guard !Task.isCancelled else { return }
+            refreshRowItems()
         }
     }
 
@@ -158,55 +148,56 @@ struct TodayView: View {
         refreshRowItems()
     }
 
+    @MainActor
     private func update_today_trains(isManual: Bool = false) async {
         guard !isUpdating else { return }
         isUpdating = true
         defer { isUpdating = false }
 
         let trainsToUpdate = rowItems.map(\.train)
+        let currentStopsByTrain = stopsByTrain
+        let calendarSettings = profiles.first?.calendarSettings
+        let allSeats = seats
+
         var didChange = false
         await withTaskGroup(of: Bool.self) { group in
             for train in trainsToUpdate {
-                // condition to update
-                /// get the first stop ref time
-                let firstStop_refTime = stops
-                    .filter({ $0.id == train.id })
-                    .sorted(by: { $0.ref_time < $1.ref_time })
-                    .first?.ref_time ?? .distantPast
-                /// check if the first stop ref time is today
+                let trainStops = currentStopsByTrain[train.id] ?? []
+                let firstStop_refTime = trainStops.min(by: { $0.ref_time < $1.ref_time })?.ref_time ?? .distantPast
                 guard Calendar.current.isDateInToday(firstStop_refTime) else { continue }
-                
+
+                if !isManual, Date().timeIntervalSince(train.last_update_time) < Self.minUpdateInterval {
+                    continue
+                }
+
                 group.addTask {
-                    let results: [String:Any] = await {
+                    let results: [String: Any] = await {
                         switch train.provider {
-                            case "trenitalia":
-                                return await TrenitaliaAPI().info(identifier: train.identifier, should_fetch_weather: false) ?? [:]
-                            case "italo":
-                                return await ItaloAPI().info(identifier: train.identifier, should_fetch_weather: false) ?? [:]
-                            default:
-                                return [:]
+                        case "trenitalia":
+                            return await TrenitaliaAPI().info(identifier: train.identifier, should_fetch_weather: false) ?? [:]
+                        case "italo":
+                            return await ItaloAPI().info(identifier: train.identifier, should_fetch_weather: false) ?? [:]
+                        default:
+                            return [:]
                         }
                     }()
-                    
+
                     return await MainActor.run {
                         guard !results.isEmpty else { return false }
 
+                        // only write values that actually changed so unchanged refreshes
+                        // don't dirty the context and re-render observers
                         var trainChanged = false
                         let newDelay = results["delay"] as? Int ?? 0
                         let newDirection = results["direction"] as? String ?? ""
                         let newIssue = results["issue"] as? String ?? ""
 
-                        if train.delay != newDelay || train.direction != newDirection || train.issue != newIssue {
-                            trainChanged = true
-                        }
+                        if train.delay != newDelay { train.delay = newDelay; trainChanged = true }
+                        if train.direction != newDirection { train.direction = newDirection; trainChanged = true }
+                        if train.issue != newIssue { train.issue = newIssue; trainChanged = true }
 
-                        train.last_update_time = results["last_update_time"] as? Date ?? .distantPast
-                        train.delay = newDelay
-                        train.direction = newDirection
-                        train.issue = newIssue
-
-                        let today_stops = stops.filter { $0.id == train.id }
-                        let stops_updated = results["stops"] as? [[String:Any]] ?? []
+                        let today_stops = currentStopsByTrain[train.id] ?? []
+                        let stops_updated = results["stops"] as? [[String: Any]] ?? []
 
                         for stop in today_stops {
                             guard let stop_updated = stops_updated.first(where: { ($0["name"] as? String) == stop.name }) else { continue }
@@ -221,33 +212,24 @@ struct TodayView: View {
                             let newDepEff = stop_updated["dep_time_eff"] as? Date ?? .distantPast
                             let newArrEff = stop_updated["arr_time_eff"] as? Date ?? .distantPast
 
-                            if stop.platform != newPlatform
-                                || (!newWeather.isEmpty && stop.weather != newWeather)
-                                || stop.status != newStatus
-                                || stop.is_completed != newCompleted
-                                || stop.is_in_station != newInStation
-                                || stop.dep_delay != newDepDelay
-                                || stop.arr_delay != newArrDelay
-                                || stop.dep_time_eff != newDepEff
-                                || stop.arr_time_eff != newArrEff {
-                                trainChanged = true
-                            }
-
-                            stop.platform = newPlatform
-                            if !newWeather.isEmpty { stop.weather = newWeather }
-                            stop.status = newStatus
-                            stop.is_completed = newCompleted
-                            stop.is_in_station = newInStation
-                            stop.dep_delay = newDepDelay
-                            stop.arr_delay = newArrDelay
-                            stop.dep_time_eff = newDepEff
-                            stop.arr_time_eff = newArrEff
+                            if stop.platform != newPlatform { stop.platform = newPlatform; trainChanged = true }
+                            if !newWeather.isEmpty && stop.weather != newWeather { stop.weather = newWeather; trainChanged = true }
+                            if stop.status != newStatus { stop.status = newStatus; trainChanged = true }
+                            if stop.is_completed != newCompleted { stop.is_completed = newCompleted; trainChanged = true }
+                            if stop.is_in_station != newInStation { stop.is_in_station = newInStation; trainChanged = true }
+                            if stop.dep_delay != newDepDelay { stop.dep_delay = newDepDelay; trainChanged = true }
+                            if stop.arr_delay != newArrDelay { stop.arr_delay = newArrDelay; trainChanged = true }
+                            if stop.dep_time_eff != newDepEff { stop.dep_time_eff = newDepEff; trainChanged = true }
+                            if stop.arr_time_eff != newArrEff { stop.arr_time_eff = newArrEff; trainChanged = true }
                         }
 
-                        if train.calendarEventIdentifier != nil,
-                           let settings = profiles.first?.calendarSettings {
+                        if trainChanged {
+                            train.last_update_time = results["last_update_time"] as? Date ?? .distantPast
+                        }
+
+                        if train.calendarEventIdentifier != nil, let settings = calendarSettings {
                             Task {
-                                let trainSeats = seats.filter { $0.trainID == train.id }
+                                let trainSeats = allSeats.filter { $0.trainID == train.id }
                                 await CalendarManager.shared.syncTrainEvent(
                                     train: train,
                                     stops: today_stops,
@@ -271,14 +253,12 @@ struct TodayView: View {
 
         if didChange {
             try? modelContext.save()
-            await MainActor.run { refreshRowItems() }
+            refreshRowItems()
         }
 
         if isManual {
-            await MainActor.run {
-                manualRefreshCounter += 1
-                WidgetCenter.shared.reloadAllTimelines()
-            }
+            manualRefreshCounter += 1
+            reload_widget_timelines()
         }
     }
 }

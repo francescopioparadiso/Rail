@@ -10,6 +10,8 @@ struct PassView: View {
     @Environment(\.modelContext) private var modelContext
     @Query private var passes: [Pass]
 
+    var openPrincipalPassQR: Bool = false
+
     @State private var displayedPasses: [Pass] = []
     @State private var searchText = ""
     @State private var pass_filter: PassFilter = .active
@@ -201,7 +203,12 @@ struct PassView: View {
             }
         }
         .background(app_background_color.ignoresSafeArea())
-        .onAppear { refreshDisplayedPasses() }
+        .onAppear {
+            refreshDisplayedPasses()
+            if openPrincipalPassQR, let principal = passes.first(where: \.is_principal) {
+                pass_form_presentation = .edit(principal)
+            }
+        }
         .onChange(of: passes.count) { _, _ in refreshDisplayedPasses() }
         .onChange(of: pass_filter) { _, _ in refreshDisplayedPasses() }
     }

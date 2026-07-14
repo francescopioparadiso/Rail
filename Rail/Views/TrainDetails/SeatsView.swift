@@ -91,9 +91,9 @@ struct SeatsView: View {
                         }
                         .fontDesign(app_font_design)
                     }
+                    .listStyle(.insetGrouped)
                     .listSectionSpacing(32)
                     .scrollIndicators(.hidden)
-                    .scrollContentBackground(.hidden)
                 }
             }
             .navigationTitle("Your Seats")

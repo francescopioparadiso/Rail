@@ -4,39 +4,16 @@ import SwiftData
 @main
 struct RailApp: App {
     var sharedModelContainer: ModelContainer = {
-        let schema = Schema([
-            Train.self,
-            Stop.self,
-            Seat.self,
-            Favorite.self,
-            Pass.self,
-            UserProfile.self
-        ])
-        
-        let groupIdentifier = "group.com.francescoparadis.Rail"
-        
-        let modelConfiguration: ModelConfiguration
-        
-        if let groupURL = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: groupIdentifier) {
-            let databaseURL = groupURL.appendingPathComponent("default.store")
-            
-            modelConfiguration = ModelConfiguration(
-                groupIdentifier,
-                schema: schema,
-                url: databaseURL,
-                allowsSave: true,
-                cloudKitDatabase: .automatic
-            )
-        } else {
-            modelConfiguration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
-        }
-
         do {
-            return try ModelContainer(for: schema, configurations: [modelConfiguration])
+            return try SharedSwiftData.makeAppContainer()
         } catch {
             fatalError("Could not create ModelContainer: \(error)")
         }
     }()
+
+    init() {
+        StationLookup.warmUp()
+    }
 
     var body: some Scene {
         WindowGroup {

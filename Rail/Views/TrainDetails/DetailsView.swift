@@ -29,6 +29,7 @@ struct DetailsView: View {
     
     // state variables
     @State private var seats_sheet: Bool = false
+    @State private var pendingSeatID: UUID?
     @State private var show_all_stops: Bool = false
     @State private var searchText = ""
     @State private var route_distance_km: Int?
@@ -440,9 +441,11 @@ struct DetailsView: View {
             }
             
             // stops list
+            let displayed_stops = filtered_stops
+            let non_cancelled_count = displayed_stops.count(where: { $0.status != 3 })
             VStack(alignment: .leading, spacing: 8) {
                 HStack {
-                    Text("\(filtered_stops.count) stops")
+                    Text("\(displayed_stops.count) stops")
                         .font(.footnote)
                         .fontDesign(app_font_design)
                         .foregroundStyle(.secondary)
@@ -463,15 +466,15 @@ struct DetailsView: View {
                 
                 Divider()
                 
-                if !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && filtered_stops.isEmpty {
+                if !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && displayed_stops.isEmpty {
                     ContentUnavailableView.search(text: searchText)
                         .fontDesign(app_font_design)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 24)
                 } else {
                 LazyVStack {
-                    ForEach(filtered_stops.indices, id: \.self) { index in
-                        let stop = filtered_stops[index]
+                    ForEach(displayed_stops.indices, id: \.self) { index in
+                        let stop = displayed_stops[index]
                         
                         HStack(spacing: 8) {
                             /// stop status
@@ -571,7 +574,7 @@ struct DetailsView: View {
                                                 }
                                             }
                                             
-                                            if index != last_index && index != last_index_no_issues && index != filtered_stops.filter({ $0.status != 3 }).count - 1 {
+                                            if index != last_index && index != last_index_no_issues && index != non_cancelled_count - 1 {
                                                 HStack(spacing: 2) {
                                                     Image(systemName: "arrow.up.right.circle.fill")
                                                     Text(Date() >= first_stop_no_issues.dep_time_id || Calendar.current.isDateInToday(first_stop_no_issues.dep_time_id) ? stop.dep_time_eff.formatted(.dateTime.hour().minute()) : stop.dep_time_id.formatted(.dateTime.hour().minute()))
@@ -822,7 +825,7 @@ struct DetailsView: View {
         }
         .searchable(text: $searchText, prompt: "Search stops")
         .sheet(isPresented: $seats_sheet) {
-            SeatsView(train: train, seats: seats, initialSeatID: ticketSeatID)
+            SeatsView(train: train, seats: seats, initialSeatID: pendingSeatID)
                 .presentationDetents([.large])
         }
         .background(app_background_color)
@@ -830,13 +833,17 @@ struct DetailsView: View {
             ReviewManager.shared.requestReviewIfAppropriate(action: request_review)
 
             if show_ticket_initially {
+                pendingSeatID = ticketSeatID
                 seats_sheet = true
                 show_ticket_initially = false
                 ticketSeatID = nil
             }
         }
         .task(id: train.id) {
-            await refreshDerivedState()
+            refreshDerivedState()
+            guard !Task.isCancelled else { return }
+            await Task.yield()
+            try? await Task.sleep(nanoseconds: 300_000_000)
             guard !Task.isCancelled else { return }
             await update_train_details(fetchWeather: false)
         }
@@ -850,21 +857,20 @@ struct DetailsView: View {
         }
         .onChange(of: show_ticket_initially) { _, newValue in
             if newValue {
+                pendingSeatID = ticketSeatID
                 if !seats_sheet {
                     seats_sheet = true
                 }
                 show_ticket_initially = false
+                ticketSeatID = nil
             }
         }
     }
     
     // MARK: - Functions
     @MainActor
-    private func refreshDerivedState() async {
-        let currentStops = stops
-        stop_summary = await Task.detached(priority: .userInitiated) {
-            await StopSummary.calculate(in: currentStops)
-        }.value
+    private func refreshDerivedState() {
+        stop_summary = StopSummary.calculate(in: stops)
         is_favorite = compute_is_favorite()
         route_distance_km = distance_between_stations(from: summary.first.name, to: summary.last.name)
     }
@@ -912,13 +918,7 @@ struct DetailsView: View {
         is_refreshing = true
         defer { is_refreshing = false }
 
-        let previousDelay = train.delay
-        let previousDirection = train.direction
-        let previousIssue = train.issue
         let today_stops = stops
-        let previousStopStates = today_stops.map { stop in
-            (stop.persistentModelID, stop.platform, stop.weather, stop.status, stop.is_completed, stop.is_in_station, stop.dep_delay, stop.arr_delay, stop.dep_time_eff, stop.arr_time_eff)
-        }
 
         /// fetch new data
         let results: [String:Any] = await {
@@ -932,53 +932,48 @@ struct DetailsView: View {
             }
         }()
         guard !results.isEmpty else { return }
-        
-        /// update train data
-        train.last_update_time = results["last_update_time"] as? Date ?? .distantPast
-        train.delay = results["delay"] as? Int ?? 0
-        train.direction = results["direction"] as? String ?? ""
-        train.issue = results["issue"] as? String ?? ""
-        
+
+        /// update train data, only writing values that actually changed so
+        /// unchanged refreshes don't dirty the context and re-render observers
+        var trainChanged = false
+        let newDelay = results["delay"] as? Int ?? 0
+        let newDirection = results["direction"] as? String ?? ""
+        let newIssue = results["issue"] as? String ?? ""
+        if train.delay != newDelay { train.delay = newDelay; trainChanged = true }
+        if train.direction != newDirection { train.direction = newDirection; trainChanged = true }
+        if train.issue != newIssue { train.issue = newIssue; trainChanged = true }
+
         /// update stops data
+        var stopsChanged = false
+        let stops_updated = results["stops"] as? [[String:Any]] ?? []
         for stop in today_stops {
-            /// get all the stops updated
-            let stops_updated = results["stops"] as? [[String:Any]] ?? []
-            
             /// get the stop updated whose name correspond to the today stops
             guard let stop_updated = stops_updated.first(where: { ($0["name"] as? String) == stop.name }) else { continue }
-            
-            /// update only the necessary fields
-            stop.platform = stop_updated["platform"] as? String ?? ""
-            if let newWeather = stop_updated["weather"] as? String, !newWeather.isEmpty {
-                stop.weather = newWeather
-            }
-            stop.status = stop_updated["status"] as? Int ?? 0
-            stop.is_completed = stop_updated["is_completed"] as? Bool ?? false
-            stop.is_in_station = stop_updated["is_in_station"] as? Bool ?? false
-            stop.dep_delay = stop_updated["dep_delay"] as? Int ?? 0
-            stop.arr_delay = stop_updated["arr_delay"] as? Int ?? 0
-            stop.dep_time_eff = stop_updated["dep_time_eff"] as? Date ?? .distantPast
-            stop.arr_time_eff = stop_updated["arr_time_eff"] as? Date ?? .distantPast
-        }
-        
-        let stopsChanged = today_stops.contains { stop in
-            guard let previous = previousStopStates.first(where: { $0.0 == stop.persistentModelID }) else { return true }
-            return previous.1 != stop.platform
-                || previous.2 != stop.weather
-                || previous.3 != stop.status
-                || previous.4 != stop.is_completed
-                || previous.5 != stop.is_in_station
-                || previous.6 != stop.dep_delay
-                || previous.7 != stop.arr_delay
-                || previous.8 != stop.dep_time_eff
-                || previous.9 != stop.arr_time_eff
-        }
 
-        let trainChanged = previousDelay != train.delay
-            || previousDirection != train.direction
-            || previousIssue != train.issue
+            let newPlatform = stop_updated["platform"] as? String ?? ""
+            let newWeather = stop_updated["weather"] as? String ?? ""
+            let newStatus = stop_updated["status"] as? Int ?? 0
+            let newCompleted = stop_updated["is_completed"] as? Bool ?? false
+            let newInStation = stop_updated["is_in_station"] as? Bool ?? false
+            let newDepDelay = stop_updated["dep_delay"] as? Int ?? 0
+            let newArrDelay = stop_updated["arr_delay"] as? Int ?? 0
+            let newDepEff = stop_updated["dep_time_eff"] as? Date ?? .distantPast
+            let newArrEff = stop_updated["arr_time_eff"] as? Date ?? .distantPast
+
+            if stop.platform != newPlatform { stop.platform = newPlatform; stopsChanged = true }
+            if !newWeather.isEmpty && stop.weather != newWeather { stop.weather = newWeather; stopsChanged = true }
+            if stop.status != newStatus { stop.status = newStatus; stopsChanged = true }
+            if stop.is_completed != newCompleted { stop.is_completed = newCompleted; stopsChanged = true }
+            if stop.is_in_station != newInStation { stop.is_in_station = newInStation; stopsChanged = true }
+            if stop.dep_delay != newDepDelay { stop.dep_delay = newDepDelay; stopsChanged = true }
+            if stop.arr_delay != newArrDelay { stop.arr_delay = newArrDelay; stopsChanged = true }
+            if stop.dep_time_eff != newDepEff { stop.dep_time_eff = newDepEff; stopsChanged = true }
+            if stop.arr_time_eff != newArrEff { stop.arr_time_eff = newArrEff; stopsChanged = true }
+        }
 
         guard trainChanged || stopsChanged else { return }
+
+        train.last_update_time = results["last_update_time"] as? Date ?? .distantPast
 
         stop_summary = StopSummary.calculate(in: stops)
 

@@ -149,6 +149,9 @@ struct AddTrainView: View {
     // stations search results
     @State private var solutions_fetched: [Solution] = []
     @State private var solutionID_selected: UUID? = nil
+    @State private var isSaving = false
+    @State private var prefetchTask: Task<Void, Never>?
+    @State private var prefetchedSegments: [UUID: [PreparedSolutionSegment]] = [:]
     @State private var selected_daytime: Daytime = .morning
     // suppress the picker's auto-scroll when we set the daytime programmatically
     @State private var suppress_daytime_scroll = false
@@ -213,6 +216,8 @@ struct AddTrainView: View {
     }
 
     private var button_is_active: Bool {
+        guard !isSaving else { return false }
+
         switch current_view {
         case .add_train:
             switch search_type {
@@ -238,6 +243,7 @@ struct AddTrainView: View {
     }
 
     private func leading_toolbar_action() {
+        guard !isSaving else { return }
         HapticFeedback.tap()
 
         if current_view == .add_train {
@@ -260,8 +266,11 @@ struct AddTrainView: View {
         arrival_code = ""
         station_suggestions = []
         station_fetch_task?.cancel()
+        prefetchTask?.cancel()
         solutions_fetched = []
         solutionID_selected = nil
+        prefetchedSegments = [:]
+        isSaving = false
         trainID_selected = nil
         date_selected = Date()
         current_view = .add_train
@@ -285,8 +294,11 @@ struct AddTrainView: View {
             /// reset variables
             trains_fetched.removeAll()
             trainID_selected = nil
+            prefetchTask?.cancel()
             solutions_fetched.removeAll()
             solutionID_selected = nil
+            prefetchedSegments = [:]
+            isSaving = false
 
             /// fetching status
             current_fetching = .idle
@@ -339,10 +351,13 @@ struct AddTrainView: View {
             
         case .choose_train:
             if search_type == .stations {
+                guard !isSaving, solutionID_selected != nil else { return }
+
                 /// haptic feedback
                 HapticFeedback.impactHeavy()
 
                 /// stations: a solution is fully specified, save it directly
+                isSaving = true
                 Task {
                     await save_solution()
                     dismiss()
@@ -520,6 +535,25 @@ struct AddTrainView: View {
             guard focused_field == .arrival else { return }
             schedule_station_fetch(query: new_value, field: .arrival)
         }
+        .onChange(of: solutionID_selected) { _, newId in
+            prefetchTask?.cancel()
+            guard let newId,
+                  search_type == .stations,
+                  current_view == .choose_train,
+                  let solution = solutions_fetched.first(where: { $0.id == newId }) else { return }
+
+            prefetchTask = Task {
+                let prepared = await SolutionSegmentResolver.resolveAll(solution.segments)
+                guard !Task.isCancelled else { return }
+                await MainActor.run {
+                    prefetchedSegments[newId] = prepared
+                }
+            }
+        }
+        .onChange(of: solutions_fetched) { _, _ in
+            prefetchTask?.cancel()
+            prefetchedSegments = [:]
+        }
     }
     
     @ViewBuilder
@@ -528,7 +562,12 @@ struct AddTrainView: View {
             Button {
                 next_button_action()
             } label: {
-                Image(systemName: next_button_icon)
+                if isSaving {
+                    ProgressView()
+                        .controlSize(.small)
+                } else {
+                    Image(systemName: next_button_icon)
+                }
             }
             .buttonStyle(.glassProminent)
             .disabled(!button_is_active)
@@ -791,6 +830,7 @@ struct AddTrainView: View {
                             let isSelected = solutionID_selected == solution.id
 
                             Button {
+                                guard !isSaving else { return }
                                 solutionID_selected = isSelected ? nil : solution.id
                             } label: {
                                 VStack(spacing: 12) {
@@ -825,6 +865,7 @@ struct AddTrainView: View {
                                 )
                             }
                             .buttonStyle(.plain)
+                            .disabled(isSaving)
                             .id(solution.id)
                             .onAppear {
                                 withAnimation {
@@ -1163,38 +1204,35 @@ struct AddTrainView: View {
     // saves the selected solution: each leg becomes its own train, so connected
     // journeys render with the connection manager just like in TodayView.
     private func save_solution() async {
-        guard let solution = solutions_fetched.first(where: { $0.id == solutionID_selected }) else { return }
+        guard let solution = solutions_fetched.first(where: { $0.id == solutionID_selected }) else {
+            await MainActor.run { isSaving = false }
+            return
+        }
 
-        for segment in solution.segments {
-            let identifiers = await TrenitaliaAPI().train_list(number: segment.number, code: segment.stationCode)
+        // wait for the prefetch started on selection instead of re-resolving from scratch
+        if let prefetchTask {
+            await prefetchTask.value
+        }
 
-            let segmentDay = Calendar.current.startOfDay(for: segment.departureTime)
-            var targetIdentifier = identifiers.first
-            var dayOffset = 0
-            
-            if let exactId = identifiers.first(where: { id in
-                guard let tsString = id.split(separator: "/").last, let ms = Double(tsString) else { return false }
-                return Calendar.current.isDate(Date(timeIntervalSince1970: ms / 1000), inSameDayAs: segmentDay)
-            }) {
-                targetIdentifier = exactId
-            } else if let firstId = identifiers.first {
-                if let tsString = firstId.split(separator: "/").last, let ms = Double(tsString) {
-                    let firstIdDay = Calendar.current.startOfDay(for: Date(timeIntervalSince1970: ms / 1000))
-                    dayOffset = Calendar.current.dateComponents([.day], from: firstIdDay, to: segmentDay).day ?? 0
-                }
-            }
-
-            guard let identifier = targetIdentifier,
-                  let info = await TrenitaliaAPI().info(identifier: identifier, should_fetch_weather: false) else { continue }
-
-            await MainActor.run {
-                save_segment(info: info, fromStation: segment.origin, toStation: segment.destination, dayOffset: dayOffset)
-            }
+        let preparedSegments: [PreparedSolutionSegment]
+        if let cached = prefetchedSegments[solution.id], cached.count == solution.segments.count {
+            preparedSegments = cached
+        } else {
+            preparedSegments = await SolutionSegmentResolver.resolveAll(solution.segments)
         }
 
         await MainActor.run {
+            for prepared in preparedSegments {
+                save_segment(
+                    info: prepared.info,
+                    fromStation: prepared.fromStation,
+                    toStation: prepared.toStation,
+                    dayOffset: prepared.dayOffset
+                )
+            }
             try? modelContext.save()
-            WidgetCenter.shared.reloadAllTimelines()
+            reload_widget_timelines()
+            isSaving = false
         }
     }
 
@@ -1361,7 +1399,6 @@ struct AddTrainView: View {
             timestamp = Int(adjustedDate.timeIntervalSince1970)
             return components.dropLast().joined(separator: "/") + "/\(timestamp)"
         }()
-        print(identifier_string)
         
         /// save to database
         let train_to_add = Train(
@@ -1446,9 +1483,7 @@ struct AddTrainView: View {
             }
         }
         
-        WidgetCenter.shared.reloadAllTimelines()
-        
-        print("\n ✅ Train and stops saved successfully!")
+        reload_widget_timelines()
     }
 }
 

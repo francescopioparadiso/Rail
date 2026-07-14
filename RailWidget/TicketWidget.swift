@@ -1,11 +1,13 @@
 import WidgetKit
 import SwiftUI
 import SwiftData
+import os
 
 // MARK: - Ticket Entry
 struct TicketEntry: TimelineEntry {
     let date: Date
     let trainID: UUID?
+    let seatID: UUID?
     let trainNumber: String?
     let trainLogo: String?
     let ownerName: String?
@@ -18,18 +20,12 @@ struct TicketEntry: TimelineEntry {
 struct TicketProvider: TimelineProvider {
     typealias Entry = TicketEntry
 
+    private static let logger = Logger(subsystem: "com.francescoparadis.Rail", category: "TicketWidget")
+
     @MainActor
-    func fetchActiveTicket() -> (trainID: UUID?, trainNumber: String?, logo: String?, owner: String?, carriage: String?, seat: String?, qrCode: Data?) {
+    func fetchActiveTicket() -> (trainID: UUID?, seatID: UUID?, trainNumber: String?, logo: String?, owner: String?, carriage: String?, seat: String?, qrCode: Data?) {
         do {
-            let groupIdentifier = "group.com.francescoparadis.Rail"
-            guard let groupURL = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: groupIdentifier) else {
-                return (nil as UUID?, nil, nil, nil, nil, nil, nil as Data?)
-            }
-            let databaseURL = groupURL.appendingPathComponent("default.store")
-            
-            let schema = Schema([Train.self, Stop.self, Seat.self, Favorite.self, Pass.self])
-            let config = ModelConfiguration(groupIdentifier, schema: schema, url: databaseURL, allowsSave: false)
-            let container = try ModelContainer(for: schema, configurations: config)
+            let container = try SharedSwiftData.makeReadOnlyContainer()
             let context = container.mainContext
             
             let now = Date()
@@ -72,6 +68,7 @@ struct TicketProvider: TimelineProvider {
                 
                 return (
                     trainID,
+                    firstSeat?.id,
                     train.number,
                     train.logo,
                     firstSeat?.name,
@@ -81,15 +78,16 @@ struct TicketProvider: TimelineProvider {
                 )
             }
         } catch {
-            print("Errore SwiftData Ticket Widget: \(error)")
+            Self.logger.error("Failed to load ticket widget data: \(error.localizedDescription, privacy: .public)")
         }
-        return (nil, nil, nil, nil, nil, nil, nil)
+        return (nil, nil, nil, nil, nil, nil, nil, nil)
     }
 
     func placeholder(in context: Context) -> TicketEntry {
         TicketEntry(
             date: Date(),
             trainID: UUID(),
+            seatID: UUID(),
             trainNumber: "9612",
             trainLogo: "FR",
             ownerName: "Francesco",
@@ -105,6 +103,7 @@ struct TicketProvider: TimelineProvider {
             let entry = TicketEntry(
                 date: Date(),
                 trainID: data.trainID,
+                seatID: data.seatID,
                 trainNumber: data.trainNumber,
                 trainLogo: data.logo,
                 ownerName: data.owner,
@@ -122,6 +121,7 @@ struct TicketProvider: TimelineProvider {
             let entry = TicketEntry(
                 date: Date(),
                 trainID: data.trainID,
+                seatID: data.seatID,
                 trainNumber: data.trainNumber,
                 trainLogo: data.logo,
                 ownerName: data.owner,
@@ -146,7 +146,79 @@ struct TicketWidgetEntryView: View {
         Group {
             if let trainNumber = entry.trainNumber {
                 if entry.qrCode != nil {
-                    mediumLayout(trainNumber: trainNumber, entry: entry)
+                    HStack {
+                        VStack(alignment: .leading, spacing: 4) {
+                            VStack(alignment: .leading, spacing: 4) {
+                                HStack(spacing: 4) {
+                                    if let logo = entry.trainLogo {
+                                        Image(logo)
+                                            .resizable()
+                                            .scaledToFit()
+                                            .frame(height: 12)
+                                    } else {
+                                        Image(systemName: "train.side.front.car")
+                                    }
+                                    Text(trainNumber)
+                                }
+                                .font(.footnote).fontWeight(.medium).fontDesign(widgetFontDesign)
+                                .foregroundStyle(.secondary)
+                                    
+                                Divider()
+                            }
+                            
+                            Text(entry.ownerName ?? "No owner")
+                                .font(.title).fontWeight(.semibold).fontDesign(widgetFontDesign)
+                                .lineLimit(1).truncationMode(.tail)
+                                .minimumScaleFactor(0.5)
+                            
+                            Spacer()
+                            
+                            HStack(spacing: 12) {
+                                if let carriage = entry.carriage, !carriage.isEmpty {
+                                    HStack(spacing: 4) {
+                                        Image(systemName: "train.side.front.car")
+                                        Text(carriage)
+                                    }
+                                    .font(.subheadline).fontWeight(.semibold).fontDesign(widgetFontDesign)
+                                    .padding(.horizontal, 12).padding(.vertical, 6)
+                                    .frame(minHeight: 36)
+                                    .foregroundStyle(.primary)
+                                    .background(Color.secondary.opacity(0.15))
+                                    .clipShape(Capsule())
+                                }
+
+                                if let seatNumber = entry.seatNumber, !seatNumber.isEmpty {
+                                    HStack(spacing: 4) {
+                                        Image(systemName: "figure.seated.seatbelt")
+                                        Text(seatNumber)
+                                    }
+                                    .font(.subheadline).fontWeight(.semibold).fontDesign(widgetFontDesign)
+                                    .padding(.horizontal, 12).padding(.vertical, 6)
+                                    .frame(minHeight: 36)
+                                    .foregroundStyle(.primary)
+                                    .background(Color.secondary.opacity(0.15))
+                                    .clipShape(Capsule())
+                                }
+                            }
+                        }
+                        
+                        Spacer()
+                        
+                        if let imageData = entry.qrCode, let uiImage = UIImage(data: imageData) {
+                            Image(uiImage: uiImage)
+                                .resizable()
+                                .interpolation(.none)
+                                .scaledToFit()
+                                .padding(8)
+                                .background(Color.white)
+                                .cornerRadius(16)
+                        } else {
+                            ContentUnavailableView {
+                                Label("No QR", systemImage: "qrcode.viewfinder")
+                            }
+                            .scaleEffect(0.8)
+                        }
+                    }
                 } else {
                     ContentUnavailableView("No QR code found for train \(trainNumber)", systemImage: "ticket.fill")
                         .fontDesign(widgetFontDesign)
@@ -161,104 +233,20 @@ struct TicketWidgetEntryView: View {
             }
         }
         .containerBackground(.ultraThinMaterial, for: .widget)
-        .widgetURL(URL(string: "railapp://view-ticket?trainID=\(entry.trainID?.uuidString ?? "")"))
+        .widgetURL(ticketWidgetURL(for: entry))
     }
 
-    @ViewBuilder
-    func mediumLayout(trainNumber: String, entry: TicketEntry) -> some View {
-        HStack {
-            VStack(alignment: .leading, spacing: 4) {
-                headerView(trainNumber: trainNumber, entry: entry)
-                
-                ownerView(for: entry.ownerName ?? "N/A")
-                
-                Spacer()
-                
-                seatInfoView(entry: entry)
-            }
-            
-            Spacer()
-            
-            qrCodeImageView(entry: entry)
+    private func ticketWidgetURL(for entry: TicketEntry) -> URL? {
+        guard let trainID = entry.trainID else { return nil }
+        var components = URLComponents()
+        components.scheme = "railapp"
+        components.host = "view-ticket"
+        var queryItems = [URLQueryItem(name: "trainID", value: trainID.uuidString)]
+        if let seatID = entry.seatID {
+            queryItems.append(URLQueryItem(name: "seatID", value: seatID.uuidString))
         }
-    }
-
-    @ViewBuilder
-    private func headerView(trainNumber: String, entry: TicketEntry) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 4) {
-                if let logo = entry.trainLogo {
-                    Image(logo)
-                        .resizable()
-                        .scaledToFit()
-                        .frame(height: 12)
-                } else {
-                    Image(systemName: "train.side.front.car")
-                }
-                Text(trainNumber)
-            }
-            .font(.footnote).fontWeight(.medium).fontDesign(widgetFontDesign)
-            .foregroundStyle(.secondary)
-                
-            Divider()
-        }
-    }
-
-    @ViewBuilder
-    private func ownerView(for name: String) -> some View {
-        Text(name)
-            .font(.title).fontWeight(.semibold).fontDesign(widgetFontDesign)
-            .lineLimit(1).truncationMode(.tail)
-            .minimumScaleFactor(0.5)
-    }
-
-    @ViewBuilder
-    private func seatInfoView(entry: TicketEntry) -> some View {
-        HStack(spacing: 12) {
-            if let carriage = entry.carriage, !carriage.isEmpty {
-                HStack(spacing: 4) {
-                    Image(systemName: "train.side.front.car")
-                    Text(carriage)
-                }
-                .font(.subheadline).fontWeight(.semibold).fontDesign(widgetFontDesign)
-                .padding(.horizontal, 12).padding(.vertical, 6)
-                .frame(minHeight: 36)
-                .foregroundStyle(.primary)
-                .background(Color.secondary.opacity(0.15))
-                .clipShape(Capsule())
-            }
-
-            if let seatNumber = entry.seatNumber, !seatNumber.isEmpty {
-                HStack(spacing: 4) {
-                    Image(systemName: "figure.seated.seatbelt")
-                    Text(seatNumber)
-                }
-                .font(.subheadline).fontWeight(.semibold).fontDesign(widgetFontDesign)
-                .padding(.horizontal, 12).padding(.vertical, 6)
-                .frame(minHeight: 36)
-                .foregroundStyle(.primary)
-                .background(Color.secondary.opacity(0.15))
-                .clipShape(Capsule())
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func qrCodeImageView(entry: TicketEntry) -> some View {
-        if let imageData = entry.qrCode, let uiImage = UIImage(data: imageData) {
-            Image(uiImage: uiImage)
-                .resizable()
-                .interpolation(.none)
-                .scaledToFit()
-                .padding(8)
-                .background(Color.white)
-                .cornerRadius(16)
-        } else {
-            ContentUnavailableView {
-                Label("No QR", systemImage: "qrcode.viewfinder")
-            }
-            .scaleEffect(0.8)
-        }
+        components.queryItems = queryItems
+        return components.url
     }
 }
 
@@ -283,6 +271,7 @@ struct TicketWidget: Widget {
     TicketEntry(
         date: .now,
         trainID: UUID(),
+        seatID: UUID(),
         trainNumber: "9612",
         trainLogo: "ITALO",
         ownerName: "Francesco",
@@ -298,6 +287,7 @@ struct TicketWidget: Widget {
     TicketEntry(
         date: .now,
         trainID: UUID(),
+        seatID: UUID(),
         trainNumber: "9612",
         trainLogo: "ITALO",
         ownerName: nil,
@@ -313,6 +303,7 @@ struct TicketWidget: Widget {
     TicketEntry(
         date: .now,
         trainID: nil,
+        seatID: nil,
         trainNumber: nil,
         trainLogo: nil,
         ownerName: nil,

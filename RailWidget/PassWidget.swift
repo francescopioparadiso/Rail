@@ -1,6 +1,7 @@
 import WidgetKit
 import SwiftUI
 import SwiftData
+import os
 
 // MARK: - simple entry
 struct SimpleEntry: TimelineEntry {
@@ -14,31 +15,12 @@ struct SimpleEntry: TimelineEntry {
 struct Provider: TimelineProvider {
     typealias Entry = SimpleEntry
 
+    private static let logger = Logger(subsystem: "com.francescoparadis.Rail", category: "PassWidget")
+
     @MainActor
     func fetchFirstPass() -> (String?, Date?, Data?) {
         do {
-            let groupIdentifier = "group.com.francescoparadis.Rail"
-            guard let groupURL = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: groupIdentifier) else {
-                return (nil, nil, nil)
-            }
-            let databaseURL = groupURL.appendingPathComponent("default.store")
-            
-            let schema = Schema([
-                Train.self,
-                Stop.self,
-                Seat.self,
-                Favorite.self,
-                Pass.self
-            ])
-            
-            let config = ModelConfiguration(
-                groupIdentifier,
-                schema: schema,
-                url: databaseURL,
-                allowsSave: false
-            )
-            let container = try ModelContainer(for: schema, configurations: config)
-            
+            let container = try SharedSwiftData.makeReadOnlyContainer()
             let descriptor = FetchDescriptor<Pass>(sortBy: [SortDescriptor(\.expiry_date)])
             let passes = try container.mainContext.fetch(descriptor)
             
@@ -46,7 +28,7 @@ struct Provider: TimelineProvider {
                 return (principal_pass.name, principal_pass.expiry_date, principal_pass.image)
             }
         } catch {
-            print("Errore SwiftData Widget: \(error)")
+            Self.logger.error("Failed to load pass widget data: \(error.localizedDescription, privacy: .public)")
         }
         return (nil, nil, nil)
     }
