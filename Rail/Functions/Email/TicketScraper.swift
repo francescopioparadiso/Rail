@@ -5,8 +5,8 @@ import UIKit
 struct ScrapedJourney {
     var number: String
     var date: String
-    var dep_station: String
-    var arr_station: String
+    var depStation: String
+    var arrStation: String
     var passengers: [ScrapedPassenger]
 }
 
@@ -95,9 +95,19 @@ final class TicketScraper: NSObject, WKNavigationDelegate {
     }
 
     private func load(_ url: URL) async throws {
-        try await withCheckedThrowingContinuation { (done: CheckedContinuation<Void, Error>) in
-            navigationContinuation = done
-            webView.load(URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 30))
+        let _: Void = try await withThrowingTaskGroup(of: Void.self) { group in
+            group.addTask { @MainActor in
+                try await withCheckedThrowingContinuation { (done: CheckedContinuation<Void, Error>) in
+                    self.navigationContinuation = done
+                    self.webView.load(URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 30))
+                }
+            }
+            group.addTask {
+                try await Task.sleep(nanoseconds: 20_000_000_000)
+                throw URLError(.timedOut)
+            }
+            try await group.next()
+            group.cancelAll()
         }
     }
 
@@ -194,14 +204,14 @@ final class TicketScraper: NSObject, WKNavigationDelegate {
                     let trainNumber = value.components(separatedBy: " numero ").last?.trimmingCharacters(in: .whitespaces) ?? ""
                     if currentTrainIndex == nil || journeys[currentTrainIndex!].number != trainNumber {
                         journeys.append(
-                            ScrapedJourney(number: trainNumber, date: "Unknown", dep_station: "Unknown", arr_station: "Unknown", passengers: [])
+                            ScrapedJourney(number: trainNumber, date: "Unknown", depStation: "Unknown", arrStation: "Unknown", passengers: [])
                         )
                         currentTrainIndex = journeys.count - 1
                         currentPassengerIndex = nil
                     }
                 } else if lower.hasPrefix("partenza ") {
                     if let trainIndex = currentTrainIndex {
-                        journeys[trainIndex].dep_station = String(value.dropFirst(9)).trimmingCharacters(in: .whitespaces)
+                        journeys[trainIndex].depStation = String(value.dropFirst(9)).trimmingCharacters(in: .whitespaces)
                         if index + 1 < nodes.count,
                            nodes[index + 1]["type"] as? String == "text",
                            let nextValue = nodes[index + 1]["val"] as? String,
@@ -211,7 +221,7 @@ final class TicketScraper: NSObject, WKNavigationDelegate {
                     }
                 } else if lower.hasPrefix("arrivo ") {
                     if let trainIndex = currentTrainIndex {
-                        journeys[trainIndex].arr_station = String(value.dropFirst(7)).trimmingCharacters(in: .whitespaces)
+                        journeys[trainIndex].arrStation = String(value.dropFirst(7)).trimmingCharacters(in: .whitespaces)
                     }
                 } else if lower.hasPrefix("passenger ") || lower.hasPrefix("passeggero ") {
                     if let trainIndex = currentTrainIndex {
@@ -281,11 +291,11 @@ final class TicketScraper: NSObject, WKNavigationDelegate {
 func fetchTicketDetails(checkInID: String) async throws -> EmailContent {
     let scraper = TicketScraper()
     let journeys = try await scraper.scrapeTickets(checkInID: checkInID)
-    guard let journey = journeys.first else {
+    guard let firstJourney = journeys.first, let lastJourney = journeys.last else {
         throw TicketScrapeError.noJourneyFound
     }
 
-    let passengers = journey.passengers.map { passenger in
+    let passengers = journeys.flatMap(\.passengers).map { passenger in
         EmailContentPassenger(
             name: passenger.name,
             carriage: Int(passenger.coach.filter(\.isNumber)) ?? 0,
@@ -298,10 +308,10 @@ func fetchTicketDetails(checkInID: String) async throws -> EmailContent {
         imapUID: "",
         date: .now,
         link: checkInID,
-        departureDate: parseScrapedDepartureDate(journey.date),
-        trainNumber: journey.number,
-        departureStation: journey.dep_station,
-        arrivalStation: journey.arr_station,
+        departureDate: parseScrapedDepartureDate(firstJourney.date),
+        trainNumber: firstJourney.number,
+        departureStation: firstJourney.depStation,
+        arrivalStation: lastJourney.arrStation,
         passengers: passengers
     )
 }

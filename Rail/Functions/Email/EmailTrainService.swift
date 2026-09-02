@@ -1,6 +1,5 @@
 import Foundation
 import SwiftData
-import WidgetKit
 
 struct PreparedEmailTrain {
     let prepared: PreparedFavoriteTrain
@@ -14,25 +13,32 @@ enum EmailTrainService {
         guard !ticket.trainNumber.isEmpty, !fromStation.isEmpty, !toStation.isEmpty else { return nil }
 
         let departureDay = ticket.departureDate ?? Date()
-        let results = await fetch_common_train_list(number: ticket.trainNumber)
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "Europe/Rome") ?? .current
 
+        // Near-term: viaggiatreno may already expose the exact service day.
+        let results = await fetchCommonTrainList(number: ticket.trainNumber)
         let matching = results.filter {
-            FavoriteTrainService.trainContainsSegment(info: $0, from: fromStation, to: toStation)
+            trainContainsSegmentFuzzy(info: $0, from: fromStation, to: toStation)
         }
-
-        if let best = matching.first(where: { matchesDepartureDay(info: $0, departureDay: departureDay, fromStation: fromStation) }) ?? matching.first {
+        if let best = matching.first(where: {
+            matchesDepartureDay(info: $0, departureDay: departureDay, fromStation: fromStation, calendar: calendar)
+        }) {
+            let stations = matchedStationNames(in: best, from: fromStation, to: toStation)
             return PreparedEmailTrain(
-                prepared: PreparedFavoriteTrain(info: best, fromStation: fromStation, toStation: toStation),
+                prepared: PreparedFavoriteTrain(info: best, fromStation: stations.from, toStation: stations.to),
                 passengers: ticket.passengers
             )
         }
 
-        let departureSuggestions = await TrenitaliaAPI().station_autocomplete(name: fromStation)
-        let arrivalSuggestions = await TrenitaliaAPI().station_autocomplete(name: toStation)
+        // Future tickets: lefrecce solutions know the day, but viaggiatreno only has a
+        // recent template. Resolve that template and shift dates by dayOffset.
+        let departureSuggestions = await TrenitaliaAPI().stationAutocomplete(name: fromStation)
+        let arrivalSuggestions = await TrenitaliaAPI().stationAutocomplete(name: toStation)
         guard let departureCode = departureSuggestions.first?.code,
               let arrivalCode = arrivalSuggestions.first?.code else { return nil }
 
-        let solutions = await TrenitaliaAPI().train_solutions(
+        let solutions = await TrenitaliaAPI().trainSolutions(
             departureLocationId: departureCode,
             arrivalLocationId: arrivalCode,
             departureTime: departureDay
@@ -40,32 +46,38 @@ enum EmailTrainService {
 
         let bestSegment = solutions
             .flatMap(\.segments)
-            .filter { $0.origin == fromStation && $0.destination == toStation }
+            .filter {
+                trainNumbersMatch($0.number, ticket.trainNumber)
+                    && stationsMatch($0.origin, fromStation)
+                    && stationsMatch($0.destination, toStation)
+            }
             .min(by: {
                 abs($0.departureTime.timeIntervalSince(departureDay)) <
                 abs($1.departureTime.timeIntervalSince(departureDay))
             })
 
-        if let segment = bestSegment {
-            let identifiers = await TrenitaliaAPI().train_list(number: segment.number, code: segment.stationCode)
-            let segmentDay = Calendar.current.startOfDay(for: segment.departureTime)
+        guard let segment = bestSegment,
+              let resolved = await SolutionSegmentResolver.resolve(segment) else { return nil }
 
-            let targetIdentifier = identifiers.first(where: { id in
-                guard let tsString = id.split(separator: "/").last, let ms = Double(tsString) else { return false }
-                return Calendar.current.isDate(Date(timeIntervalSince1970: ms / 1000), inSameDayAs: segmentDay)
-            }) ?? identifiers.first
+        guard trainContainsSegmentFuzzy(info: resolved.info, from: fromStation, to: toStation)
+                || trainContainsSegmentFuzzy(info: resolved.info, from: segment.origin, to: segment.destination)
+        else { return nil }
 
-            if let identifier = targetIdentifier,
-               let info = await TrenitaliaAPI().info(identifier: identifier, should_fetch_weather: true),
-               FavoriteTrainService.trainContainsSegment(info: info, from: fromStation, to: toStation) {
-                return PreparedEmailTrain(
-                    prepared: PreparedFavoriteTrain(info: info, fromStation: fromStation, toStation: toStation),
-                    passengers: ticket.passengers
-                )
-            }
-        }
-
-        return nil
+        let shifted = applyDayOffset(
+            to: resolved.info,
+            dayOffset: resolved.dayOffset,
+            targetDeparture: departureDay,
+            calendar: calendar
+        )
+        let stations = matchedStationNames(in: shifted, from: fromStation, to: toStation)
+        return PreparedEmailTrain(
+            prepared: PreparedFavoriteTrain(
+                info: shifted,
+                fromStation: stations.from,
+                toStation: stations.to
+            ),
+            passengers: ticket.passengers
+        )
     }
 
     @MainActor
@@ -95,8 +107,8 @@ enum EmailTrainService {
 
         let stops = info["stops"] as? [[String: Any]] ?? []
         let names = stops.compactMap { $0["name"] as? String }
-        let fromIdx = names.firstIndex(of: prepared.fromStation)
-        let toIdx = names.firstIndex(of: prepared.toStation)
+        let fromIdx = names.firstIndex(where: { stationsMatch($0, prepared.fromStation) })
+        let toIdx = names.firstIndex(where: { stationsMatch($0, prepared.toStation) })
 
         var addedStops: [Stop] = []
         for (index, stop) in stops.enumerated() {
@@ -127,11 +139,18 @@ enum EmailTrainService {
         }
 
         var addedSeats: [Seat] = []
+        let profileName = profile?.name.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         for passenger in emailTrain.passengers {
+            let seatName: String = {
+                if emailTrain.passengers.count == 1, !profileName.isEmpty {
+                    return profileName
+                }
+                return passenger.name
+            }()
             let seat = Seat(
                 id: UUID(),
                 trainID: id,
-                name: passenger.name,
+                name: seatName,
                 carriage: passenger.carriage == 0 ? "" : "\(passenger.carriage)",
                 number: passenger.seat,
                 image: passenger.qrcode.isEmpty ? nil : passenger.qrcode
@@ -156,15 +175,99 @@ enum EmailTrainService {
             }
         }
 
-        reload_widget_timelines()
+        reloadWidgetTimelines()
     }
 
-    private static func matchesDepartureDay(info: [String: Any], departureDay: Date, fromStation: String) -> Bool {
+    private static func applyDayOffset(
+        to info: [String: Any],
+        dayOffset: Int,
+        targetDeparture: Date,
+        calendar: Calendar
+    ) -> [String: Any] {
+        guard dayOffset != 0 else { return info }
+
+        func offsetDate(_ date: Date) -> Date {
+            calendar.date(byAdding: .day, value: dayOffset, to: date) ?? date
+        }
+
+        var result = info
+        result["delay"] = 0
+        result["issue"] = ""
+        result["last_update_time"] = offsetDate(info["last_update_time"] as? Date ?? Date())
+
+        if let identifier = info["identifier"] as? String {
+            let parts = identifier.split(separator: "/").map(String.init)
+            if parts.count >= 3 {
+                let targetDay = calendar.startOfDay(for: targetDeparture)
+                let timestamp = Int(targetDay.timeIntervalSince1970 * 1000)
+                result["identifier"] = parts.dropLast().joined(separator: "/") + "/\(timestamp)"
+            }
+        }
+
         let stops = info["stops"] as? [[String: Any]] ?? []
-        guard let stop = stops.first(where: { ($0["name"] as? String) == fromStation }),
+        result["stops"] = stops.map { stop -> [String: Any] in
+            var shifted = stop
+            let depID = stop["dep_time_id"] as? Date ?? .distantPast
+            let arrID = stop["arr_time_id"] as? Date ?? .distantPast
+            let ref = stop["ref_time"] as? Date ?? .distantPast
+            shifted["status"] = 0
+            shifted["is_completed"] = false
+            shifted["is_in_station"] = false
+            shifted["dep_delay"] = 0
+            shifted["arr_delay"] = 0
+            shifted["dep_time_id"] = offsetDate(depID)
+            shifted["arr_time_id"] = offsetDate(arrID)
+            shifted["dep_time_eff"] = offsetDate(depID)
+            shifted["arr_time_eff"] = offsetDate(arrID)
+            shifted["ref_time"] = offsetDate(ref)
+            return shifted
+        }
+        return result
+    }
+
+    private static func matchesDepartureDay(
+        info: [String: Any],
+        departureDay: Date,
+        fromStation: String,
+        calendar: Calendar
+    ) -> Bool {
+        let stops = info["stops"] as? [[String: Any]] ?? []
+        guard let stop = stops.first(where: { stationsMatch($0["name"] as? String, fromStation) }),
               let depTime = stop["dep_time_id"] as? Date ?? stop["dep_time_eff"] as? Date else {
             return false
         }
-        return Calendar.current.isDate(depTime, inSameDayAs: departureDay)
+        return calendar.isDate(depTime, inSameDayAs: departureDay)
+    }
+
+    private static func trainContainsSegmentFuzzy(info: [String: Any], from: String, to: String) -> Bool {
+        let stops = info["stops"] as? [[String: Any]] ?? []
+        let names = stops.compactMap { $0["name"] as? String }
+        guard let fromIdx = names.firstIndex(where: { stationsMatch($0, from) }),
+              let toIdx = names.firstIndex(where: { stationsMatch($0, to) }) else { return false }
+        return fromIdx <= toIdx
+    }
+
+    private static func matchedStationNames(
+        in info: [String: Any],
+        from: String,
+        to: String
+    ) -> (from: String, to: String) {
+        let names = (info["stops"] as? [[String: Any]] ?? []).compactMap { $0["name"] as? String }
+        let resolvedFrom = names.first(where: { stationsMatch($0, from) }) ?? from
+        let resolvedTo = names.first(where: { stationsMatch($0, to) }) ?? to
+        return (resolvedFrom, resolvedTo)
+    }
+
+    private static func stationsMatch(_ lhs: String?, _ rhs: String) -> Bool {
+        guard let lhs else { return false }
+        let a = lhs.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let b = rhs.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return a == b || a.contains(b) || b.contains(a)
+    }
+
+    private static func trainNumbersMatch(_ lhs: String, _ rhs: String) -> Bool {
+        let a = lhs.filter(\.isNumber)
+        let b = rhs.filter(\.isNumber)
+        return !a.isEmpty && a == b
     }
 }

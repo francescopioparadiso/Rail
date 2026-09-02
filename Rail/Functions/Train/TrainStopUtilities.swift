@@ -21,7 +21,6 @@ func romanToArabic(platform: String) -> String {
         var firstPart = String(parts[0])
         let secondPart = String(parts[1])
 
-        // Only convert the first part
         let sortedPairs = zip(roman, arabic)
         for (romanNumeral, arabicNumeral) in sortedPairs {
             firstPart = firstPart.replacingOccurrences(of: romanNumeral, with: arabicNumeral)
@@ -35,7 +34,6 @@ func romanToArabic(platform: String) -> String {
     }
 }
 
-// Compare two stops
 func stopsEqual(_ a: [String: Any], _ b: [String: Any]) -> Bool {
     let nameA = a["name"] as? String
     let nameB = b["name"] as? String
@@ -44,14 +42,13 @@ func stopsEqual(_ a: [String: Any], _ b: [String: Any]) -> Bool {
     return nameA == nameB && timeA == timeB
 }
 
-// Get stop names for a station
-func get_stop_names(for station: String) async -> [String] {
+func getStopNames(for station: String) async -> [String] {
     guard let filePath = Bundle.main.path(forResource: "stations", ofType: "csv") else {
         print("❌ Error: stations.csv not found in bundle")
         return []
     }
 
-    var names_list: [String] = []
+    var namesList: [String] = []
     
     do {
         let content = try String(contentsOfFile: filePath, encoding: .utf8)
@@ -63,12 +60,12 @@ func get_stop_names(for station: String) async -> [String] {
             if columns[2].contains("|") {
                 if columns[2].split(separator: "|").contains(where: { $0 == station.lowercased() }) {
                     for name in columns[2].split(separator: "|") {
-                        names_list.append(String(name))
+                        namesList.append(String(name))
                     }
                 }
             } else {
                 if columns[2] == station.lowercased() {
-                    names_list.append(columns[2])
+                    namesList.append(columns[2])
                 }
             }
         }
@@ -76,5 +73,5 @@ func get_stop_names(for station: String) async -> [String] {
         print("❌ Error reading CSV file: \(error)")
     }
     
-    return names_list
+    return namesList
 }

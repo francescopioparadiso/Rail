@@ -5,7 +5,7 @@ enum StationLookup {
     private nonisolated static let coordinatesByName: [String: (lat: Double, lon: Double)] = buildIndex()
 
     /// Builds the CSV index on a background thread so the first
-    /// `distance_between_stations` call doesn't block the main thread.
+    /// `distanceBetweenStations` call doesn't block the main thread.
     nonisolated static func warmUp() {
         Task.detached(priority: .utility) {
             _ = coordinatesByName.count
@@ -45,7 +45,7 @@ enum StationLookup {
     }
 }
 
-nonisolated func distance_between_stations(from station1: String, to station2: String) -> Int? {
+nonisolated func distanceBetweenStations(from station1: String, to station2: String) -> Int? {
     guard let c1 = StationLookup.coordinates(for: station1),
           let c2 = StationLookup.coordinates(for: station2) else {
         return nil
@@ -56,10 +56,10 @@ nonisolated func distance_between_stations(from station1: String, to station2: S
     return Int(round(location1.distance(from: location2) / 1000))
 }
 
-nonisolated func get_latitude(for station: String) -> Double {
+nonisolated func getLatitude(for station: String) -> Double {
     StationLookup.coordinates(for: station)?.lat ?? 0
 }
 
-nonisolated func get_longitude(for station: String) -> Double {
+nonisolated func getLongitude(for station: String) -> Double {
     StationLookup.coordinates(for: station)?.lon ?? 0
 }

@@ -1,8 +1,14 @@
 # macOS
 .DS_Store
 
-# Local editors
+# Local editor and agent tool state
 .vscode/
+.claude/
+.serena/
+.cursor/
+
+# Local secrets for SwiftUI previews
+.env.local
 
 # Python
 .venv/

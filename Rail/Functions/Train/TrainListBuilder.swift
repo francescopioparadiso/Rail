@@ -86,8 +86,8 @@ enum TrainListBuilder {
                 train: train,
                 trainStops: trainStops,
                 summary: summary,
-                topPadding: hasIntervalBefore ? 2 : (index == 0 ? 16 : 24),
-                bottomPadding: hasIntervalAfter ? 2 : 24,
+                topPadding: hasIntervalBefore ? 2 : 6,
+                bottomPadding: hasIntervalAfter ? 2 : 6,
                 connection: connection
             )
         }
@@ -111,15 +111,15 @@ enum TrainListBuilder {
                 return lTime > rTime
             }
 
-        return pastTrains.map { train in
+        return pastTrains.enumerated().map { index, train in
             let trainStops = (stopsByTrain[train.id] ?? []).sorted(by: { $0.ref_time < $1.ref_time })
             return TrainRowItem(
                 id: train.id,
                 train: train,
                 trainStops: trainStops,
                 summary: StopSummary.calculate(in: trainStops),
-                topPadding: 0,
-                bottomPadding: 0,
+                topPadding: 6,
+                bottomPadding: 6,
                 connection: nil
             )
         }

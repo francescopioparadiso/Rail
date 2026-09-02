@@ -1,81 +1,5 @@
 import Foundation
 
-// a station name paired with its lefrecce location id (e.g. "830001700"),
-// used as departureLocationId / arrivalLocationId when fetching solutions.
-struct StationSuggestion: Hashable {
-    let name: String
-    let code: String
-}
-
-// one leg of a journey solution (a train or a replacement bus).
-struct SolutionSegment: Hashable {
-    let origin: String
-    let destination: String
-    let departureTime: Date
-    let arrivalTime: Date
-    let logo: String        // train type acronym, e.g. "FR", "REG"
-    let number: String      // train/bus number, e.g. "9512", "FI451"
-    let stationCode: String // bdoOrigin, e.g. "S08409", used to resolve the identifier
-    let isBus: Bool         // true for bus-substitution legs (acronym "BU" / "Autobus")
-}
-
-// a full journey from departure to arrival; more than one segment means a connection.
-struct Solution: Hashable, Identifiable {
-    let id = UUID()
-    let segments: [SolutionSegment]
-
-    var departureTime: Date { segments.first?.departureTime ?? .distantPast }
-    var arrivalTime: Date { segments.last?.arrivalTime ?? .distantPast }
-}
-
-// MARK: - Common functions
-func fetch_common_train_list(number: String) async -> [[String: Any]] {
-    var resultsArray: [[String: Any]] = []
-
-    guard let url = URL(string: "http://www.viaggiatreno.it/infomobilita/resteasy/viaggiatreno/cercaNumeroTrenoTrenoAutocomplete/\(number)") else { return [] }
-
-    do {
-        let (data, _) = try await URLSession.shared.data(from: url)
-        guard let resultString = String(data: data, encoding: .utf8) else { return [] }
-
-        let lines = resultString.split(separator: "\n")
-
-        await withTaskGroup(of: [String: Any]?.self) { group in
-            for line in lines {
-                let parts = line.split(separator: "|")
-                guard parts.count > 1 else { continue }
-
-                let codeParts = parts[1].split(separator: "-")
-                guard codeParts.count > 2 else { continue }
-
-                let code = codeParts[1]
-                let timestamp = Int(codeParts[2]) ?? 0
-                let todayTimestamp = Int(Calendar.current.startOfDay(for: Date()).timeIntervalSince1970) * 1000
-
-                if timestamp >= todayTimestamp {
-                    let identifier = "\(code)/\(number)/\(timestamp)"
-                    group.addTask { await TrenitaliaAPI().info(identifier: identifier, should_fetch_weather: false) }
-                }
-            }
-
-            if !number.isEmpty {
-                group.addTask { await ItaloAPI().info(identifier: number, should_fetch_weather: false) }
-            }
-
-            for await result in group {
-                if let result = result { resultsArray.append(result) }
-            }
-        }
-
-    } catch {
-        print("Error fetching train list: \(error)")
-    }
-
-    return resultsArray
-}
-
-
-// MARK: - Trenitalia functions
 class TrenitaliaAPI {
     func suggestions(name: String) async throws -> [String] {
         let urlString = "https://www.lefrecce.it/Channels.Website.BFF.WEB/website/locations/search?name=\(name)&limit=5"
@@ -116,7 +40,7 @@ class TrenitaliaAPI {
         }
     }
     
-    func station_autocomplete(name: String) async -> [StationSuggestion] {
+    func stationAutocomplete(name: String) async -> [StationSuggestion] {
         // use the lefrecce locations endpoint so the returned id can be reused as
         // departureLocationId / arrivalLocationId when fetching solutions.
         guard let encoded = name.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
@@ -142,7 +66,7 @@ class TrenitaliaAPI {
     // from the JSON without the per-train viaggiatreno lookups (those are done
     // only when a solution is actually saved). Fetches the whole day in parallel
     // 3-hour windows (from midnight) so the list isn't capped at a single request.
-    func train_solutions(departureLocationId: String, arrivalLocationId: String, departureTime: Date) async -> [Solution] {
+    func trainSolutions(departureLocationId: String, arrivalLocationId: String, departureTime: Date) async -> [Solution] {
         guard let depId = Int(departureLocationId), let arrId = Int(arrivalLocationId) else { return [] }
 
         // build 3-hour windows covering the whole day (midnight → midnight)
@@ -162,7 +86,7 @@ class TrenitaliaAPI {
         let allSolutions = await withTaskGroup(of: [Solution].self) { group in
             for window in windows {
                 group.addTask {
-                    await self.solutions_request(departureLocationId: depId, arrivalLocationId: arrId, departureTime: window)
+                    await self.solutionsRequest(departureLocationId: depId, arrivalLocationId: arrId, departureTime: window)
                 }
             }
             var collected: [Solution] = []
@@ -186,7 +110,7 @@ class TrenitaliaAPI {
     }
 
     // single solutions request for one departure time
-    private func solutions_request(departureLocationId: Int, arrivalLocationId: Int, departureTime: Date) async -> [Solution] {
+    private func solutionsRequest(departureLocationId: Int, arrivalLocationId: Int, departureTime: Date) async -> [Solution] {
         guard let url = URL(string: "https://www.lefrecce.it/Channels.Website.BFF.WEB/website/ticket/solutions") else { return [] }
 
         let formatter = DateFormatter()
@@ -231,14 +155,16 @@ class TrenitaliaAPI {
                 var segments: [SolutionSegment] = []
                 for node in nodes {
                     let train = node["train"] as? [String: Any]
-                    guard let number = train?["name"] as? String, !number.isEmpty,
-                          let depString = node["departureTime"] as? String,
+                    guard let depString = node["departureTime"] as? String,
                           let arrString = node["arrivalTime"] as? String,
                           let dep = isoFormatter.date(from: depString),
                           let arr = isoFormatter.date(from: arrString) else { continue }
 
                     let acronym = train?["acronym"] as? String ?? ""
                     let isBus = acronym == "BU" || (train?["trainCategory"] as? String) == "Autobus"
+                    // urban transfers come back with no train name; keep them so the
+                    // journey's origin, departure and duration stay truthful
+                    let number = (train?["name"] as? String) ?? ""
 
                     segments.append(SolutionSegment(
                         origin: node["origin"] as? String ?? "",
@@ -248,11 +174,27 @@ class TrenitaliaAPI {
                         logo: acronym,
                         number: number,
                         stationCode: node["bdoOrigin"] as? String ?? "",
-                        isBus: isBus
+                        isBus: isBus,
+                        isUntracked: number.isEmpty
                     ))
                 }
 
-                if !segments.isEmpty { results.append(Solution(segments: segments)) }
+                // lefrecce reports the fare as price.amount, with hideAmount set
+                // on solutions whose price it doesn't want shown. A solution whose
+                // status isn't SALEABLE can't be bought here, so it carries no fare.
+                let priceInfo = solution["price"] as? [String: Any]
+                let hidden = priceInfo?["hideAmount"] as? Bool ?? false
+                let status = (solution["status"] as? String)?.uppercased()
+                let isSaleable = status == nil || status == "SALEABLE"
+                let amount = (hidden || !isSaleable) ? nil : priceInfo?["amount"] as? Double
+
+                if !segments.isEmpty {
+                    results.append(Solution(
+                        segments: segments,
+                        price: amount,
+                        currency: priceInfo?["currency"] as? String ?? "\u{20AC}"
+                    ))
+                }
             }
             return results
         } catch {
@@ -261,9 +203,9 @@ class TrenitaliaAPI {
         }
     }
 
-    func train_list(number: String, code: String) async -> [String] {
-        let url_string = "http://www.viaggiatreno.it/infomobilita/resteasy/viaggiatreno/cercaNumeroTrenoTrenoAutocomplete/\(number)"
-        guard let url = URL(string: url_string) else { return [] }
+    func trainList(number: String, code: String) async -> [String] {
+        let urlString = "http://www.viaggiatreno.it/infomobilita/resteasy/viaggiatreno/cercaNumeroTrenoTrenoAutocomplete/\(number)"
+        guard let url = URL(string: urlString) else { return [] }
         
         var results: [String] = []
         
@@ -277,18 +219,18 @@ class TrenitaliaAPI {
                 let components = line.split(separator: "|")
                 guard components.count == 2 else { continue }
                 
-                guard let identifier_string = components.last else { continue }
+                guard let identifierString = components.last else { continue }
                 
-                let identifier_components = identifier_string.split(separator: "-")
-                guard let identifier_number = identifier_components.first else { continue }
-                guard let identifier_code = identifier_components.dropFirst().first else { continue }
-                guard let identifier_timestamp = identifier_components.last else { continue }
+                let identifierComponents = identifierString.split(separator: "-")
+                guard let identifierNumber = identifierComponents.first else { continue }
+                guard let identifierCode = identifierComponents.dropFirst().first else { continue }
+                guard let identifierTimestamp = identifierComponents.last else { continue }
                 
-                guard identifier_number + identifier_code == number + code else { continue }
+                guard identifierNumber + identifierCode == number + code else { continue }
                 
-                let final_identifier = "\(identifier_code)/\(identifier_number)/\(identifier_timestamp)"
+                let finalIdentifier = "\(identifierCode)/\(identifierNumber)/\(identifierTimestamp)"
                 
-                results.append(String(final_identifier))
+                results.append(String(finalIdentifier))
             }
         } catch {
             print("Error fetching train list for number \(number): \(error)")
@@ -301,12 +243,10 @@ class TrenitaliaAPI {
     func solutions(departureStation_id: String, arrivalStation_id: String) async -> [String] {
         let url = URL(string: "https://www.lefrecce.it/Channels.Website.BFF.WEB/website/ticket/solutions")!
         
-        // Use TaskGroup to execute requests in parallel
         let allTrains = await withTaskGroup(of: [String].self) { group in
             
             for hourOffset in stride(from: 0, to: 24, by: 3) {
                 group.addTask {
-                    // parameters for url
                     let todayStart = Calendar.current.startOfDay(for: Date())
                     guard let departureTime = Calendar.current.date(byAdding: .hour, value: hourOffset, to: todayStart) else { return [] }
                     let departureTimeFormatted = ISO8601DateFormatter().string(from: departureTime)
@@ -330,7 +270,6 @@ class TrenitaliaAPI {
                         ]
                     ]
                     
-                    // request setup
                     var request = URLRequest(url: url)
                     request.httpMethod = "POST"
                     request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -339,7 +278,7 @@ class TrenitaliaAPI {
                         request.httpBody = try JSONSerialization.data(withJSONObject: payload, options: [])
                         let (data, _) = try await URLSession.shared.data(for: request)
                         
-                        var nodes_list: [String] = []
+                        var nodesList: [String] = []
                         
                         if let json = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
                            let solutions = json["solutions"] as? [[String: Any]] {
@@ -351,7 +290,7 @@ class TrenitaliaAPI {
                                 if let solution = solutionDict["solution"] as? [String: Any],
                                    let nodes = solution["nodes"] as? [[String: Any]] {
                                     
-                                    var trains_list: String = ""
+                                    var trainsList: String = ""
                                     
                                     for node in nodes {
                                         let departureLocation = node["origin"] as? String ?? ""
@@ -368,49 +307,49 @@ class TrenitaliaAPI {
                                               let arrivalDateFormatted = formatterISO8601.date(from: arrivalDate)?.timeIntervalSince1970
                                         else { continue }
                                         
-                                        let timestamp_fetched = await {
-                                            let current_timestamp = Int(departureDateFormatted * 1000)
+                                        let timestampFetched = await {
+                                            let currentTimestamp = Int(departureDateFormatted * 1000)
                                             
-                                            let identifiers_fetched = await self.train_list(number: trainNumber, code: stationCode)
-                                            guard identifiers_fetched.count > 1 else { return current_timestamp }
+                                            let identifiersFetched = await self.trainList(number: trainNumber, code: stationCode)
+                                            guard identifiersFetched.count > 1 else { return currentTimestamp }
                                             
-                                            let train = await self.info(identifier: identifiers_fetched.first!, should_fetch_weather: false)
+                                            let train = await self.info(identifier: identifiersFetched.first!, shouldFetchWeather: false)
                                             let stops = train?["stops"] as? [[String: Any]] ?? []
                                             
-                                            guard let firstStop_depTimeId = stops.first?["dep_time_id"] as? Date else { return current_timestamp }
-                                            guard let departureStop_depTimeId = stops.filter({ ($0["name"] as? String ?? "") == departureLocation }).first?["dep_time_id"] as? Date else { return current_timestamp }
+                                            guard let firstStop_depTimeId = stops.first?["dep_time_id"] as? Date else { return currentTimestamp }
+                                            guard let departureStop_depTimeId = stops.filter({ ($0["name"] as? String ?? "") == departureLocation }).first?["dep_time_id"] as? Date else { return currentTimestamp }
                                             
                                             if Calendar.current.isDate(firstStop_depTimeId, inSameDayAs: departureStop_depTimeId) || Calendar.current.isDateInTomorrow(Date(timeIntervalSince1970: departureDateFormatted)) {
-                                                return current_timestamp
+                                                return currentTimestamp
                                             } else {
                                                 return Int(firstStop_depTimeId.timeIntervalSince1970) * 1000
                                             }
                                         }()
                                         
-                                        let identifier = "\(stationCode)/\(trainNumber)/\(timestamp_fetched)"
+                                        let identifier = "\(stationCode)/\(trainNumber)/\(timestampFetched)"
                                         let payload = "\(Int(departureDateFormatted)),\(Int(arrivalDateFormatted)),\(departureLocation),\(arrivalLocation),\(logo),\(trainNumber),\(identifier)"
                                         
                                         if !payload.isEmpty {
-                                            if trains_list.isEmpty {
-                                                trains_list = payload
+                                            if trainsList.isEmpty {
+                                                trainsList = payload
                                             } else {
-                                                trains_list += ";\(payload)"
+                                                trainsList += ";\(payload)"
                                             }
                                         }
                                     }
                                     
-                                    if !trains_list.isEmpty {
-                                        let departureTimestamp = Int(trains_list.components(separatedBy: ",")[0]) ?? 0
+                                    if !trainsList.isEmpty {
+                                        let departureTimestamp = Int(trainsList.components(separatedBy: ",")[0]) ?? 0
                                         let departureDateObj = Date(timeIntervalSince1970: TimeInterval(departureTimestamp))
                                         
                                         if Calendar.current.isDateInToday(departureDateObj) {
-                                            nodes_list.append(trains_list)
+                                            nodesList.append(trainsList)
                                         }
                                     }
                                 }
                             }
                         }
-                        return nodes_list
+                        return nodesList
                         
                     } catch {
                         print("Error in task for hour \(hourOffset): \(error)")
@@ -419,7 +358,6 @@ class TrenitaliaAPI {
                 }
             }
             
-            // Collect all results
             var aggregatedTrains = [String]()
             for await batch in group {
                 aggregatedTrains.append(contentsOf: batch)
@@ -427,11 +365,10 @@ class TrenitaliaAPI {
             return aggregatedTrains
         }
         
-        // Deduplicate and Sort
         return Set(allTrains).sorted()
     }
 
-    func info(identifier: String, should_fetch_weather: Bool) async -> [String: Any]? {
+    func info(identifier: String, shouldFetchWeather: Bool) async -> [String: Any]? {
         let urlString = "https://www.viaggiatreno.it/infomobilita/resteasy/viaggiatreno/andamentoTreno/\(identifier)"
         guard let url = URL(string: urlString) else { return nil }
 
@@ -470,14 +407,13 @@ class TrenitaliaAPI {
                 let refTime = i == 0 ? depTimeId : arrTimeId
 
                 let weather: String = await {
-                    guard should_fetch_weather else { return "" }
+                    guard shouldFetchWeather else { return "" }
                     
-                    guard let weatherData = try? await get_weather(lat: get_latitude(for: name), lon: get_longitude(for: name), date: refTime) else { return "" }
+                    guard let weatherData = try? await getWeather(lat: getLatitude(for: name), lon: getLongitude(for: name), date: refTime) else { return "" }
                     return weatherData
                 }()
                 print("\(logo) \(number) - Fetched weather for \(name) at \(refTime): \(weather)")
 
-                // Logic for first, last, middle stations
                 if i == 0 {
                     if Date() < depTimeId {
                         isCompleted = false
@@ -554,194 +490,6 @@ class TrenitaliaAPI {
 
         } catch {
             print("Trenitalia JSON error \(identifier): \(error)")
-            return nil
-        }
-    }
-}
-
-
-// MARK: - Italo functions
-class ItaloAPI {
-    func suggestions() -> [String] {
-        var station_names: [String] = []
-
-        guard let filePath = Bundle.main.path(forResource: "italo_stations", ofType: "csv") else {
-            print("❌ Error: italo_stations.csv not found in bundle")
-            return []
-        }
-
-        do {
-            let content = try String(contentsOfFile: filePath, encoding: .utf8)
-            let rows = content.components(separatedBy: "\n").filter { !$0.isEmpty }
-
-            for row in rows.dropFirst() {
-                let columns = row.components(separatedBy: ",").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-
-                let name = columns[0]
-                let code = columns[1]
-                
-                let payload = "\(name),\(code),italo"
-                station_names.append(payload)
-            }
-        } catch {
-            print("❌ Error reading CSV file: \(error)")
-        }
-        
-        return station_names
-    }
-
-    func solutions(dep_stat_code: String, dep_stat_name: String) async throws -> [String] {
-        let urlString = "https://italoinviaggio.italotreno.it/api/RicercaStazioneService?&CodiceStazione=\(dep_stat_code)&NomeStazione=\(dep_stat_name)"
-        
-        guard let url = URL(string: urlString) else { return [] }
-        let (data, _) = try await URLSession.shared.data(from: url)
-        
-        var solutions: [String] = []
-
-        if let json = try JSONSerialization.jsonObject(with: data, options: []) as? [String: Any] {
-            let upcoming_trains = json["ListaTreniArrivo"] as? [[String: Any]] ?? []
-            
-            for train in upcoming_trains {
-                if let number = train["Numero"] as? String {
-                     solutions.append(number)
-                }
-            }
-        }
-        
-        return solutions
-    }
-
-    func info(identifier: String, should_fetch_weather: Bool) async -> [String: Any]? {
-        let urlString = "https://italoinviaggio.italotreno.it/api/RicercaTrenoService?TrainNumber=\(identifier)"
-        guard let url = URL(string: urlString) else { return nil }
-
-        do {
-            let (data, _) = try await URLSession.shared.data(from: url)
-            guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
-            
-            if let trainSchedule = json["TrainSchedule"] as? [String:Any] {
-                let train_number = trainSchedule["TrainNumber"] as? String ?? ""
-                
-                let last_update_time = time_to_date(timeString: json["LastUpdate"] as? String ?? "") ?? .distantPast
-                
-                let main_delay = (trainSchedule["Distruption"] as? [String: Any])?["DelayAmount"] as? Int ?? 0
-                
-                let direction = (trainSchedule["Leg"] as? [String: Any])?["TrainOrientation"] as? String ?? ""
-                
-                let issue = (trainSchedule["Distruption"] as? [String: Any])?["Warning"] as? String ?? ""
-                
-                var stops: [[String: Any]] = []
-                var fermate: [[String: Any]] = []
-                fermate.append(trainSchedule["StazionePartenza"] as? [String: Any] ?? [:])
-                fermate.append(contentsOf: trainSchedule["StazioniFerme"] as? [[String: Any]] ?? [])
-                fermate.append(contentsOf: trainSchedule["StazioniNonFerme"] as? [[String: Any]] ?? [])
-                
-                for (i,each) in fermate.enumerated() {
-                    let name = (each["LocationDescription"] as? String ?? "").capitalized
-                    let platform = romanToArabic(platform: each["ActualArrivalPlatform"] as? String ?? "-")
-                    
-                    let status = 0
-                    var is_completed = false
-                    var is_in_station = false
-                    var dep_delay = 0
-                    var arr_delay = 0
-                    
-                    let dep_time_id = Calendar.current.date(bySetting: .second, value: 0, of: time_to_date(timeString: each["EstimatedDepartureTime"] as? String ?? "")!)!
-                    let arr_time_id = Calendar.current.date(bySetting: .second, value: 0, of: time_to_date(timeString: each["EstimatedArrivalTime"] as? String ?? "")!)!
-                    var dep_time_eff = Calendar.current.date(bySetting: .second, value: 0, of: time_to_date(timeString: each["ActualDepartureTime"] as? String ?? "")!)!
-                    let arr_time_eff = Calendar.current.date(bySetting: .second, value: 0, of: time_to_date(timeString: each["ActualArrivalTime"] as? String ?? "")!)!
-                    let ref_time = i == 0 ? dep_time_id : arr_time_id
-                    
-                    let weather: String = await {
-                        guard should_fetch_weather else { return "" }
-                        do {
-                            return try await getOpenMeteoWeather(lat: get_latitude(for: name), lon: get_longitude(for: name), date: ref_time)
-                        } catch {
-                            return ""
-                        }
-                    }()
-                    
-                    if i == 0 {
-                        // first station
-                        if Date() < dep_time_id {
-                            is_completed = false
-                            is_in_station = true
-                        } else {
-                            dep_delay = Calendar.current.dateComponents([.minute], from: dep_time_id, to: dep_time_eff).minute!
-                            is_completed = true
-                            is_in_station = false
-                        }
-                    } else if i == fermate.count - 1 {
-                        // last station
-                        arr_delay = main_delay
-                        
-                        if Date() < arr_time_eff {
-                            is_completed = false
-                            is_in_station = false
-                        } else {
-                            is_completed = true
-                            is_in_station = true
-                        }
-                    } else {
-                        // middle stations
-                        dep_time_eff = Calendar.current.date(byAdding: .minute, value: main_delay, to: dep_time_id)!
-                        
-                        if Date() < arr_time_eff {
-                            is_completed = false
-                            is_in_station = false
-                        } else if Date() >= arr_time_eff && Date() < dep_time_eff {
-                            is_completed = false
-                            is_in_station = true
-                        } else if Date() >= dep_time_eff {
-                            if time_to_date(timeString: each["ActualDepartureTime"] as? String ?? "")! != .distantPast {
-                                dep_time_eff = time_to_date(timeString: each["ActualDepartureTime"] as? String ?? "")!
-                            }
-                            arr_delay = Calendar.current.dateComponents([.minute], from: arr_time_id, to: arr_time_eff).minute!
-                            dep_delay = Calendar.current.dateComponents([.minute], from: dep_time_id, to: dep_time_eff).minute!
-                            is_completed = true
-                            is_in_station = true
-                        }
-                    }
-                    
-                    stops.append([
-                        "name": name,
-                        "platform": platform,
-                        "weather": weather,
-                        
-                        "status": status,
-                        "is_completed": is_completed,
-                        "is_in_station": is_in_station,
-                        
-                        "dep_delay": dep_delay,
-                        "arr_delay": arr_delay,
-                        
-                        "dep_time_id": dep_time_id,
-                        "arr_time_id": arr_time_id,
-                        "dep_time_eff": dep_time_eff,
-                        "arr_time_eff": arr_time_eff,
-                        "ref_time": ref_time
-                    ])
-                }
-                
-                return [
-                    "logo": "ITALO",
-                    "number": train_number,
-                    "identifier": identifier,
-                    "provider": "italo",
-                    
-                    "last_update_time": last_update_time,
-                    "delay": main_delay,
-                    "direction": direction,
-                    
-                    "issue": issue,
-                    
-                    "stops": stops
-                ]
-            }
-            return nil
-            
-        } catch {
-            print("Italo JSON error \(identifier): \(error)")
             return nil
         }
     }

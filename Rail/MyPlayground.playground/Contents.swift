@@ -101,11 +101,29 @@ func fetchEmails(email: String, appPassword: String, count: Int) async -> [Strin
     return mails
 }
 
-// print
+/// Credentials come from the gitignored `.env.local` at the repo root.
+/// Copy `.env.example` to `.env.local` and fill it in before running this.
+func envValue(_ key: String) -> String {
+    var directory = URL(filePath: #filePath).deletingLastPathComponent()
+    for _ in 0..<6 {
+        let candidate = directory.appending(path: ".env.local")
+        if let text = try? String(contentsOf: candidate, encoding: .utf8) {
+            for line in text.split(separator: "\n") {
+                let entry = line.trimmingCharacters(in: .whitespaces)
+                guard !entry.hasPrefix("#"), let separator = entry.firstIndex(of: "=") else { continue }
+                guard entry[..<separator].trimmingCharacters(in: .whitespaces) == key else { continue }
+                return entry[entry.index(after: separator)...].trimmingCharacters(in: .whitespaces)
+            }
+        }
+        directory = directory.deletingLastPathComponent()
+    }
+    return ""
+}
+
 Task {
     for mail in await fetchEmails(
-        email: "francescopara2003@icloud.com",
-        appPassword: "pqmy-ncsd-qzbi-zxte",
+        email: envValue("APPLE_EMAIL"),
+        appPassword: envValue("APPLE_APP_PASSWORD"),
         count: 5
     ) {
         print(mail)

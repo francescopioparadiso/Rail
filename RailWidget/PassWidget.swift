@@ -6,7 +6,7 @@ import os
 // MARK: - simple entry
 struct SimpleEntry: TimelineEntry {
     let date: Date
-    let pass_name: String?
+    let passName: String?
     let expiry_date: Date?
     let image: Data?
 }
@@ -24,8 +24,8 @@ struct Provider: TimelineProvider {
             let descriptor = FetchDescriptor<Pass>(sortBy: [SortDescriptor(\.expiry_date)])
             let passes = try container.mainContext.fetch(descriptor)
             
-            if let principal_pass = passes.first(where: { $0.is_principal }) {
-                return (principal_pass.name, principal_pass.expiry_date, principal_pass.image)
+            if let principalPass = passes.first(where: { $0.is_principal }) {
+                return (principalPass.name, principalPass.expiry_date, principalPass.image)
             }
         } catch {
             Self.logger.error("Failed to load pass widget data: \(error.localizedDescription, privacy: .public)")
@@ -36,7 +36,7 @@ struct Provider: TimelineProvider {
     func placeholder(in context: Context) -> SimpleEntry {
         SimpleEntry(
             date: Date(),
-            pass_name: "Settimanale",
+            passName: "Settimanale",
             expiry_date: Calendar.current.date(byAdding: .day, value: 7, to: Date()),
             image: nil
         )
@@ -47,7 +47,7 @@ struct Provider: TimelineProvider {
             let (name, expiry_date, image) = await fetchFirstPass()
             let entry = SimpleEntry(
                 date: Date(),
-                pass_name: name,
+                passName: name,
                 expiry_date: expiry_date,
                 image: image
             )
@@ -60,7 +60,7 @@ struct Provider: TimelineProvider {
             let (name, expiry_date, image) = await fetchFirstPass()
             let entry = SimpleEntry(
                 date: Date(),
-                pass_name: name,
+                passName: name,
                 expiry_date: expiry_date,
                 image: image
             )
@@ -76,8 +76,8 @@ struct PassWidgetEntryView : View {
         
     var body: some View {
         Group {
-            if let pass_name = entry.pass_name, let expiry_date = entry.expiry_date {
-                mediumLayout(name: pass_name, date: expiry_date)
+            if let passName = entry.passName, let expiry_date = entry.expiry_date {
+                mediumLayout(name: passName, date: expiry_date)
             } else {
                 ContentUnavailableView("No pass selected", systemImage: "ticket.fill")
                     .fontDesign(widgetFontDesign)
@@ -204,13 +204,13 @@ struct PassWidget: Widget {
 } timeline: {
     SimpleEntry(
         date: .now,
-        pass_name: "Mensile",
+        passName: "Mensile",
         expiry_date: Calendar.current.date(byAdding: .day, value: 30, to: Date()) ?? .now,
         image: scaleImage(data: UIImage(named: "sample_code")?.pngData(), to: 400)
     )
     SimpleEntry(
         date: .now,
-        pass_name: "Settimanale",
+        passName: "Settimanale",
         expiry_date: Calendar.current.date(byAdding: .day, value: -1, to: Date()) ?? .now,
         image: scaleImage(data: UIImage(named: "sample_code")?.pngData(), to: 400)
     )
@@ -221,7 +221,7 @@ struct PassWidget: Widget {
 } timeline: {
     SimpleEntry(
         date: .now,
-        pass_name: nil,
+        passName: nil,
         expiry_date: nil,
         image: nil
     )

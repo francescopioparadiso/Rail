@@ -17,7 +17,7 @@ struct PreparedSolutionSegment {
 
 enum SolutionSegmentResolver {
     static func resolve(_ segment: SolutionSegment) async -> PreparedSolutionSegment? {
-        let identifiers = await TrenitaliaAPI().train_list(number: segment.number, code: segment.stationCode)
+        let identifiers = await TrenitaliaAPI().trainList(number: segment.number, code: segment.stationCode)
 
         let segmentDay = Calendar.current.startOfDay(for: segment.departureTime)
         var targetIdentifier = identifiers.first
@@ -36,7 +36,7 @@ enum SolutionSegmentResolver {
         }
 
         guard let identifier = targetIdentifier,
-              let info = await TrenitaliaAPI().info(identifier: identifier, should_fetch_weather: false) else { return nil }
+              let info = await TrenitaliaAPI().info(identifier: identifier, shouldFetchWeather: false) else { return nil }
 
         return PreparedSolutionSegment(
             info: info,
@@ -73,7 +73,7 @@ enum FavoriteTrainService {
         guard !fromStation.isEmpty, !toStation.isEmpty else { return nil }
 
         if favorite.provider == "italo" {
-            if let info = await ItaloAPI().info(identifier: favorite.number, should_fetch_weather: false),
+            if let info = await ItaloAPI().info(identifier: favorite.number, shouldFetchWeather: false),
                trainContainsSegment(info: info, from: fromStation, to: toStation) {
                 return PreparedFavoriteTrain(info: info, fromStation: fromStation, toStation: toStation)
             }
@@ -82,7 +82,7 @@ enum FavoriteTrainService {
 
         if !favorite.identifier.isEmpty {
             let identifier = adjustedIdentifierForToday(favorite.identifier)
-            if let info = await TrenitaliaAPI().info(identifier: identifier, should_fetch_weather: false),
+            if let info = await TrenitaliaAPI().info(identifier: identifier, shouldFetchWeather: false),
                trainContainsSegment(info: info, from: fromStation, to: toStation) {
                 return PreparedFavoriteTrain(info: info, fromStation: fromStation, toStation: toStation)
             }
@@ -170,7 +170,7 @@ enum FavoriteTrainService {
             }
         }
 
-        reload_widget_timelines()
+        reloadWidgetTimelines()
     }
 
     private static func adjustedIdentifierForToday(_ identifier: String) -> String {
@@ -226,7 +226,7 @@ enum FavoriteTrainService {
 
                     let identifier = "\(code)/\(number)/\(timestamp)"
                     group.addTask {
-                        guard let info = await TrenitaliaAPI().info(identifier: identifier, should_fetch_weather: false),
+                        guard let info = await TrenitaliaAPI().info(identifier: identifier, shouldFetchWeather: false),
                               trainContainsSegment(info: info, from: fromStation, to: toStation) else { return nil }
                         return PreparedFavoriteTrain(info: info, fromStation: fromStation, toStation: toStation)
                     }
@@ -234,7 +234,7 @@ enum FavoriteTrainService {
 
                 if !number.isEmpty {
                     group.addTask {
-                        guard let info = await ItaloAPI().info(identifier: number, should_fetch_weather: false),
+                        guard let info = await ItaloAPI().info(identifier: number, shouldFetchWeather: false),
                               trainContainsSegment(info: info, from: fromStation, to: toStation) else { return nil }
                         return PreparedFavoriteTrain(info: info, fromStation: fromStation, toStation: toStation)
                     }
@@ -258,13 +258,13 @@ enum FavoriteTrainService {
         fromStation: String,
         toStation: String
     ) async -> PreparedFavoriteTrain? {
-        async let departureSuggestions = TrenitaliaAPI().station_autocomplete(name: fromStation)
-        async let arrivalSuggestions = TrenitaliaAPI().station_autocomplete(name: toStation)
+        async let departureSuggestions = TrenitaliaAPI().stationAutocomplete(name: fromStation)
+        async let arrivalSuggestions = TrenitaliaAPI().stationAutocomplete(name: toStation)
         let (departureResults, arrivalResults) = await (departureSuggestions, arrivalSuggestions)
         guard let departureCode = departureResults.first?.code,
               let arrivalCode = arrivalResults.first?.code else { return nil }
 
-        let solutions = await TrenitaliaAPI().train_solutions(
+        let solutions = await TrenitaliaAPI().trainSolutions(
             departureLocationId: departureCode,
             arrivalLocationId: arrivalCode,
             departureTime: Date()

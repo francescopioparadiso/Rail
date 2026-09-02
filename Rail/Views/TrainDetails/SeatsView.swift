@@ -1,15 +1,13 @@
 import SwiftUI
 import SwiftData
-import PhotosUI
 import WidgetKit
 import StoreKit
 
 struct SeatsView: View {
-    // MARK: - Properties
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.requestReview) var request_review
+    @Environment(\.requestReview) var requestReview
     @Environment(\.modelContext) private var modelContext
-    @Query private var all_seats: [Seat]
+    @Query private var allSeats: [Seat]
     @Query private var profiles: [UserProfile]
 
     let train: Train
@@ -17,7 +15,7 @@ struct SeatsView: View {
     let initialSeatID: UUID?
 
     @State private var searchText = ""
-    @State private var seat_form_presentation: SeatFormPresentation? = nil
+    @State private var seatFormPresentation: SeatFormPresentation? = nil
 
     private enum SeatFormPresentation: Identifiable {
         case new
@@ -38,12 +36,12 @@ struct SeatsView: View {
         }
     }
 
-    private var name_placeholder: String {
-        var name_count: [String: Int] = [:]
-        for seat in all_seats {
-            name_count[seat.name, default: 0] += 1
+    private var namePlaceholder: String {
+        var nameCount: [String: Int] = [:]
+        for seat in allSeats {
+            nameCount[seat.name, default: 0] += 1
         }
-        return name_count.max(by: { $0.value < $1.value })?.key ?? ""
+        return nameCount.max(by: { $0.value < $1.value })?.key ?? ""
     }
 
     private var sortedSeats: [Seat] {
@@ -62,7 +60,6 @@ struct SeatsView: View {
         sortedSeats.filter { matches($0, searchText: searchText) }
     }
 
-    // MARK: - Body
     var body: some View {
         NavigationStack {
             Group {
@@ -73,10 +70,11 @@ struct SeatsView: View {
                         description: Text("Add a new seat using the button below.")
                     )
                     .foregroundStyle(.secondary)
-                    .fontDesign(app_font_design)
+                    .fontDesign(appFontDesign)
                 } else if !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && filteredSeats.isEmpty {
                     ContentUnavailableView.search(text: searchText)
-                        .fontDesign(app_font_design)
+                        .foregroundStyle(Color.secondary)
+                        .fontDesign(appFontDesign)
                 } else {
                     List {
                         Section {
@@ -84,12 +82,17 @@ struct SeatsView: View {
                                 seatRow(seat: seat)
                             }
                             .onDelete { offsets in
-                                delete_seats(at: offsets, from: filteredSeats)
+                                deleteSeats(at: offsets, from: filteredSeats)
                             }
                         } header: {
-                            seatsCountHeader(count: filteredSeats.count)
+                            HStack(spacing: 4) {
+                                Text(filteredSeats.count, format: .number)
+                                    .contentTransition(.numericText(value: Double(filteredSeats.count)))
+                                Text(filteredSeats.count == 1 ? "seat" : "seats")
+                            }
+                            .animation(.snappy, value: filteredSeats.count)
                         }
-                        .fontDesign(app_font_design)
+                        .fontDesign(appFontDesign)
                     }
                     .listStyle(.insetGrouped)
                     .listSectionSpacing(32)
@@ -113,33 +116,32 @@ struct SeatsView: View {
                 ToolbarItem(placement: .bottomBar) {
                     Button {
                         HapticFeedback.confirm()
-                        seat_form_presentation = .new
+                        seatFormPresentation = .new
                     } label: {
                         Image(systemName: "plus")
                     }
-                    .buttonStyle(.glassProminent)
                 }
             }
             .searchable(text: $searchText, prompt: "Search seats")
-            .sheet(item: $seat_form_presentation) { presentation in
+            .sheet(item: $seatFormPresentation) { presentation in
                 SeatFormSheet(
                     train: train,
                     seatToEdit: presentation.seatToEdit,
-                    namePlaceholder: name_placeholder,
+                    namePlaceholder: namePlaceholder,
                     isFirstSeatForTrain: seats.isEmpty && presentation.seatToEdit == nil,
-                    accountName: profiles.first?.name ?? ""
+                    accountName: profiles.primary?.name ?? ""
                 )
                 .presentationDetents([.large])
             }
             .onAppear {
-                ReviewManager.shared.requestReviewIfAppropriate(action: request_review)
+                ReviewManager.shared.requestReviewIfAppropriate(action: requestReview)
 
                 if let initialID = initialSeatID, let seat = seats.first(where: { $0.id == initialID }) {
-                    seat_form_presentation = .edit(seat)
+                    seatFormPresentation = .edit(seat)
                 }
             }
         }
-        .background(app_background_color.ignoresSafeArea())
+        .background(appBackgroundColor.ignoresSafeArea())
     }
 
     private func matches(_ seat: Seat, searchText: String) -> Bool {
@@ -153,16 +155,6 @@ struct SeatsView: View {
         ]
 
         return searchableFields.contains { $0.lowercased().contains(query) }
-    }
-
-    @ViewBuilder
-    private func seatsCountHeader(count: Int) -> some View {
-        HStack(spacing: 4) {
-            Text(count, format: .number)
-                .contentTransition(.numericText(value: Double(count)))
-            Text(count == 1 ? "seat" : "seats")
-        }
-        .animation(.snappy, value: count)
     }
 
     @ViewBuilder
@@ -192,7 +184,7 @@ struct SeatsView: View {
                     .foregroundStyle(.secondary)
                 }
             }
-            .fontDesign(app_font_design)
+            .fontDesign(appFontDesign)
 
             Spacer(minLength: 0)
 
@@ -203,12 +195,11 @@ struct SeatsView: View {
         .contentShape(Rectangle())
         .onTapGesture {
             HapticFeedback.tap()
-            seat_form_presentation = .edit(seat)
+            seatFormPresentation = .edit(seat)
         }
     }
 
-    // MARK: - Functions
-    private func delete_seats(at offsets: IndexSet, from list: [Seat]) {
+    private func deleteSeats(at offsets: IndexSet, from list: [Seat]) {
         withAnimation(.snappy) {
             for index in offsets {
                 modelContext.delete(list[index])
@@ -219,365 +210,6 @@ struct SeatsView: View {
     }
 }
 
-// MARK: - Secondary Views
-
-private struct SeatFormSheet: View {
-    @Environment(\.dismiss) private var dismiss
-    @Environment(\.modelContext) private var modelContext
-
-    let train: Train
-    let seatToEdit: Seat?
-    let namePlaceholder: String
-    let isFirstSeatForTrain: Bool
-    let accountName: String
-
-    private enum FocusField: Hashable {
-        case name
-        case carriage
-        case number
-    }
-
-    @FocusState private var focused_field: FocusField?
-    @State private var name: String
-    @State private var carriage: String
-    @State private var number: String
-    @State private var picked_image: PhotosPickerItem?
-    @State private var qr_image_data: Data?
-    @State private var preview_image: UIImage?
-    @State private var image_status: image_status = .empty
-    @State private var is_processing_image = false
-    @State private var is_editing: Bool
-
-    init(train: Train, seatToEdit: Seat?, namePlaceholder: String, isFirstSeatForTrain: Bool, accountName: String) {
-        self.train = train
-        self.seatToEdit = seatToEdit
-        self.namePlaceholder = namePlaceholder
-        self.isFirstSeatForTrain = isFirstSeatForTrain
-        self.accountName = accountName
-
-        let initialName: String = {
-            if let seatToEdit {
-                return seatToEdit.name
-            }
-            if isFirstSeatForTrain {
-                let trimmedAccountName = accountName.trimmingCharacters(in: .whitespacesAndNewlines)
-                if !trimmedAccountName.isEmpty {
-                    return trimmedAccountName
-                }
-            }
-            return namePlaceholder
-        }()
-
-        _name = State(initialValue: initialName)
-        _carriage = State(initialValue: seatToEdit?.carriage ?? "")
-        _number = State(initialValue: seatToEdit?.number ?? "")
-        _qr_image_data = State(initialValue: seatToEdit?.image)
-        _image_status = State(initialValue: seatToEdit?.image != nil ? .saved : .empty)
-        _is_editing = State(initialValue: seatToEdit == nil)
-
-        if let data = seatToEdit?.image, let image = UIImage(data: data) {
-            _preview_image = State(initialValue: image)
-        }
-    }
-
-    private var is_form_editable: Bool {
-        seatToEdit == nil || is_editing
-    }
-
-    private var name_was_autofilled: Bool {
-        guard seatToEdit == nil, isFirstSeatForTrain else { return false }
-        return !accountName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    }
-
-    private var can_save: Bool {
-        guard is_form_editable, !is_processing_image, !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            return false
-        }
-
-        let hasSeatDetails = !formattedCarriage.isEmpty && !formattedNumber.isEmpty
-        return hasSeatDetails || qr_image_data != nil
-    }
-
-    var body: some View {
-        NavigationStack {
-            List {
-                Section(header: Text("Seat Information")) {
-                    LabeledContent(String(localized: "Name")) {
-                        if is_form_editable {
-                            TextField(namePlaceholder.isEmpty ? "Francesco" : namePlaceholder, text: $name)
-                                .multilineTextAlignment(.trailing)
-                                .fontDesign(app_font_design)
-                                .focused($focused_field, equals: .name)
-                                .submitLabel(.next)
-                                .onSubmit {
-                                    focused_field = .carriage
-                                }
-                                .onChange(of: name) { _, new_value in
-                                    if new_value.count >= 15 {
-                                        name = String(new_value.prefix(15))
-                                    }
-                                }
-                        } else {
-                            Text(name)
-                                .multilineTextAlignment(.trailing)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-
-                    LabeledContent(String(localized: "Carriage")) {
-                        if is_form_editable {
-                            TextField("22", text: $carriage)
-                                .multilineTextAlignment(.trailing)
-                                .keyboardType(.numbersAndPunctuation)
-                                .fontDesign(app_font_design)
-                                .focused($focused_field, equals: .carriage)
-                                .submitLabel(.next)
-                                .onSubmit {
-                                    focused_field = .number
-                                }
-                                .onChange(of: carriage) { _, new_value in
-                                    if new_value.count >= 2 {
-                                        carriage = String(new_value.prefix(2))
-                                        focused_field = .number
-                                    }
-                                }
-                        } else {
-                            Text(carriage.isEmpty ? "—" : carriage)
-                                .multilineTextAlignment(.trailing)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-
-                    LabeledContent(String(localized: "Seat")) {
-                        if is_form_editable {
-                            TextField("15A", text: $number)
-                                .multilineTextAlignment(.trailing)
-                                .keyboardType(.numbersAndPunctuation)
-                                .fontDesign(app_font_design)
-                                .focused($focused_field, equals: .number)
-                                .submitLabel(.done)
-                                .onSubmit {
-                                    focused_field = nil
-                                }
-                                .onChange(of: number) { _, new_value in
-                                    if new_value.count >= 3 {
-                                        number = String(new_value.prefix(3))
-                                    }
-                                }
-                        } else {
-                            Text(number.isEmpty ? "—" : number)
-                                .multilineTextAlignment(.trailing)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                }
-
-                Section {
-                    Group {
-                        if is_form_editable {
-                            PhotosPicker(selection: $picked_image, matching: .images) {
-                                qrCodePreview
-                            }
-                            .buttonStyle(.plain)
-                            .onChange(of: picked_image) { _, newItem in
-                                process_image(newItem: newItem)
-                            }
-                        } else {
-                            qrCodePreview
-                        }
-                    }
-                    .listRowSeparator(.hidden)
-                } header: {
-                    Text("QR Code")
-                } footer: {
-                    if is_form_editable {
-                        if image_status == .error {
-                            Text("Couldn't detect a QR code in that photo. Try another image.")
-                                .foregroundStyle(.red)
-                        } else {
-                            Text("Tap the photo area to choose an image or tap it again to change it.")
-                        }
-                    }
-                }
-            }
-            .listStyle(.insetGrouped)
-            .fontDesign(app_font_design)
-            .navigationTitle(seatToEdit == nil ? String(localized: "New Seat") : String(localized: "Edit Seat"))
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button {
-                        dismiss()
-                    } label: {
-                        Image(systemName: "xmark")
-                    }
-                }
-
-                ToolbarItem(placement: .topBarTrailing) {
-                    if seatToEdit != nil && !is_editing {
-                        Button(String(localized: "Edit")) {
-                            HapticFeedback.confirm()
-                            withAnimation(.snappy) {
-                                is_editing = true
-                            }
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                                focused_field = .name
-                            }
-                        }
-                    }
-                }
-
-                ToolbarItem(placement: .confirmationAction) {
-                    if seatToEdit == nil || is_editing {
-                        Button {
-                            save_seat()
-                        } label: {
-                            Image(systemName: "checkmark")
-                        }
-                        .buttonStyle(.glassProminent)
-                        .disabled(!can_save)
-                    }
-                }
-            }
-        }
-        .onAppear {
-            guard seatToEdit == nil else { return }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                focused_field = name_was_autofilled ? .carriage : .name
-            }
-        }
-        .background(app_background_color)
-    }
-
-    @ViewBuilder
-    private var qrCodePreview: some View {
-        Group {
-            if is_processing_image {
-                VStack(spacing: 12) {
-                    ProgressView()
-                    Text("Processing photo…")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                }
-                .frame(maxWidth: .infinity, minHeight: 160)
-            } else if let preview_image {
-                Image(uiImage: preview_image)
-                    .resizable()
-                    .interpolation(.none)
-                    .scaledToFit()
-                    .frame(maxWidth: .infinity)
-                    .padding(8)
-                    .frame(maxWidth: .infinity)
-                    .background(Color.white)
-                    .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-            } else {
-                VStack(spacing: 10) {
-                    Image(systemName: "photo.on.rectangle.angled")
-                        .font(.system(size: 34, weight: .regular))
-                        .foregroundStyle(.tertiary)
-
-                    Text("Add Photo")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                }
-                .frame(maxWidth: .infinity, minHeight: 160)
-            }
-        }
-        .frame(maxWidth: .infinity)
-    }
-
-    private var formattedCarriage: String {
-        let clean = carriage.filter { $0.isNumber }
-        return String(clean.prefix(2))
-    }
-
-    private var formattedNumber: String {
-        let clean = number.filter { $0.isLetter || $0.isNumber }
-        return String(clean.prefix(3)).uppercased()
-    }
-
-    private var formattedName: String {
-        let clean = name.filter { $0.isLetter || $0.isNumber }
-        guard let first = clean.first else { return "" }
-        return String(first).uppercased() + clean.dropFirst().lowercased()
-    }
-
-    private func save_seat() {
-        HapticFeedback.impactHeavy()
-
-        if let seat = seatToEdit {
-            seat.name = formattedName
-            seat.carriage = formattedCarriage
-            seat.number = formattedNumber
-            seat.image = qr_image_data
-        } else {
-            let new_seat = Seat(
-                id: UUID(),
-                trainID: train.id,
-                name: formattedName,
-                carriage: formattedCarriage,
-                number: formattedNumber,
-                image: qr_image_data
-            )
-            modelContext.insert(new_seat)
-        }
-
-        try? modelContext.save()
-        WidgetCenter.shared.reloadAllTimelines()
-        dismiss()
-    }
-
-    private func process_image(newItem: PhotosPickerItem?) {
-        guard let newItem else { return }
-
-        is_processing_image = true
-        image_status = .empty
-        qr_image_data = nil
-        preview_image = nil
-
-        Task {
-            do {
-                if let data = try await newItem.loadTransferable(type: Data.self) {
-                    if let originalImage = UIImage(data: data) {
-                        await MainActor.run {
-                            preview_image = originalImage
-                        }
-                    }
-
-                    let processedData = await cropCodeFromImage(originalData: data)
-
-                    await MainActor.run {
-                        is_processing_image = false
-                        qr_image_data = processedData
-                        if let processedData, let processedImage = UIImage(data: processedData) {
-                            preview_image = processedImage
-                            image_status = .saved
-                        } else {
-                            image_status = .error
-                        }
-                    }
-                } else {
-                    await MainActor.run {
-                        is_processing_image = false
-                        image_status = .error
-                    }
-                }
-            } catch {
-                await MainActor.run {
-                    is_processing_image = false
-                    image_status = .error
-                }
-            }
-
-            if await MainActor.run(body: { image_status }) == .error {
-                try? await Task.sleep(nanoseconds: 1_000_000_000)
-                await MainActor.run { image_status = .empty }
-            }
-        }
-    }
-}
-
-// MARK: - Previews
 #Preview("Populated List") {
     let schema = Schema([Train.self, Seat.self])
     let config = ModelConfiguration(isStoredInMemoryOnly: true)

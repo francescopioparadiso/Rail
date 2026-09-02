@@ -2,222 +2,323 @@ import SwiftUI
 import SwiftData
 import StoreKit
 
-let app_font_design: Font.Design = .rounded
-let app_background_color = Color(.secondarySystemBackground)
-
-extension ToolbarContent {
-    @ToolbarContentBuilder
-    func blendedToolbarItemBackground() -> some ToolbarContent {
-        sharedBackgroundVisibility(.hidden)
-    }
-}
-
-// MARK: - Enums
-
-enum current_tab: Hashable {
+enum MainTab: Hashable {
     case past
     case today
 }
 
 struct ContentView: View {
-    // MARK: - Properties
-    // enviroment variables
     @Environment(\.requestReview) var requestReview
     @Environment(\.modelContext) private var modelContext
 
-    @State private var selectedSection: current_tab = .today
+    @State private var selectedSection: MainTab = .today
     @State private var searchText = ""
     @State private var navigationPath: [Train] = []
 
     @Query(sort: \Favorite.index) private var favorites: [Favorite]
     @Query private var profiles: [UserProfile]
-    // sheet variables
-    @State private var profile_sheet = false
-    @State private var add_train_sheet = false
-    @State private var add_pass_sheet = false
+    @Query private var trains: [Train]
+    @State private var profileSheet = false
+    @State private var addTrainSheet = false
+    @State private var addPassSheet = false
     @State private var openPrincipalPassQR = false
-    @State private var favorite_trains_sheet = false
-    @State private var email_import_sheet = false
+    @State private var favoriteTrainsSheet = false
+    @State private var emailImportSheet = false
+    @State private var fetchSheetDetent: PresentationDetent = .medium
+    @State private var ticketSyncProgresses: [String: EmailTicketSyncProgress] = [:]
+    @State private var isFetchingEmailTickets = false
+    @State private var showFetchResultCard = false
+    @State private var fetchedTicketsCount = 0
+    @State private var emailFetchTask: Task<Void, Never>?
+    @State private var accountProgresses: [AccountSyncProgress] = []
+    @State private var hasStartedAutoFetch = false
+    @State private var fetchingAccountEmails: [String] = []
 
-    @State private var favorite_preload_states: [UUID: PreloadState] = [:]
-    @State private var prepared_favorite_trains: [UUID: PreparedFavoriteTrain] = [:]
-    @State private var favorite_preload_task: Task<Void, Never>?
-    @State private var favorite_refresh_generation = 0
-    @State private var has_preloaded_favorites = false
+    @State private var favoritePreloadStates: [UUID: PreloadState] = [:]
+    @State private var preparedFavoriteTrains: [UUID: PreparedFavoriteTrain] = [:]
+    @State private var favoritePreloadTask: Task<Void, Never>?
+    @State private var favoriteRefreshGeneration = 0
+    @State private var hasPreloadedFavorites = false
     
-    // deep link variables
     @State private var ticketTrainID: UUID? = nil
     @State private var ticketSeatID: UUID? = nil
-    @State private var show_ticket_view = false
+    @State private var showTicketView = false
+
+    private var fetchEmailAddressesText: String {
+        if !fetchingAccountEmails.isEmpty {
+            return fetchingAccountEmails.joined(separator: "\n")
+        }
+        return ticketSyncProgresses.values.first?.accountEmail
+            ?? profiles.primary?.emails.filter(\.hasConfiguredCredentials).map(\.email).joined(separator: "\n")
+            ?? ""
+    }
+
+    private var fetchEmailsDownloaded: Int {
+        ticketSyncProgresses.values.map(\.emailsDownloaded).reduce(0, +)
+    }
+
+    private var fetchEmailsFound: Int {
+        let found = ticketSyncProgresses.values.map(\.emailsFound).reduce(0, +)
+        return found > 0 ? found : fetchedTicketsCount
+    }
+
+    /// Upcoming email tickets that have not been added to the app yet.
+    private var newTrainsCount: Int {
+        guard let profile = profiles.primary else { return 0 }
+        let imported = Set(trains.compactMap(\.sourceEmailTicketID))
+        return EmailTicketSyncService.tickets(from: profile)
+            .filter { $0.ticket.isImportEligible && !imported.contains($0.ticket.id) }
+            .count
+    }
+
+    private var showsFetchToolbarButton: Bool {
+        isFetchingEmailTickets || showFetchResultCard
+    }
     
-    // MARK: - Body
     var body: some View {
+        navigationRoot
+            .background(appBackgroundColor.ignoresSafeArea())
+            .handlesSharedTrains { section in
+                // surface the imported journey instead of leaving it buried
+                withAnimation(.snappy) {
+                    profileSheet = false
+                    addTrainSheet = false
+                    addPassSheet = false
+                    favoriteTrainsSheet = false
+                    emailImportSheet = false
+                    navigationPath = []
+                    selectedSection = section
+                }
+            }
+            .onChange(of: selectedSection) { _, _ in
+                navigationPath = []
+            }
+            .onAppear(perform: handleAppear)
+            .task {
+                await UserProfile.maintainSyncedProfile(in: modelContext)
+            }
+            .onChange(of: profiles.count) { _, _ in
+                UserProfile.reconcile(in: modelContext, createIfNeeded: false)
+            }
+            .onChange(of: favoriteTrainsSheet) { _, isOpen in
+                if isOpen {
+                    hasPreloadedFavorites = true
+                    reloadPreloadedFavorites()
+                }
+            }
+            .onChange(of: favorites.map(\.id)) { _, _ in
+                guard hasPreloadedFavorites || favoriteTrainsSheet else { return }
+                reloadPreloadedFavorites()
+            }
+            .onDisappear {
+                favoritePreloadTask?.cancel()
+                emailFetchTask?.cancel()
+            }
+            .sheet(isPresented: $profileSheet) {
+                ProfileView()
+            }
+            .sheet(isPresented: $addTrainSheet) {
+                AddTrainView(focusInitially: true)
+            }
+            .sheet(isPresented: $addPassSheet) {
+                PassView(openPrincipalPassQR: openPrincipalPassQR)
+            }
+            .onChange(of: addPassSheet) { _, isPresented in
+                if !isPresented {
+                    openPrincipalPassQR = false
+                }
+            }
+            .sheet(isPresented: $favoriteTrainsSheet) {
+                FavoriteTrainsView(
+                    preloadStates: $favoritePreloadStates,
+                    preparedTrains: $preparedFavoriteTrains,
+                    onTrainAdded: { selectedSection = .today }
+                )
+            }
+            .sheet(isPresented: $emailImportSheet) {
+                emailImportSheetContent
+            }
+            .onOpenURL(perform: handleOpenURL)
+    }
+
+    private var navigationRoot: some View {
         NavigationStack(path: $navigationPath) {
-            ZStack {
-                PastView(
-                    ticketTrainID: $ticketTrainID,
-                    ticketSeatID: $ticketSeatID,
-                    show_ticket_view: $show_ticket_view,
-                    searchText: $searchText,
-                    navigationPath: $navigationPath,
-                    isActive: selectedSection == .past
-                )
-                .opacity(selectedSection == .past ? 1 : 0)
-                .allowsHitTesting(selectedSection == .past)
-
-                TodayView(
-                    ticketTrainID: $ticketTrainID,
-                    ticketSeatID: $ticketSeatID,
-                    show_ticket_view: $show_ticket_view,
-                    searchText: $searchText,
-                    navigationPath: $navigationPath,
-                    isActive: selectedSection == .today
-                )
-                .opacity(selectedSection == .today ? 1 : 0)
-                .allowsHitTesting(selectedSection == .today)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(app_background_color)
-            .navigationDestination(for: Train.self) { train in
-                DetailsView(
-                    train: train,
-                    show_ticket_initially: $show_ticket_view,
-                    ticketSeatID: $ticketSeatID
-                )
-            }
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    sectionMenu
+            sectionContent
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(appBackgroundColor)
+                .navigationDestination(for: Train.self) { train in
+                    DetailsView(
+                        train: train,
+                        showTicketInitially: $showTicketView,
+                        ticketSeatID: $ticketSeatID
+                    )
                 }
-                .blendedToolbarItemBackground()
+                .toolbar { mainToolbar }
+                .searchable(text: $searchText, prompt: "Search")
+        }
+    }
 
-                ToolbarItem(placement: .topBarTrailing) {
-                    ProfileToolbarButton(profileSheet: $profile_sheet)
-                }
-                .blendedToolbarItemBackground()
-
-                ToolbarItem(placement: .bottomBar) {
-                    Button {
-                        HapticFeedback.confirm()
-                        add_pass_sheet = true
-                    } label: {
-                        Image(systemName: "ticket")
-                    }
-                }
-
-                ToolbarSpacer(.fixed, placement: .bottomBar)
-
-                DefaultToolbarItem(kind: .search, placement: .bottomBar)
-
-                ToolbarSpacer(.flexible, placement: .bottomBar)
-
-                ToolbarItem(placement: .bottomBar) {
-                    Menu {
-                        Button {
-                            HapticFeedback.confirm()
-                            add_train_sheet = true
-                        } label: {
-                            Label("Manual entry", systemImage: "keyboard")
-                        }
-
-                        Button {
-                            HapticFeedback.confirm()
-                            email_import_sheet = true
-                        } label: {
-                            Label("From email", systemImage: "envelope")
-                        }
-
-                        Button {
-                            HapticFeedback.confirm()
-                            favorite_trains_sheet = true
-                        } label: {
-                            Label("Favorites", systemImage: "heart.fill")
-                        }
-                    } label: {
-                        Image(systemName: "plus")
-                            .imageScale(.large)
-                    }
-                }
-            }
-            .searchable(text: $searchText, prompt: "Search trains")
-        }
-        .background(app_background_color.ignoresSafeArea())
-        .onChange(of: selectedSection) { _, _ in
-            navigationPath = []
-        }
-        .onAppear {
-            ReviewManager.shared.requestReviewIfAppropriate(action: requestReview)
-            ensureDefaultProfile()
-        }
-        .onChange(of: favorite_trains_sheet) { _, isOpen in
-            if isOpen {
-                has_preloaded_favorites = true
-                reload_preloaded_favorites()
-            }
-        }
-        .onChange(of: favorites.map(\.id)) { _, _ in
-            guard has_preloaded_favorites || favorite_trains_sheet else { return }
-            reload_preloaded_favorites()
-        }
-        .onDisappear {
-            favorite_preload_task?.cancel()
-        }
-        .sheet(isPresented: $profile_sheet) {
-            ProfileView()
-        }
-        .sheet(isPresented: $add_train_sheet) {
-            AddTrainView(focus_initially: true)
-        }
-        .sheet(isPresented: $add_pass_sheet) {
-            PassView(openPrincipalPassQR: openPrincipalPassQR)
-        }
-        .onChange(of: add_pass_sheet) { _, isPresented in
-            if !isPresented {
-                openPrincipalPassQR = false
-            }
-        }
-        .sheet(isPresented: $favorite_trains_sheet) {
-            FavoriteTrainsView(
-                preloadStates: $favorite_preload_states,
-                preparedTrains: $prepared_favorite_trains,
-                onTrainAdded: { selectedSection = .today }
+    private var sectionContent: some View {
+        ZStack {
+            PastView(
+                ticketTrainID: $ticketTrainID,
+                ticketSeatID: $ticketSeatID,
+                showTicketView: $showTicketView,
+                searchText: $searchText,
+                navigationPath: $navigationPath,
+                isActive: selectedSection == .past
             )
-        }
-        .sheet(isPresented: $email_import_sheet) {
-            EmailTrainImportView(
-                onTrainAdded: { selectedSection = .today }
+            .opacity(selectedSection == .past ? 1 : 0)
+            .allowsHitTesting(selectedSection == .past)
+
+            TodayView(
+                ticketTrainID: $ticketTrainID,
+                ticketSeatID: $ticketSeatID,
+                showTicketView: $showTicketView,
+                searchText: $searchText,
+                navigationPath: $navigationPath,
+                isActive: selectedSection == .today
             )
+            .opacity(selectedSection == .today ? 1 : 0)
+            .allowsHitTesting(selectedSection == .today)
         }
-        .onOpenURL { url in
-            if url.scheme == "railapp" && url.host == "view-pass" {
-                openPrincipalPassQR = true
-                if !add_pass_sheet {
-                    add_pass_sheet = true
+    }
+
+    @ToolbarContentBuilder
+    private var mainToolbar: some ToolbarContent {
+        ToolbarItem(placement: .topBarLeading) {
+            ProfileToolbarButton(profileSheet: $profileSheet)
+                .padding(.trailing, 2)
+        }
+        .blendedToolbarItemBackground()
+
+        ToolbarItem(placement: .topBarLeading) {
+            sectionMenu
+        }
+        .blendedToolbarItemBackground()
+
+        if showsFetchToolbarButton {
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    openEmailFetchSheet()
+                } label: {
+                    emailFetchToolbarLabel
                 }
-            } else if url.scheme == "railapp" && (url.host == "view-ticket" || url.host == "view-train") {
-                if let components = URLComponents(url: url, resolvingAgainstBaseURL: false) {
-                    if let trainIDItem = components.queryItems?.first(where: { $0.name == "trainID" }),
-                       let trainIDValue = trainIDItem.value,
-                       let trainID = UUID(uuidString: trainIDValue) {
-                        
-                        self.ticketTrainID = trainID
-                        
-                        if let seatIDItem = components.queryItems?.first(where: { $0.name == "seatID" }),
-                           let seatIDValue = seatIDItem.value {
-                            self.ticketSeatID = UUID(uuidString: seatIDValue)
-                        } else {
-                            self.ticketSeatID = nil
-                        }
-                        
-                        self.show_ticket_view = url.host == "view-ticket"
-                        self.selectedSection = .today
-                    }
-                }
+                .fontDesign(appFontDesign)
+                .buttonStyle(.glassProminent)
+                .tint(isFetchingEmailTickets ? Color.clear : Color.blue.opacity(0.15))
+            }
+        }
+
+        ToolbarItem(placement: .bottomBar) {
+            Button {
+                HapticFeedback.confirm()
+                addPassSheet = true
+            } label: {
+                Image(systemName: "ticket")
+            }
+        }
+
+        ToolbarSpacer(.fixed, placement: .bottomBar)
+
+        DefaultToolbarItem(kind: .search, placement: .bottomBar)
+
+        ToolbarSpacer(.fixed, placement: .bottomBar)
+
+        ToolbarItem(placement: .bottomBar) {
+            Button {
+                HapticFeedback.confirm()
+                favoriteTrainsSheet = true
+            } label: {
+                Label("Favorites", systemImage: "heart")
+            }
+        }
+
+        ToolbarItem(placement: .bottomBar) {
+            Button {
+                HapticFeedback.confirm()
+                addTrainSheet = true
+            } label: {
+                Image(systemName: "plus")
             }
         }
     }
 
-    // MARK: - Computed Properties
+    @ViewBuilder
+    private var emailFetchToolbarLabel: some View {
+        let isFetching = isFetchingEmailTickets
+        let color = isFetching ? Color.primary : Color.blue
+        
+        let text: String = {
+            if isFetching {
+                return fetchToolbarProgressTitle
+            } else {
+                return "\(newTrainsCount)"
+            }
+        }()
+
+        HStack(spacing: 8) {
+            Group {
+                if isFetching {
+                    Image(systemName: "progress.indicator")
+                        .symbolEffect(.rotate.byLayer, options: .repeat(.continuous))
+                } else {
+                    Image(systemName: "envelope.badge")
+                }
+            }
+            .contentTransition(.symbolEffect(.replace.downUp.wholeSymbol, options: .nonRepeating))
+            .foregroundStyle(color)
+            
+            Text(text)
+                .foregroundStyle(color)
+                .contentTransition(.numericText(value: Double(isFetching ? fetchEmailsDownloaded : newTrainsCount)))
+                .animation(.snappy, value: text)
+        }
+        .font(.callout).fontWeight(.medium).fontDesign(appFontDesign)
+        .animation(.snappy, value: isFetching)
+    }
+
+    private var emailImportSheetContent: some View {
+        NavigationStack {
+            Group {
+                if isFetchingEmailTickets {
+                    EmailSyncProgressView(
+                        isFetching: isFetchingEmailTickets,
+                        progressTitle: fetchProgressTitle,
+                        globalPercentage: Double(fetchGlobalPercentage),
+                        accountProgresses: accountProgresses,
+                        progressSublabel: fetchProgressSublabel
+                    ) {
+                        emailFetchTask?.cancel()
+                        emailFetchTask = Task {
+                            await fetchEmailTickets(reloadAll: true)
+                        }
+                    }
+                        .transition(.opacity.combined(with: .scale(scale: 0.98)))
+                } else {
+                    EmailTrainImportView(
+                        autoScanOnAppear: false,
+                        onTrainAdded: { selectedSection = .today },
+                        onReloadRequested: {
+                            triggerEmailTicketRefresh(reloadAll: true)
+                        }
+                    )
+                    .transition(.opacity.combined(with: .scale(scale: 0.98)))
+                }
+            }
+            .animation(.spring(response: 0.4, dampingFraction: 0.8), value: isFetchingEmailTickets)
+        }
+        .presentationDetents(
+            isFetchingEmailTickets ? [.medium] : [.large],
+            selection: $fetchSheetDetent
+        )
+        .presentationDragIndicator(.hidden)
+        .presentationBackground(appBackgroundColor)
+        .onChange(of: isFetchingEmailTickets) { _, isFetching in
+            fetchSheetDetent = isFetching ? .medium : .large
+        }
+    }
+
     private var sectionTitle: String {
         selectedSection == .today ? "Today" : "Past"
     }
@@ -254,48 +355,213 @@ struct ContentView: View {
                 }
             }
         } label: {
-            HStack(alignment: .center, spacing: 6) {
-                ZStack(alignment: .leading) {
-                    Text("Today").opacity(0)
-                    Text(sectionTitle)
-                }
-                .font(.largeTitle).fontWeight(.bold).fontDesign(app_font_design)
-                .fixedSize(horizontal: true, vertical: false)
+            // Keep a stable max-width footprint (Today + chevron) so iOS 26's
+            // menu morph doesn't clip the label when the title gets wider.
+            ZStack(alignment: .leading) {
+                sectionMenuLabel("Today")
+                    .opacity(0)
+                    .accessibilityHidden(true)
 
-                Image(systemName: "chevron.up.chevron.down")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(.secondary)
-                    .frame(width: 16, height: 16)
+                sectionMenuLabel(sectionTitle)
             }
-            .animation(nil, value: selectedSection)
+            .fixedSize()
         }
         .menuStyle(.borderlessButton)
         .buttonStyle(.plain)
-        .padding(.leading, -8)
+        .padding(.leading, -24)
     }
 
-    // MARK: - Functions
-    private func reload_preloaded_favorites() {
-        favorite_preload_task?.cancel()
-        favorite_preload_task = Task {
-            await refresh_preloaded_favorites()
+    private func sectionMenuLabel(_ title: String) -> some View {
+        HStack(alignment: .center, spacing: 4) {
+            Text(title)
+                .font(.title).fontWeight(.bold).fontDesign(appFontDesign)
+
+            Image(systemName: "chevron.up.chevron.down")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(.secondary)
+                .accessibilityHidden(true)
         }
     }
 
-    private func ensureDefaultProfile() {
-        guard profiles.isEmpty else { return }
-        modelContext.insert(UserProfile())
-        try? modelContext.save()
+    private func handleAppear() {
+        ReviewManager.shared.requestReviewIfAppropriate(action: requestReview)
+        if !hasStartedAutoFetch {
+            hasStartedAutoFetch = true
+            triggerEmailTicketRefresh()
+        }
     }
 
-    private func refresh_preloaded_favorites() async {
-        favorite_refresh_generation &+= 1
-        let generation = favorite_refresh_generation
+    private func handleOpenURL(_ url: URL) {
+        if url.scheme == "railapp" && url.host == "view-pass" {
+            openPrincipalPassQR = true
+            if !addPassSheet {
+                addPassSheet = true
+            }
+            return
+        }
+
+        guard url.scheme == "railapp",
+              url.host == "view-ticket" || url.host == "view-train",
+              let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              let trainIDItem = components.queryItems?.first(where: { $0.name == "trainID" }),
+              let trainIDValue = trainIDItem.value,
+              let trainID = UUID(uuidString: trainIDValue) else {
+            return
+        }
+
+        ticketTrainID = trainID
+
+        if let seatIDItem = components.queryItems?.first(where: { $0.name == "seatID" }),
+           let seatIDValue = seatIDItem.value {
+            ticketSeatID = UUID(uuidString: seatIDValue)
+        } else {
+            ticketSeatID = nil
+        }
+
+        showTicketView = url.host == "view-ticket"
+        selectedSection = .today
+    }
+
+    private var fetchProgressTitle: String {
+        if ticketSyncProgresses.isEmpty {
+            return String(localized: "Connecting…")
+        }
+        if ticketSyncProgresses.values.allSatisfy({ $0.stage == .searching }) {
+            return String(localized: "Searching…")
+        }
+        if ticketSyncProgresses.values.allSatisfy({ $0.stage == .finished }) {
+            return String(localized: "Finishing up…")
+        }
+        return String(localized: "Fetching \(fetchGlobalPercentage)%")
+    }
+
+    /// The toolbar shows the percentage alone — the spinning glyph beside it already
+    /// says a fetch is running, so the word would only repeat it.
+    private var fetchToolbarProgressTitle: String {
+        if ticketSyncProgresses.isEmpty {
+            return String(localized: "Connecting…")
+        }
+        if ticketSyncProgresses.values.allSatisfy({ $0.stage == .searching }) {
+            return String(localized: "Searching…")
+        }
+        if ticketSyncProgresses.values.allSatisfy({ $0.stage == .finished }) {
+            return String(localized: "Finishing up…")
+        }
+        return "\(fetchGlobalPercentage)%"
+    }
+
+    private var fetchGlobalPercentage: Int {
+        let totalFound = accountProgresses.reduce(0) { $0 + $1.found }
+        let totalProcessed = accountProgresses.reduce(0) { $0 + $1.processed }
+        guard totalFound > 0 else { return 0 }
+        return min(100, Int((Double(totalProcessed) / Double(totalFound)) * 100))
+    }
+
+    private var fetchProgressSublabel: String? {
+        if ticketSyncProgresses.isEmpty {
+            return String(localized: "This can take a moment on the first scan.")
+        }
+        return nil
+    }
+
+    private func openEmailFetchSheet() {
+        HapticFeedback.tap()
+        fetchSheetDetent = isFetchingEmailTickets ? .medium : .large
+        emailImportSheet = true
+    }
+
+    private func triggerEmailTicketRefresh(reloadAll: Bool = false) {
+        guard !isFetchingEmailTickets else { return }
+        emailFetchTask = Task {
+            await fetchEmailTickets(reloadAll: reloadAll)
+        }
+    }
+
+    @MainActor
+    private func fetchEmailTickets(reloadAll: Bool = false) async {
+        guard let profile = profiles.primary else { return }
+        isFetchingEmailTickets = true
+        showFetchResultCard = false
+        ticketSyncProgresses = [:]
+        accountProgresses = []
+
+        let configured = profile.emails.filter(\.hasConfiguredCredentials)
+        fetchingAccountEmails = configured.map(\.email)
+        accountProgresses = configured.map { AccountSyncProgress(email: $0.email, found: 0, processed: 0) }
+        
+        let accounts = await validatedEmailAccounts(from: profile)
+
+        await withTaskGroup(of: Void.self) { group in
+            for account in accounts {
+                group.addTask { @MainActor in
+                    guard let progressIndex = accountProgresses.firstIndex(where: { $0.email == account.email }) else { return }
+                    do {
+                        _ = try await EmailTicketSyncService.syncAccount(
+                            accountID: account.id,
+                            profile: profile,
+                            modelContext: modelContext,
+                            reloadAll: reloadAll
+                        ) { progress in
+                            ticketSyncProgresses[progress.accountEmail] = progress
+                            if progress.stage == .downloading || progress.stage == .fetchingDetails {
+                                accountProgresses[progressIndex].found = progress.emailsFound
+                                accountProgresses[progressIndex].processed = progress.emailsDownloaded
+                            }
+                        }
+                        accountProgresses[progressIndex].processed = accountProgresses[progressIndex].found
+                    } catch {
+                    }
+                }
+            }
+        }
+
+        if !Task.isCancelled {
+            fetchedTicketsCount = EmailTicketSyncService.tickets(from: profile).count
+            isFetchingEmailTickets = false
+            showFetchResultCard = true
+        }
+    }
+
+    @MainActor
+    private func validatedEmailAccounts(from profile: UserProfile) async -> [Emails] {
+        var validAccounts: [Emails] = []
+        let configured = profile.emails.filter(\.hasConfiguredCredentials)
+        await withTaskGroup(of: Emails?.self) { group in
+            for account in configured {
+                group.addTask {
+                    guard !Task.isCancelled else { return nil }
+                    do {
+                        try await EmailTrainFetcher(account: account).verifyCredentials()
+                        return account
+                    } catch {
+                        return nil
+                    }
+                }
+            }
+            for await result in group {
+                if let account = result {
+                    validAccounts.append(account)
+                }
+            }
+        }
+        return validAccounts
+    }
+
+    private func reloadPreloadedFavorites() {
+        favoritePreloadTask?.cancel()
+        favoritePreloadTask = Task {
+            await refreshPreloadedFavorites()
+        }
+    }
+
+    private func refreshPreloadedFavorites() async {
+        favoriteRefreshGeneration &+= 1
+        let generation = favoriteRefreshGeneration
 
         let currentFavorites = favorites
         await MainActor.run {
-            favorite_preload_states = Dictionary(uniqueKeysWithValues: currentFavorites.map { ($0.id, PreloadState.loading) })
-            prepared_favorite_trains = [:]
+            favoritePreloadStates = Dictionary(uniqueKeysWithValues: currentFavorites.map { ($0.id, PreloadState.loading) })
+            preparedFavoriteTrains = [:]
         }
 
         await withTaskGroup(of: (UUID, PreparedFavoriteTrain?).self) { group in
@@ -309,10 +575,10 @@ struct ContentView: View {
 
             for await (favoriteID, prepared) in group {
                 await MainActor.run {
-                    guard generation == favorite_refresh_generation else { return }
+                    guard generation == favoriteRefreshGeneration else { return }
 
-                    var states = favorite_preload_states
-                    var trains = prepared_favorite_trains
+                    var states = favoritePreloadStates
+                    var trains = preparedFavoriteTrains
 
                     if let prepared {
                         trains[favoriteID] = prepared
@@ -322,8 +588,8 @@ struct ContentView: View {
                         states[favoriteID] = .unavailable
                     }
 
-                    favorite_preload_states = states
-                    prepared_favorite_trains = trains
+                    favoritePreloadStates = states
+                    preparedFavoriteTrains = trains
                 }
             }
         }
@@ -346,23 +612,22 @@ private struct ProfileToolbarButton: View {
                     Image(uiImage: profileImage)
                         .resizable()
                         .scaledToFill()
-                        .frame(width: 38, height: 38)
+                        .frame(width: 32, height: 32)
                         .clipShape(Circle())
                 } else {
                     Image(systemName: "person.crop.circle")
                         .resizable()
                         .scaledToFit()
-                        .frame(width: 38, height: 38)
+                        .frame(width: 32, height: 32)
                 }
             }
         }
-        .buttonStyle(.plain)
         .onAppear { refreshImage() }
-        .onChange(of: profiles.first?.photo) { _, _ in refreshImage() }
+        .onChange(of: profiles.primary?.photo) { _, _ in refreshImage() }
     }
 
     private func refreshImage() {
-        let photoData = profiles.first?.photo
+        let photoData = profiles.primary?.photo
         Task {
             let image = await Task.detached(priority: .utility) {
                 photoData.flatMap { UIImage(data: $0) }
@@ -373,8 +638,6 @@ private struct ProfileToolbarButton: View {
         }
     }
 }
-
-// MARK: - Previews
 
 private struct ContentViewEmailImportPreview: View {
     let container: ModelContainer
@@ -389,12 +652,30 @@ private struct ContentViewEmailImportPreview: View {
     }
 }
 
-#Preview("Content View") {
-    // MARK: - SwiftData Setup
+@MainActor
+fileprivate let previewContainer: ModelContainer = {
     let schema = Schema([Train.self, Stop.self, Seat.self, Favorite.self, Pass.self, UserProfile.self])
     let config = ModelConfiguration(isStoredInMemoryOnly: true)
     let container = try! ModelContainer(for: schema, configurations: config)
     let context = container.mainContext
+    
+    container.mainContext.insert(
+        UserProfile(
+            name: "Francesco",
+            emails: [
+                Emails(
+                    provider: .apple,
+                    email: PreviewCredentials.appleEmail,
+                    appPassword: PreviewCredentials.appleAppPassword
+                ),
+                Emails(
+                    provider: .google,
+                    email: PreviewCredentials.googleEmail,
+                    appPassword: PreviewCredentials.googleAppPassword
+                )
+            ]
+        )
+    )
     
     func time(_ hour: Int, _ min: Int) -> Date {
         Calendar.current.date(bySettingHour: hour, minute: min, second: 0, of: Date()) ?? .distantPast
@@ -402,14 +683,12 @@ private struct ContentViewEmailImportPreview: View {
     
     let mockImageData = UIImage(named: "sample_code")?.pngData()
     
-    // MARK: - Trains & Stops Data
     let train1 = Train(id: UUID(), logo: "ITALO", number: "9904", identifier: "IT9904", provider: "italo", last_update_time: Date(), delay: -2, direction: "Milano Centrale", issue: "")
     let train2 = Train(id: UUID(), logo: "REG", number: "3224", identifier: "REG3224", provider: "trenitalia", last_update_time: Date(), delay: 5, direction: "Carmagnola", issue: "Corsa terminata a Carmagnola per un guasto sulla linea.")
     let train3 = Train(id: UUID(), logo: "REG", number: "3223", identifier: "REG3223", provider: "trenitalia", last_update_time: Date(), delay: 0, direction: "Savigliano", issue: "")
     
     [train1, train2, train3].forEach { context.insert($0) }
     
-    // Train 2 Journey Details (with delays and status variations)
     let stopData2: [(String, Int, Int, String, Int, Int, Int, String)] = [
         ("Cuneo", 9, 24, "☀️ 10°C", 0, 0, 0, "3"),
         ("Centallo", 9, 34, "☀️ 10°C", 0, -2, -1, "1"),
@@ -447,7 +726,6 @@ private struct ContentViewEmailImportPreview: View {
     context.insert(Stop(id: train3.id, name: "Torino Porta Nuova", platform: "15", weather: "☁️ 9°C", is_selected: true, status: 0, is_completed: true, is_in_station: false, dep_delay: 0, arr_delay: 0, dep_time_id: time(12, 50), arr_time_id: .distantPast, dep_time_eff: time(12, 50), arr_time_eff: .distantPast, ref_time: time(12, 50)))
     context.insert(Stop(id: train3.id, name: "Savigliano", platform: "1AF", weather: "🌧️ 7°C", is_selected: true, status: 0, is_completed: false, is_in_station: true, dep_delay: 0, arr_delay: 5, dep_time_id: .distantPast, arr_time_id: time(14, 22), dep_time_eff: .distantPast, arr_time_eff: time(14, 27), ref_time: time(14, 22)))
 
-    // MARK: - Seats Data
     let seats = [
         Seat(id: UUID(), trainID: train2.id, name: "Pierpaolo", carriage: "1", number: "2D", image: mockImageData),
         Seat(id: UUID(), trainID: train2.id, name: "Davide", carriage: "1", number: "7B", image: mockImageData),
@@ -459,7 +737,6 @@ private struct ContentViewEmailImportPreview: View {
     ]
     seats.forEach { context.insert($0) }
     
-    // MARK: - Favorites Data
     let fav1 = Favorite(
         id: UUID(), index: 0, identifier: train1.identifier, provider: train1.provider, logo: train1.logo, number: train1.number,
         stop_names: ["Roma Termini", "Milano Centrale"], stop_ref_times: [time(6, 20), time(8, 46)]
@@ -470,7 +747,6 @@ private struct ContentViewEmailImportPreview: View {
     )
     [fav1, fav2].forEach { context.insert($0) }
 
-    // MARK: - Passes Data
     let passes = [
         Pass(id: UUID(), name: "Abbonamento Mensile", expiry_date: Calendar.current.date(byAdding: .day, value: 15, to: Date())!, is_principal: false, image: mockImageData),
         Pass(id: UUID(), name: "Settimanale Studenti", expiry_date: Calendar.current.date(byAdding: .day, value: -2, to: Date())!, is_principal: false, image: mockImageData),
@@ -478,61 +754,10 @@ private struct ContentViewEmailImportPreview: View {
     ]
     passes.forEach { context.insert($0) }
 
-    return ContentView()
-        .modelContainer(container)
-}
+    return container
+}()
 
-#Preview("Email Import") {
-    let schema = Schema([Train.self, Stop.self, Seat.self, Favorite.self, Pass.self, UserProfile.self])
-    let config = ModelConfiguration(isStoredInMemoryOnly: true)
-    let container = try! ModelContainer(for: schema, configurations: config)
-
-    func departure(daysFromNow: Int, hour: Int, minute: Int) -> Date {
-        let day = Calendar.current.date(byAdding: .day, value: daysFromNow, to: Date()) ?? Date()
-        return Calendar.current.date(bySettingHour: hour, minute: minute, second: 0, of: day) ?? day
-    }
-
-    let ticketReady = EmailContent(
-        imapUID: "1001",
-        date: Date(),
-        link: CheckInLink.url(for: "abc123def456ghi789jkl012"),
-        departureDate: departure(daysFromNow: 3, hour: 9, minute: 15),
-        trainNumber: "9808",
-        departureStation: "Roma Termini",
-        arrivalStation: "Milano Centrale"
-    )
-    let ticketLoading = EmailContent(
-        imapUID: "1002",
-        date: Date(),
-        link: CheckInLink.url(for: "mno345pqr678stu901vwx234"),
-        departureDate: departure(daysFromNow: 5, hour: 14, minute: 30),
-        trainNumber: "9904",
-        departureStation: "Torino Porta Nuova",
-        arrivalStation: "Roma Termini"
-    )
-    let ticketUnavailable = EmailContent(
-        imapUID: "1003",
-        date: Date(),
-        link: CheckInLink.url(for: "yza567bcd890efg123hij456"),
-        departureDate: departure(daysFromNow: 7, hour: 18, minute: 45),
-        trainNumber: "3224",
-        departureStation: "Cuneo",
-        arrivalStation: "Torino Porta Nuova"
-    )
-
-    container.mainContext.insert(
-        UserProfile(
-            name: "Francesco",
-            emails: [
-                Emails(
-                    provider: .apple,
-                    email: "user@icloud.com",
-                    appPassword: "preview-password",
-                    content: [ticketReady, ticketLoading, ticketUnavailable]
-                )
-            ]
-        )
-    )
-
-    return ContentViewEmailImportPreview(container: container)
+#Preview("Content View") {
+    ContentView()
+        .modelContainer(previewContainer)
 }

@@ -3,354 +3,235 @@ import SwiftData
 import WidgetKit
 import StoreKit
 
-// MARK: - Enums
-
-enum SearchType: String, CaseIterable {
-    case number
-    case stations
-}
-enum Daytime: String, CaseIterable {
-    case morning
-    case afternoon
-    case night
-
-    var label: String {
-        switch self {
-        case .morning: return NSLocalizedString("Morning", comment: "")
-        case .afternoon: return NSLocalizedString("Afternoon", comment: "")
-        case .night: return NSLocalizedString("Night", comment: "")
-        }
-    }
-    var startHour: Int {
-        switch self {
-        case .morning: return 0
-        case .afternoon: return 12
-        case .night: return 18
-        }
-    }
-    var endHour: Int {
-        switch self {
-        case .morning: return 12
-        case .afternoon: return 18
-        case .night: return 24
-        }
-    }
-}
-enum current_view: String, CaseIterable {
-    case add_train
-    case choose_train
-    case choose_stops
-    case choose_date
-    
-    var title: String {
-        switch self {
-        case .add_train:
-            return NSLocalizedString("Add Train", comment: "")
-        case .choose_train:
-            return NSLocalizedString("Choose Train", comment: "")
-        case .choose_stops:
-            return NSLocalizedString("Choose Stops", comment: "")
-        case .choose_date:
-            return NSLocalizedString("Choose Date", comment: "")
-        }
-    }
-}
-enum current_provider {
-    case trenitalia
-    case italo
-}
-enum current_fetching: CaseIterable {
-    case idle
-    case fetching
-    case success
-    case failure
-    
-    var title: String {
-        switch self {
-        case .idle, .success:
-            return ""
-        case .fetching:
-            return NSLocalizedString("Searching solutions...", comment: "")
-        case .failure:
-            return NSLocalizedString("No solutions found", comment: "")
-        }
-    }
-    
-    var icon: String {
-        switch self {
-        case .idle, .success:
-            return ""
-        case .fetching:
-            return "text.magnifyingglass"
-        case .failure:
-            return "exclamationmark.triangle.fill"
-        }
-    }
-    
-    var description: String {
-        switch self {
-        case .idle, .fetching, .success:
-            return ""
-        case .failure:
-            return NSLocalizedString("Try checking the train number and your internet connection.", comment: "")
-        }
-    }
-    
-    var color: Color {
-        switch self {
-        case .idle, .success:
-            return Color.primary
-        case .fetching:
-            return Color.accentColor
-        case .failure:
-            return Color.red
-        }
-    }
-}
-
 struct AddTrainView: View {
-    var focus_initially: Bool = false
-    // MARK: - Properties
-    // enviroment variables
+    var focusInitially: Bool = false
     @Environment(\.requestReview) var requestReview
     @Environment(\.dismiss) private var dismiss
     
-    // database variables
     @Environment(\.modelContext) private var modelContext
     @Query private var profiles: [UserProfile]
     
-    // view state
-    @State private var current_view: current_view = .add_train
-    @State private var current_provider: current_provider = .trenitalia
-    @State private var current_fetching: current_fetching = .idle
+    @State private var addTrainStep: AddTrainStep = .addTrain
+    @State private var fetchState: FetchState = .idle
     
-    // focus variables
     enum FocusField: Hashable { case number, departure, arrival }
-    @FocusState private var focused_field: FocusField?
-    private var is_focused: Bool { focused_field != nil }
+    @FocusState private var focusedField: FocusField?
+    private var isFocused: Bool { focusedField != nil }
     
-    // train search variables
-    @State private var trains_fetched: [UUID: [String: Any]] = [:]
+    @State private var trainsFetched: [UUID: [String: Any]] = [:]
     @State private var trainID_selected: UUID? = nil
-    @State private var stops_fetched: [[String: Any]] = []
-    @State private var stops_selected: [[String: Any]] = []
+    @State private var stopsFetched: [[String: Any]] = []
+    @State private var stopsSelected: [[String: Any]] = []
     
-    @State private var search_type: SearchType = .stations
-    @State private var train_number: String = ""
-    @State private var departure_station: String = ""
-    @State private var arrival_station: String = ""
-    @State private var departure_code: String = ""
-    @State private var arrival_code: String = ""
-    @State private var station_suggestions: [StationSuggestion] = []
-    @State private var station_fetch_task: Task<Void, Never>?
+    @State private var searchType: SearchType = .stations
+    @State private var trainNumber: String = ""
+    @State private var departureStation: String = ""
+    @State private var arrivalStation: String = ""
+    @State private var departureCode: String = ""
+    @State private var arrivalCode: String = ""
+    @State private var stationSuggestions: [StationSuggestion] = []
+    @State private var stationFetchTask: Task<Void, Never>?
     // true while a suggestion is being applied, so the text onChange doesn't clear the code
-    @State private var is_selecting_station = false
+    @State private var isSelectingStation = false
 
-    // stations search results
-    @State private var solutions_fetched: [Solution] = []
+    @State private var solutionsFetched: [Solution] = []
     @State private var solutionID_selected: UUID? = nil
     @State private var isSaving = false
     @State private var prefetchTask: Task<Void, Never>?
     @State private var prefetchedSegments: [UUID: [PreparedSolutionSegment]] = [:]
-    @State private var selected_daytime: Daytime = .morning
-    // suppress the picker's auto-scroll when we set the daytime programmatically
-    @State private var suppress_daytime_scroll = false
-    // bumped by the "Now" toolbar button to scroll to the next departure
-    @State private var scroll_to_now_trigger = 0
-    @State private var date_selected: Date = Date()
-    @State private var show_date_picker_popover = false
-    @State private var visible_solution_ids: Set<UUID> = []
+    /// Only one solution shows its legs at a time.
+    @State private var expandedSolutionID: UUID?
+    @State private var solutionSearchText = ""
+    @State private var solutionFilters = SolutionFilters()
+    @State private var solutionSort: SolutionSort?
+    @State private var dateSelected: Date = Date()
+    @State private var showDatePickerPopover = false
     
-    private var is_now_visible: Bool {
-        let now = Date()
-        guard let target = solutions_fetched.first(where: { $0.departureTime >= now }) else { return false }
-        return visible_solution_ids.contains(target.id)
-    }
-    
-    private var date_subtitle: String {
+    private var dateSubtitle: String {
         let cal = Calendar.current
-        let dateString = date_selected.formatted(.dateTime.day().month(.abbreviated))
-        
-        if cal.isDateInYesterday(date_selected) {
-            return "Yesterday, \(dateString)"
-        } else if cal.isDateInToday(date_selected) {
-            return "Today, \(dateString)"
-        } else if cal.isDateInTomorrow(date_selected) {
-            return "Tomorrow, \(dateString)"
+        let dateString = dateSelected.formatted(.dateTime.day().month(.abbreviated))
+        let timeString = dateSelected.formatted(.dateTime.hour().minute())
+
+        let dayPart: String
+        if cal.isDateInYesterday(dateSelected) {
+            dayPart = "Yesterday, \(dateString)"
+        } else if cal.isDateInToday(dateSelected) {
+            dayPart = "Today, \(dateString)"
+        } else if cal.isDateInTomorrow(dateSelected) {
+            dayPart = "Tomorrow, \(dateString)"
         } else {
-            return dateString
+            dayPart = dateString
         }
+        return "\(dayPart), \(timeString)"
     }
     
-    // button properties
-    private var active_station_query: String? {
-        guard search_type == .stations,
-              let field = focused_field,
+    private var activeStationQuery: String? {
+        guard searchType == .stations,
+              let field = focusedField,
               field != .number else { return nil }
-        return field == .departure ? departure_station : arrival_station
+        return field == .departure ? departureStation : arrivalStation
     }
 
-    private var shows_station_suggestion_bar: Bool {
-        guard current_view == .add_train,
-              let query = active_station_query,
+    private var showsStationSuggestionBar: Bool {
+        guard addTrainStep == .addTrain,
+              let query = activeStationQuery,
               query.count >= 2 else { return false }
         return true
     }
 
-    private var next_button_icon: String {
-        switch current_view {
-        case .add_train:
+    private var nextButtonIcon: String {
+        switch addTrainStep {
+        case .addTrain:
             if trainID_selected != nil {
                 return "checkmark"
             } else {
                 return "chevron.right"
             }
-        case .choose_train:
+        case .chooseTrain:
             // stations: choosing a solution is the final step
-            return search_type == .stations ? "checkmark" : "chevron.right"
-        case .choose_stops:
+            return searchType == .stations ? "checkmark" : "chevron.right"
+        case .chooseStops:
             return "chevron.right"
-        case .choose_date:
+        case .chooseDate:
             return "checkmark"
         }
     }
 
-    private var button_is_active: Bool {
+    private var buttonIsActive: Bool {
         guard !isSaving else { return false }
 
-        switch current_view {
-        case .add_train:
-            switch search_type {
+        switch addTrainStep {
+        case .addTrain:
+            switch searchType {
             case .number:
-                return train_number.count >= 2
+                return trainNumber.count >= 2
             case .stations:
-                return !departure_code.isEmpty && !arrival_code.isEmpty
+                return !departureCode.isEmpty && !arrivalCode.isEmpty
             }
 
-        case .choose_train:
-            return search_type == .stations ? solutionID_selected != nil : trainID_selected != nil
+        case .chooseTrain:
+            return searchType == .stations ? solutionID_selected != nil : trainID_selected != nil
 
-        case .choose_stops:
-            return stops_selected.count >= 2
+        case .chooseStops:
+            return stopsSelected.count >= 2
 
-        case .choose_date:
+        case .chooseDate:
             return true
         }
     }
     
-    private var leading_toolbar_icon: String {
-        current_view == .add_train ? "xmark" : "chevron.left"
+    private var leadingToolbarIcon: String {
+        addTrainStep == .addTrain ? "xmark" : "chevron.left"
     }
 
-    private func leading_toolbar_action() {
+    private func leadingToolbarAction() {
         guard !isSaving else { return }
         HapticFeedback.tap()
 
-        if current_view == .add_train {
-            if is_focused {
-                focused_field = nil
+        if addTrainStep == .addTrain {
+            if isFocused {
+                focusedField = nil
             } else {
                 dismiss()
             }
         } else {
-            back_button_action()
+            backButtonAction()
         }
     }
 
-    private func reset_form_state() {
-        trains_fetched = [:]
-        train_number = ""
-        departure_station = ""
-        arrival_station = ""
-        departure_code = ""
-        arrival_code = ""
-        station_suggestions = []
-        station_fetch_task?.cancel()
+    private func resetFormState() {
+        trainsFetched = [:]
+        trainNumber = ""
+        departureStation = ""
+        arrivalStation = ""
+        departureCode = ""
+        arrivalCode = ""
+        stationSuggestions = []
+        stationFetchTask?.cancel()
         prefetchTask?.cancel()
-        solutions_fetched = []
+        solutionsFetched = []
         solutionID_selected = nil
         prefetchedSegments = [:]
         isSaving = false
         trainID_selected = nil
-        date_selected = Date()
-        current_view = .add_train
-        current_fetching = .idle
+        dateSelected = Date()
+        addTrainStep = .addTrain
+        fetchState = .idle
     }
 
-    // button properties
-    private func back_button_action() -> Void {
-        switch current_view {
-        case .add_train:
+    private func backButtonAction() -> Void {
+        switch addTrainStep {
+        case .addTrain:
             /// reset variables
-            focused_field = nil
+            focusedField = nil
 
-        case .choose_train:
+        case .chooseTrain:
             /// update focus
-            focused_field = nil
+            focusedField = nil
             
             /// change view
-            current_view = .add_train
+            addTrainStep = .addTrain
             
             /// reset variables
-            trains_fetched.removeAll()
+            trainsFetched.removeAll()
             trainID_selected = nil
             prefetchTask?.cancel()
-            solutions_fetched.removeAll()
+            solutionsFetched.removeAll()
             solutionID_selected = nil
             prefetchedSegments = [:]
             isSaving = false
 
             /// fetching status
-            current_fetching = .idle
+            fetchState = .idle
             
-        case .choose_stops:
+        case .chooseStops:
             /// change view
-            current_view = .choose_train
+            addTrainStep = .chooseTrain
             
             /// reset variables
-            stops_fetched.removeAll()
-            stops_selected.removeAll()
+            stopsFetched.removeAll()
+            stopsSelected.removeAll()
             
-        case .choose_date:
+        case .chooseDate:
             /// change view
-            current_view = .choose_stops
+            addTrainStep = .chooseStops
             
             /// reset variables
-            date_selected = Date()
+            dateSelected = Date()
         }
     }
-    private func next_button_action() -> Void {
-        switch current_view {
-        case .add_train:
+    private func nextButtonAction() -> Void {
+        switch addTrainStep {
+        case .addTrain:
             if trainID_selected == nil {
                 /// haptic feedback
                 HapticFeedback.confirm()
                 
                 /// reset focus
-                focused_field = nil
+                focusedField = nil
 
                 /// change view
-                current_view = .choose_train
+                addTrainStep = .chooseTrain
 
                 /// actions
-                if search_type == .number {
-                    Task { await fetch_trains() }
+                if searchType == .number {
+                    Task { await fetchTrains() }
                 } else {
-                    Task { await fetch_solutions() }
+                    Task { await fetchSolutions() }
                 }
             } else {
                 /// haptic feedback
                 HapticFeedback.impactHeavy()
                 
                 /// actions
-                save_train()
+                saveTrain()
                 
                 /// change view
                 dismiss()
             }
             
-        case .choose_train:
-            if search_type == .stations {
+        case .chooseTrain:
+            if searchType == .stations {
                 guard !isSaving, solutionID_selected != nil else { return }
 
                 /// haptic feedback
@@ -359,7 +240,7 @@ struct AddTrainView: View {
                 /// stations: a solution is fully specified, save it directly
                 isSaving = true
                 Task {
-                    await save_solution()
+                    await saveSolution()
                     dismiss()
                 }
             } else {
@@ -367,314 +248,345 @@ struct AddTrainView: View {
                 HapticFeedback.confirm()
 
                 /// change view
-                current_view = .choose_stops
+                addTrainStep = .chooseStops
 
                 /// actions
-                save_stops()
+                saveStops()
             }
 
-        case .choose_stops:
+        case .chooseStops:
             /// haptic feedback
             HapticFeedback.confirm()
             
             /// change view
-            current_view = .choose_date
+            addTrainStep = .chooseDate
             
-        case .choose_date:
+        case .chooseDate:
             /// haptic feedback
             HapticFeedback.impactHeavy()
             
             /// actions
-            save_train()
+            saveTrain()
             
             /// change view
             dismiss()
         }
     }
     
-    // MARK: - Body
     var body: some View {
         NavigationStack {
             ZStack {
-                switch current_view {
-                case .add_train:
-                    add_train_view()
+                switch addTrainStep {
+                case .addTrain:
+                    addTrainView()
                     
-                case .choose_train:
-                    choose_train_view()
+                case .chooseTrain:
+                    chooseTrainView()
                     
-                case .choose_stops:
-                    choose_stops_view()
+                case .chooseStops:
+                    chooseStopsView()
                     
-                case .choose_date:
-                    choose_date_view()
+                case .chooseDate:
+                    ScrollView {
+                        DatePicker("", selection: $dateSelected, in: Date()..., displayedComponents: [.date])
+                            .datePickerStyle(GraphicalDatePickerStyle())
+
+                        Color.clear
+                            .frame(height: 80)
+                    }
+                    .padding(.horizontal, 8)
                 }
             }
             .safeAreaInset(edge: .bottom, spacing: 0) {
-                if shows_station_suggestion_bar,
-                   let field = focused_field,
+                if showsStationSuggestionBar,
+                   let field = focusedField,
                    field != .number {
-                    station_suggestion_bar(field: field)
+                    suggestionsPill(field: field)
                         .padding(.horizontal)
                         .padding(.vertical, 8)
                         .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
             }
-            .animation(.snappy, value: shows_station_suggestion_bar)
-            .navigationTitle(current_view.title)
+            .animation(.snappy, value: showsStationSuggestionBar)
+            .navigationTitle(addTrainStep.title)
             .navigationBarTitleDisplayMode(.inline)
-            .ignoresSafeArea(edges: .top)
-            .background(app_background_color.ignoresSafeArea())
+            // .container only: ignoring the keyboard region too would leave the
+            // station suggestion bar stranded behind the keyboard
+            .ignoresSafeArea(.container, edges: .bottom)
+            .background(appBackgroundColor.ignoresSafeArea())
             .toolbar(.hidden, for: .tabBar)
             .toolbar {
-                // back or dismiss button
                 ToolbarItem(placement: .navigationBarLeading) {
                     Button {
-                        leading_toolbar_action()
+                        leadingToolbarAction()
                     } label: {
-                        Image(systemName: leading_toolbar_icon)
+                        Image(systemName: leadingToolbarIcon)
                             .contentTransition(.symbolEffect(.replace.downUp.wholeSymbol, options: .nonRepeating))
                     }
                 }
 
                 ToolbarItem(placement: .topBarTrailing) {
-                    next_toolbar_button()
+                    Button {
+                        nextButtonAction()
+                    } label: {
+                        if isSaving {
+                            ProgressView()
+                                .controlSize(.small)
+                        } else {
+                            Image(systemName: nextButtonIcon)
+                        }
+                    }
+                    .buttonStyle(.glassProminent)
+                    .disabled(!buttonIsActive)
                 }
                 
-                // navigation title
                 ToolbarItem(placement: .principal) {
                     VStack(spacing: 0) {
-                        Text(current_view.title)
+                        Text(addTrainStep.title)
                             .font(.headline)
-                            .fontDesign(app_font_design)
-                            .contentTransition(.numericText(value: Double(current_view.title.hashValue)))
-                            .animation(.snappy, value: current_view.title)
+                            .fontDesign(appFontDesign)
+                            .contentTransition(.numericText(value: Double(addTrainStep.title.hashValue)))
+                            .animation(.snappy, value: addTrainStep.title)
                             
-                        if current_view == .choose_train && search_type == .stations {
-                            Text(date_subtitle)
+                        if addTrainStep == .chooseTrain && searchType == .stations {
+                            Text(dateSubtitle)
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
-                                .fontDesign(app_font_design)
-                                .contentTransition(.numericText(value: date_selected.timeIntervalSince1970))
-                                .animation(.snappy, value: date_selected)
+                                .fontDesign(appFontDesign)
+                                .contentTransition(.numericText(value: dateSelected.timeIntervalSince1970))
+                                .animation(.snappy, value: dateSelected)
                         }
                     }
                     .padding(.horizontal, 16)
                     .contentShape(Rectangle())
                     .onTapGesture {
-                        guard current_view == .choose_train && search_type == .stations else { return }
+                        guard addTrainStep == .chooseTrain && searchType == .stations else { return }
                         HapticFeedback.select()
                         
-                        show_date_picker_popover = true
+                        showDatePickerPopover = true
                     }
-                    .popover(isPresented: $show_date_picker_popover) {
-                        DatePicker("", selection: $date_selected, displayedComponents: [.date])
-                            .datePickerStyle(.graphical)
-                            .padding()
-                            .presentationDetents([.medium])
-                            .onChange(of: date_selected) { _, _ in
-                                show_date_picker_popover = false
-                                Task { await fetch_solutions() }
-                            }
+                    .popover(isPresented: $showDatePickerPopover) {
+                        VStack(spacing: 8) {
+                            DatePicker("", selection: $dateSelected, displayedComponents: [.date])
+                                .datePickerStyle(.graphical)
+                                .labelsHidden()
+
+                            DatePicker("Time", selection: $dateSelected, displayedComponents: [.hourAndMinute])
+                        }
+                        .padding()
+                        .presentationDetents([.medium])
+                        .onDisappear {
+                            Task { await fetchSolutions() }
+                        }
                     }
                 }
             }
         }
         .onAppear {
-            if focus_initially {
+            if focusInitially {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                    focused_field = search_type == .number ? .number : .departure
+                    focusedField = searchType == .number ? .number : .departure
                 }
             }
         }
         .onDisappear {
-            station_fetch_task?.cancel()
-            reset_form_state()
+            stationFetchTask?.cancel()
+            resetFormState()
         }
-        .onChange(of: current_fetching) { old_value, new_value in
+        .onChange(of: fetchState) { oldValue, newValue in
             // timer to prevent infinite fetching state
-            if old_value == .idle && new_value == .fetching {
+            if oldValue == .idle && newValue == .fetching {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 15) {
-                    if current_fetching == .fetching {
-                        current_fetching = .failure
+                    if fetchState == .fetching {
+                        fetchState = .failure
                     }
                 }
             }
         }
-        .onChange(of: train_number) { _, _ in
-            guard current_view == .add_train else { return }
-            trains_fetched = [:]
+        .onChange(of: trainNumber) { _, _ in
+            guard addTrainStep == .addTrain else { return }
+            trainsFetched = [:]
             trainID_selected = nil
-            stops_fetched = []
-            stops_selected = []
-            current_fetching = .idle
+            stopsFetched = []
+            stopsSelected = []
+            fetchState = .idle
         }
-        .onChange(of: search_type) { _, new_value in
-            station_fetch_task?.cancel()
-            station_suggestions = []
-            focused_field = new_value == .number ? .number : .departure
+        .onChange(of: searchType) { _, newValue in
+            stationFetchTask?.cancel()
+            stationSuggestions = []
+            focusedField = newValue == .number ? .number : .departure
         }
-        .onChange(of: focused_field) { _, new_value in
-            guard let new_value, new_value != .number else {
-                station_fetch_task?.cancel()
-                station_suggestions = []
+        .onChange(of: focusedField) { oldValue, newValue in
+            // tapping straight into the next field still counts as choosing the
+            // station the user typed, so the journey stays resolvable
+            if let oldValue, oldValue != .number, oldValue != newValue {
+                adoptFirstSuggestion(for: oldValue)
+            }
+            guard let newValue, newValue != .number else {
+                stationFetchTask?.cancel()
+                stationSuggestions = []
                 return
             }
-            station_suggestions = []
-            schedule_station_fetch(for: new_value)
+            stationSuggestions = []
+            scheduleStationFetch(for: newValue)
         }
-        .onChange(of: departure_station) { _, new_value in
-            if is_selecting_station { is_selecting_station = false; return }
-            departure_code = ""
-            guard focused_field == .departure else { return }
-            schedule_station_fetch(query: new_value, field: .departure)
+        .onChange(of: departureStation) { _, newValue in
+            if isSelectingStation { isSelectingStation = false; return }
+            departureCode = ""
+            guard focusedField == .departure else { return }
+            scheduleStationFetch(query: newValue, field: .departure)
         }
-        .onChange(of: arrival_station) { _, new_value in
-            if is_selecting_station { is_selecting_station = false; return }
-            arrival_code = ""
-            guard focused_field == .arrival else { return }
-            schedule_station_fetch(query: new_value, field: .arrival)
+        .onChange(of: arrivalStation) { _, newValue in
+            if isSelectingStation { isSelectingStation = false; return }
+            arrivalCode = ""
+            guard focusedField == .arrival else { return }
+            scheduleStationFetch(query: newValue, field: .arrival)
         }
         .onChange(of: solutionID_selected) { _, newId in
             prefetchTask?.cancel()
             guard let newId,
-                  search_type == .stations,
-                  current_view == .choose_train,
-                  let solution = solutions_fetched.first(where: { $0.id == newId }) else { return }
+                  searchType == .stations,
+                  addTrainStep == .chooseTrain,
+                  let solution = solutionsFetched.first(where: { $0.id == newId }) else { return }
 
             prefetchTask = Task {
-                let prepared = await SolutionSegmentResolver.resolveAll(solution.segments)
+                let prepared = await SolutionSegmentResolver.resolveAll(solution.trackableSegments)
                 guard !Task.isCancelled else { return }
                 await MainActor.run {
                     prefetchedSegments[newId] = prepared
                 }
             }
         }
-        .onChange(of: solutions_fetched) { _, _ in
+        .onChange(of: solutionsFetched) { _, _ in
             prefetchTask?.cancel()
             prefetchedSegments = [:]
         }
     }
     
-    @ViewBuilder
-    private func next_toolbar_button() -> some View {
-        if next_button_icon == "checkmark" {
-            Button {
-                next_button_action()
-            } label: {
-                if isSaving {
-                    ProgressView()
-                        .controlSize(.small)
-                } else {
-                    Image(systemName: next_button_icon)
-                }
-            }
-            .buttonStyle(.glassProminent)
-            .disabled(!button_is_active)
-        } else {
-            Button {
-                next_button_action()
-            } label: {
-                Image(systemName: next_button_icon)
-            }
-            .disabled(!button_is_active)
-        }
-    }
-
-    // MARK: - Secondary Views
-    @ViewBuilder func add_train_view() -> some View {
+    @ViewBuilder func addTrainView() -> some View {
         Form {
             Section {
-                Picker("Search", selection: $search_type) {
+                Picker("Search", selection: $searchType) {
                     Text("Stations").tag(SearchType.stations)
                     Text("Train number").tag(SearchType.number)
                 }
                 .pickerStyle(.segmented)
-                .listRowInsets(EdgeInsets(top: 48, leading: 0, bottom: 8, trailing: 0))
+                // sits close under the toolbar, with the breathing room moved
+                // below it so the station fields read as a separate group
+                .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
                 .listRowBackground(Color.clear)
             }
-            .listSectionSpacing(8)
+            .listSectionSpacing(28)
 
-            if search_type == .stations {
-                Section("Stations") {
-                    station_field_row(
-                        title: NSLocalizedString("Departure", comment: ""),
-                        placeholder: NSLocalizedString("Station", comment: ""),
-                        text: $departure_station,
+            if searchType == .stations {
+                Section {
+                    stationFieldRow(
+                        placeholder: NSLocalizedString("Departure", comment: ""),
+                        text: firstLetterCapitalized($departureStation),
                         field: .departure,
                         submitLabel: .next
                     ) {
-                        if let first = station_suggestions.first {
-                            select_station(first, field: .departure)
+                        if let first = stationSuggestions.first {
+                            selectStation(first, field: .departure)
                         } else {
-                            focused_field = .arrival
+                            adoptFirstSuggestion(for: .departure)
+                            focusedField = .arrival
                         }
                     }
 
-                    station_field_row(
-                        title: NSLocalizedString("Arrival", comment: ""),
-                        placeholder: NSLocalizedString("Station", comment: ""),
-                        text: $arrival_station,
+                    stationFieldRow(
+                        placeholder: NSLocalizedString("Arrival", comment: ""),
+                        text: firstLetterCapitalized($arrivalStation),
                         field: .arrival,
-                        submitLabel: .done
+                        submitLabel: .search
                     ) {
-                        if let first = station_suggestions.first {
-                            select_station(first, field: .arrival)
+                        if let first = stationSuggestions.first {
+                            selectStation(first, field: .arrival)
                         } else {
-                            focused_field = nil
+                            adoptFirstSuggestion(for: .arrival)
+                            focusedField = nil
                         }
+                        // both stations resolved: go straight on rather than
+                        // making the user reach for the toolbar button
+                        if buttonIsActive { nextButtonAction() }
                     }
-                }
 
-                Section("Time") {
-                    DatePicker("Date", selection: $date_selected, displayedComponents: .date)
-                    DatePicker("Time", selection: $date_selected, displayedComponents: .hourAndMinute)
+                    HStack(spacing: 12) {
+                        DatePicker("", selection: $dateSelected, displayedComponents: .date)
+                            .labelsHidden()
+                        DatePicker("", selection: $dateSelected, displayedComponents: .hourAndMinute)
+                            .labelsHidden()
+                        Spacer(minLength: 0)
+                    }
                 }
             } else {
-                Section("Train number") {
-                    TextField("Train number", text: $train_number)
+                Section {
+                    TextField("Train number", text: $trainNumber)
                         .keyboardType(.numberPad)
-                        .focused($focused_field, equals: .number)
+                        .focused($focusedField, equals: .number)
                 }
             }
         }
         .formStyle(.grouped)
+        .contentMargins(.top, 8, for: .scrollContent)
         .scrollIndicators(.hidden)
-        .fontDesign(app_font_design)
+        .fontDesign(appFontDesign)
     }
 
     @ViewBuilder
-    private func station_field_row(
-        title: String,
+    private func stationFieldRow(
         placeholder: String,
         text: Binding<String>,
         field: FocusField,
         submitLabel: SubmitLabel,
         onSubmit: @escaping () -> Void
     ) -> some View {
-        HStack(spacing: 12) {
-            Text(title)
-                .foregroundStyle(.primary)
-
+        HStack(spacing: 8) {
             TextField(placeholder, text: text)
-                .multilineTextAlignment(.trailing)
-                .focused($focused_field, equals: field)
+                .focused($focusedField, equals: field)
                 .textInputAutocapitalization(.words)
                 .submitLabel(submitLabel)
                 .onSubmit { onSubmit() }
+
+            // only on the field being edited: a clear button on every filled row
+            // was just noise once both stations were set
+            if focusedField == field, !text.wrappedValue.isEmpty {
+                Button {
+                    HapticFeedback.tap()
+                    text.wrappedValue = ""
+                    // stay put so the next station can be typed straight away
+                    focusedField = field
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.body)
+                        .foregroundStyle(.tertiary)
+                }
+                .buttonStyle(.plain)
+                .transition(.opacity)
+            }
         }
+        .animation(.snappy, value: text.wrappedValue.isEmpty)
+        .animation(.snappy, value: focusedField)
     }
 
     // floating bar shown while typing a station: horizontally scrolling suggestions.
-    @ViewBuilder func station_suggestion_bar(field: FocusField) -> some View {
-        suggestions_pill(field: field)
-    }
-
-    @ViewBuilder func suggestions_pill(field: FocusField) -> some View {
+    @ViewBuilder func suggestionsPill(field: FocusField) -> some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
-                ForEach(station_suggestions, id: \.self) { station in
-                    station_chip(station, field: field)
+                ForEach(stationSuggestions, id: \.self) { station in
+                    Button {
+                        selectStation(station, field: field)
+                    } label: {
+                        Text(station.name)
+                            .font(.subheadline).fontWeight(.medium)
+                            .fontDesign(appFontDesign)
+                            .foregroundStyle(.primary)
+                            .lineLimit(1)
+                            .frame(height: 32)
+                            .padding(.vertical, 6).padding(.horizontal, 16)
+                            .background(.thinMaterial, in: Capsule())
+                    }
+                    .buttonStyle(.plain)
                 }
             }
             .padding(.horizontal, 8)
@@ -698,243 +610,332 @@ struct AddTrainView: View {
         .glassEffect(.regular)
     }
 
-    @ViewBuilder func station_chip(_ station: StationSuggestion, field: FocusField) -> some View {
-        Button {
-            select_station(station, field: field)
-        } label: {
-            Text(station.name)
-                .font(.subheadline).fontWeight(.medium)
-                .fontDesign(app_font_design)
-                .foregroundStyle(.primary)
-                .lineLimit(1)
-                .frame(height: 32)
-                .padding(.vertical, 6).padding(.horizontal, 16)
-                .background(.thinMaterial, in: Capsule())
-        }
-        .buttonStyle(.plain)
-    }
-    
-    @ViewBuilder func choose_train_view() -> some View {
-        switch current_fetching {
+    @ViewBuilder func chooseTrainView() -> some View {
+        switch fetchState {
         case .idle:
             EmptyView()
             
         case .fetching:
             ContentUnavailableView {
                 Label {
-                    Text(current_fetching.title)
+                    Text(fetchState.title)
                 } icon: {
-                    Image(systemName: current_fetching.icon)
+                    Image(systemName: fetchState.icon)
                         .symbolEffect(.breathe.pulse.wholeSymbol, options: .repeat(.continuous))
                 }
+            } description: {
+                Text(fetchState.description)
             }
             .padding()
-            .foregroundColor(current_fetching.color)
+            .foregroundColor(fetchState.color)
             
         case .success:
-            if search_type == .stations {
-                choose_solution_view()
+            if searchType == .stations {
+                chooseSolutionView()
             } else {
-                ScrollView {
-                    VStack {
-                        ForEach(Array(trains_fetched.keys).enumerated(), id: \.element) { index, id in
-                            // get useful parameter for displaying
-                            let number = trains_fetched[id]?["number"] as? String ?? ""
-                            let logo = trains_fetched[id]?["logo"] as? String ?? ""
-                            
-                            let stops = trains_fetched[id]?["stops"] as? [[String: Any]] ?? []
-                            let firstStop_name = stops.first?["name"] as? String ?? ""
-                            let lastStop_name = stops.last?["name"] as? String ?? ""
-                            let firstStop_refTime = stops.first?["ref_time"] as? Date ?? .distantPast
-                            let lastStop_refTime = stops.last?["ref_time"] as? Date ?? .distantPast
-                            
-                            // display button for each train
-                            Button {
-                                /// toggle behavior
-                                if trainID_selected == id {
-                                    trainID_selected = nil
-                                } else {
-                                    trainID_selected = id
-                                }
-                            } label: {
-                                VStack (spacing: 16) {
-                                    /// logo +  number
-                                    HStack {
-                                        Image(logo)
-                                            .resizable()
-                                            .scaledToFit()
-                                            .frame(height: UIFont.preferredFont(forTextStyle: .title3).lineHeight * 0.8)
-                                        
-                                        Text(number)
-                                            .font(.title3)
-                                            .fontWeight(.semibold)
-                                        
-                                        Spacer()
-                                    }
-                                    
-                                    /// departure and arrival stop name + time
-                                    VStack(alignment: .leading, spacing: 4) {
-                                        HStack {
-                                            Text(firstStop_name)
-                                            Spacer()
-                                            Text(firstStop_refTime.formatted(Date.FormatStyle.dateTime.hour().minute()))
-                                                .monospacedDigit()
-                                        }
-                                        
-                                        HStack {
-                                            Text(lastStop_name)
-                                            Spacer()
-                                            Text(lastStop_refTime.formatted(Date.FormatStyle.dateTime.hour().minute()))
-                                                .monospacedDigit()
-                                        }
-                                    }
-                                    .font(.subheadline)
-                                }
-                                .fontDesign(app_font_design)
-                                .foregroundStyle(Color.primary)
-                                .padding()
-                                .background(
-                                    RoundedRectangle(cornerRadius: 24)
-                                        .stroke(style: trainID_selected == id ? StrokeStyle(lineWidth: 2) : StrokeStyle(lineWidth: 1, dash: [5]))
-                                        .foregroundColor(trainID_selected == id ? Color.accentColor : Color.primary.opacity(0.5))
-                                )
-                            }
-                            .padding()
-                        }
-                    }
-                    
-                    Color.clear
-                        .frame(height: 80)
-                }
-                .contentMargins(.top, 72, for: .scrollContent)
-                .contentMargins(.bottom, 104)
+                chooseNumberedTrainView()
             }
 
         case .failure:
             ContentUnavailableView(
-                current_fetching.title,
-                systemImage: current_fetching.icon,
-                description: Text(current_fetching.description)
+                fetchState.title,
+                systemImage: fetchState.icon,
+                description: Text(fetchState.description)
             )
             .padding()
-            .foregroundColor(current_fetching.color)
+            .foregroundColor(fetchState.color)
         }
     }
 
-    // MARK: - Secondary Views
-    @ViewBuilder func choose_solution_view() -> some View {
-        ScrollViewReader { proxy in
-            ScrollView {
-                LazyVStack(spacing: 48) {
-                        ForEach(solutions_fetched) { solution in
-                            let isSelected = solutionID_selected == solution.id
-
-                            Button {
-                                guard !isSaving else { return }
-                                solutionID_selected = isSelected ? nil : solution.id
-                            } label: {
-                                VStack(spacing: 12) {
-                                    solution_header_view(solution.segments)
-
-                                    ForEach(Array(solution.segments.enumerated()), id: \.offset) { index, segment in
-                                        if segment.isBus {
-                                            bus_segment_details_view(segment)
-                                                .frame(maxWidth: .infinity)
-                                        } else {
-                                            solution_segment_details_view(segment)
-                                                .fontDesign(app_font_design)
-                                                .foregroundStyle(Color.primary)
-                                                .frame(maxWidth: .infinity)
-                                        }
-
-                                        if index < solution.segments.count - 1 {
-                                            connection_view(from: segment, to: solution.segments[index + 1])
-                                        }
-                                    }
-                                }
-                                .padding()
-                                .frame(maxWidth: .infinity)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 24)
-                                        .fill(isSelected ? Color.accentColor.opacity(0.12) : Color.clear)
-                                )
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 24)
-                                        .stroke(style: isSelected ? StrokeStyle(lineWidth: 2) : StrokeStyle(lineWidth: 1, dash: [5]))
-                                        .foregroundColor(isSelected ? Color.accentColor : Color.primary.opacity(0.5))
-                                )
-                            }
-                            .buttonStyle(.plain)
-                            .disabled(isSaving)
-                            .id(solution.id)
-                            .onAppear {
-                                withAnimation {
-                                    _ = visible_solution_ids.insert(solution.id)
-                                }
-                            }
-                            .onDisappear {
-                                withAnimation {
-                                    _ = visible_solution_ids.remove(solution.id)
-                                }
-                            }
-                        }
-                    }
-                    .padding(.horizontal)
-                    .padding(.top, 8)
-
-                    // bottom clearance so the back/save buttons don't overlay the last solution
-                    Color.clear
-                        .frame(height: 120)
-                }
-                .scrollIndicators(.hidden)
-                .safeAreaInset(edge: .top) {
-                    // daytime quick-nav: scrolls to the first solution in the interval
-                    Picker("Daytime", selection: $selected_daytime) {
-                        ForEach(Daytime.allCases, id: \.self) { daytime in
-                            Text(daytime.label).tag(daytime)
-                        }
-                    }
-                    .pickerStyle(.segmented)
-                    .padding(.horizontal)
-                    .padding(.top, 80)
-                    .padding(.bottom, 40)
-                    .background(
-                        LinearGradient(
-                            stops: [
-                                .init(color: Color(UIColor.systemBackground), location: 0),
-                                .init(color: Color(UIColor.systemBackground), location: 0.75),
-                                .init(color: Color(UIColor.systemBackground).opacity(0), location: 1)
-                            ],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        )
-                    )
-                    .onChange(of: selected_daytime) { _, daytime in
-                        // ignore the programmatic set we do when opening the list
-                        if suppress_daytime_scroll { suppress_daytime_scroll = false; return }
-                        guard let target = solutions_fetched.first(where: {
-                            let hour = Calendar.current.component(.hour, from: $0.departureTime)
-                            return hour >= daytime.startHour && hour < daytime.endHour
-                        }) else { return }
-                        withAnimation { proxy.scrollTo(target.id, anchor: .top) }
-                    }
-                }
-            .onAppear { scroll_to_next_solution(proxy: proxy, animated: false) }
-            .onChange(of: scroll_to_now_trigger) { _, _ in scroll_to_next_solution(proxy: proxy, animated: true) }
+    /// Trains found by number, shown with the same rows as the station search.
+    /// Each is a single leg, so nothing here expands.
+    private var numberedTrainRows: [(id: UUID, solution: Solution)] {
+        trainsFetched.compactMap { id, train in
+            let stops = train["stops"] as? [[String: Any]] ?? []
+            guard let first = stops.first, let last = stops.last else { return nil }
+            let segment = SolutionSegment(
+                origin: first["name"] as? String ?? "",
+                destination: last["name"] as? String ?? "",
+                departureTime: first["ref_time"] as? Date ?? .distantPast,
+                arrivalTime: last["ref_time"] as? Date ?? .distantPast,
+                logo: train["logo"] as? String ?? "",
+                number: train["number"] as? String ?? "",
+                stationCode: "",
+                isBus: false
+            )
+            return (id, Solution(segments: [segment]))
         }
+        .sorted { $0.solution.departureTime < $1.solution.departureTime }
+    }
+
+    @ViewBuilder func chooseNumberedTrainView() -> some View {
+        List {
+            ForEach(numberedTrainRows, id: \.id) { row in
+                let isSelected = trainID_selected == row.id
+
+                SolutionRow(
+                    solution: row.solution,
+                    isExpanded: false,
+                    priceRank: nil,
+                    onToggleExpanded: {}
+                )
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    guard !isSaving else { return }
+                    HapticFeedback.select()
+                    withAnimation(.snappy) {
+                        trainID_selected = isSelected ? nil : row.id
+                    }
+                }
+                .listRowBackground(isSelected ? Color.accentColor.opacity(0.06) : nil)
+            }
+        }
+        .listStyle(.insetGrouped)
+        .contentMargins(.bottom, 80, for: .scrollContent)
+        .scrollIndicators(.hidden)
+        .disabled(isSaving)
+    }
+
+    @ViewBuilder func chooseSolutionView() -> some View {
+        ScrollViewReader { proxy in
+            List {
+                ForEach(visibleSolutions) { solution in
+                    let isSelected = solutionID_selected == solution.id
+                    // while one solution is open the rest recede, so the legs on
+                    // screen clearly belong to the row you opened
+                    let isDimmed = expandedSolutionID != nil && expandedSolutionID != solution.id
+
+                    SolutionRow(
+                        solution: solution,
+                        isExpanded: expandedSolutionID == solution.id,
+                        priceRank: priceRank(for: solution),
+                        onToggleExpanded: { toggleExpanded(solution) }
+                    )
+                    .opacity(isDimmed ? 0.4 : 1)
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        guard !isSaving else { return }
+                        HapticFeedback.select()
+                        withAnimation(.snappy) {
+                            solutionID_selected = isSelected ? nil : solution.id
+                        }
+                    }
+                    .listRowBackground(
+                        isSelected ? Color.accentColor.opacity(isDimmed ? 0.03 : 0.06) : nil
+                    )
+                    .id(solution.id)
+                }
+            }
+            .listStyle(.insetGrouped)
+            // as scroll padding rather than a trailing row, so the last solution
+            // keeps the section's rounded bottom corners
+            .contentMargins(.bottom, 80, for: .scrollContent)
+            .scrollIndicators(.hidden)
+            .disabled(isSaving)
+            .overlay {
+                if visibleSolutions.isEmpty && !solutionsFetched.isEmpty {
+                    if solutionSearchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        ContentUnavailableView(
+                            "No matching solutions",
+                            systemImage: "line.3.horizontal.decrease",
+                            description: Text("Clear a filter to see more journeys.")
+                        )
+                        .foregroundStyle(Color.secondary)
+                    } else {
+                        ContentUnavailableView.search(text: solutionSearchText)
+                            .foregroundStyle(Color.secondary)
+                    }
+                }
+            }
+            .searchable(text: $solutionSearchText, prompt: "Search solutions")
+            .toolbar {
+                ToolbarItem(placement: .bottomBar) { solutionSortMenu }
+                ToolbarSpacer(.fixed, placement: .bottomBar)
+                ToolbarItem(placement: .bottomBar) { solutionFilterMenu }
+                ToolbarSpacer(.fixed, placement: .bottomBar)
+                DefaultToolbarItem(kind: .search, placement: .bottomBar)
+            }
+            .onAppear { scrollToNextSolution(proxy: proxy, animated: false) }
+        }
+    }
+
+    // MARK: Sort and filter menus
+
+    @ViewBuilder private var solutionSortMenu: some View {
+        Menu {
+            ForEach([SolutionSortField.duration, .price], id: \.self) { field in
+                Button {
+                    HapticFeedback.select()
+                    withAnimation(.snappy) { cycleSort(field) }
+                } label: {
+                    let isActive = solutionSort?.field == field
+                    Label {
+                        Text(field == .duration ? "Duration" : "Cost")
+                    } icon: {
+                        if let sort = solutionSort, sort.field == field {
+                            Image(systemName: sort.icon)
+                        }
+                    }
+                    .foregroundStyle(isActive ? Color.blue : Color.primary)
+                }
+            }
+
+            if solutionSort != nil {
+                ControlGroup {
+                    Button(role: .destructive) {
+                        HapticFeedback.select()
+                        withAnimation(.snappy) { solutionSort = nil }
+                    } label: {
+                        Label("Clear order", systemImage: "trash")
+                    }
+                }
+            }
+        } label: {
+            Image(systemName: solutionSort == nil ? "arrow.up.arrow.down" : "arrow.up.arrow.down.circle.fill")
+                .font(solutionSort == nil ? .headline : .title2)
+                .foregroundStyle(solutionSort == nil ? Color.primary : Color.blue)
+        }
+    }
+
+    @ViewBuilder private var solutionFilterMenu: some View {
+        let facets = solutionFacets
+        let currency = solutionsFetched.first?.currency ?? "\u{20AC}"
+
+        Menu {
+            if facets.changeOptions.count > 1 {
+                Menu {
+                    ForEach(facets.changeOptions, id: \.self) { option in
+                        filterButton(
+                            title: changeCountLabel(option),
+                            isOn: solutionFilters.changes.contains(option)
+                        ) {
+                            toggle(&solutionFilters.changes, option)
+                        }
+                    }
+                } label: {
+                    Label("Changes", systemImage: "tram.fill")
+                        .foregroundStyle(solutionFilters.changes.isEmpty ? Color.primary : Color.blue)
+                }
+            }
+
+            bucketMenu(
+                title: "Duration",
+                systemImage: "clock",
+                buckets: facets.durationBuckets,
+                selection: solutionFilters.durationBuckets,
+                label: { $0.durationLabel },
+                toggle: { toggle(&solutionFilters.durationBuckets, $0) }
+            )
+
+            bucketMenu(
+                title: "Cost",
+                systemImage: "eurosign",
+                buckets: facets.priceBuckets,
+                selection: solutionFilters.priceBuckets,
+                label: { $0.priceLabel(currency: currency) },
+                toggle: { toggle(&solutionFilters.priceBuckets, $0) }
+            )
+
+            if solutionFilters.isActive {
+                ControlGroup {
+                    Button(role: .destructive) {
+                        HapticFeedback.select()
+                        withAnimation(.snappy) { solutionFilters = SolutionFilters() }
+                    } label: {
+                        Label("Clear filters", systemImage: "trash")
+                    }
+                }
+            }
+        } label: {
+            Image(systemName: solutionFilters.isActive ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease")
+                .font(solutionFilters.isActive ? .title2 : .headline)
+                .foregroundStyle(solutionFilters.isActive ? Color.blue : Color.primary)
+        }
+        .disabled(facets.isEmpty)
+    }
+
+    @ViewBuilder private func bucketMenu(
+        title: LocalizedStringKey,
+        systemImage: String,
+        buckets: [SolutionBucket],
+        selection: Set<Int>,
+        label: @escaping (SolutionBucket) -> String,
+        toggle: @escaping (Int) -> Void
+    ) -> some View {
+        if buckets.count > 1 {
+            Menu {
+                ForEach(buckets) { bucket in
+                    filterButton(title: label(bucket), isOn: selection.contains(bucket.id)) {
+                        toggle(bucket.id)
+                    }
+                }
+            } label: {
+                Label(title, systemImage: systemImage)
+                    .foregroundStyle(selection.isEmpty ? Color.primary : Color.blue)
+            }
+        }
+    }
+
+    private func toggle(_ set: inout Set<Int>, _ value: Int) {
+        if set.contains(value) { set.remove(value) } else { set.insert(value) }
+    }
+
+    private func filterButton(title: String, isOn: Bool, action: @escaping () -> Void) -> some View {
+        Button {
+            HapticFeedback.select()
+            withAnimation(.snappy) { action() }
+        } label: {
+            Label {
+                Text(title)
+            } icon: {
+                if isOn { Image(systemName: "checkmark") }
+            }
+            .foregroundStyle(isOn ? Color.blue : Color.primary)
+        }
+    }
+
+    /// ascending → descending → off
+    private func cycleSort(_ field: SolutionSortField) {
+        guard let current = solutionSort, current.field == field else {
+            solutionSort = SolutionSort(field: field, isAscending: true)
+            return
+        }
+        solutionSort = current.isAscending ? SolutionSort(field: field, isAscending: false) : nil
+    }
+
+    private var solutionFacets: SolutionFacets { SolutionFacets(solutions: solutionsFetched) }
+
+    private var visibleSolutions: [Solution] {
+        SolutionQuery.apply(
+            to: solutionsFetched,
+            searchText: solutionSearchText,
+            filters: solutionFilters,
+            facets: solutionFacets,
+            sort: solutionSort
+        )
+    }
+
+    private func toggleExpanded(_ solution: Solution) {
+        guard solution.segments.count > 1 else { return }
+        HapticFeedback.select()
+        withAnimation(.snappy) {
+            // opening one closes whichever was open
+            expandedSolutionID = expandedSolutionID == solution.id ? nil : solution.id
+        }
+    }
+
+    /// Places a fare on the green-to-red ramp against the others on screen.
+    private func priceRank(for solution: Solution) -> SolutionPriceRank? {
+        guard let price = solution.price else { return nil }
+        let prices = visibleSolutions.compactMap(\.price)
+        guard let cheapest = prices.min(), let priciest = prices.max(), cheapest < priciest else { return nil }
+        return SolutionPriceRank(position: (price - cheapest) / (priciest - cheapest))
     }
 
     // on open, jump straight to the next departure from now so the user can catch it
-    private func scroll_to_next_solution(proxy: ScrollViewProxy, animated: Bool = false) {
+    private func scrollToNextSolution(proxy: ScrollViewProxy, animated: Bool = false) {
         let now = Date()
-        guard let target = solutions_fetched.first(where: { $0.departureTime >= now }) else { return }
-
-        // reflect the next train's interval in the picker without triggering its scroll
-        let hour = Calendar.current.component(.hour, from: target.departureTime)
-        if let daytime = Daytime.allCases.first(where: { hour >= $0.startHour && hour < $0.endHour }) {
-            suppress_daytime_scroll = true
-            selected_daytime = daytime
-        }
+        guard let target = solutionsFetched.first(where: { $0.departureTime >= now }) else { return }
 
         DispatchQueue.main.async {
             if animated {
@@ -945,147 +946,18 @@ struct AddTrainView: View {
         }
     }
 
-    @ViewBuilder func solution_header_view(_ segments: [SolutionSegment]) -> some View {
-        HStack(spacing: 12) {
-            ForEach(Array(segments.enumerated()), id: \.offset) { index, segment in
-                HStack(spacing: 6) {
-                    if segment.isBus {
-                        Image(systemName: "bus.fill")
-                            .font(.title3)
-                    } else {
-                        Image(segment.logo)
-                            .resizable()
-                            .scaledToFit()
-                            .frame(height: UIFont.preferredFont(forTextStyle: .title3).lineHeight * 0.8)
-                    }
-
-                    Text(segment.number)
-                        .font(.title3)
-                        .fontWeight(.semibold)
-                }
-
-                if index < segments.count - 1 {
-                    Image(systemName: "chevron.right")
-                        .font(.caption)
-                        .fontWeight(.semibold)
-                        .foregroundStyle(Color.secondary)
-                }
-            }
-
-            Spacer(minLength: 0)
-        }
-        .fontDesign(app_font_design)
-        .foregroundStyle(Color.primary)
-    }
-
-    @ViewBuilder func solution_segment_details_view(_ segment: SolutionSegment) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack {
-                Text(segment.origin)
-                Spacer()
-                Text(segment.departureTime.formatted(Date.FormatStyle.dateTime.hour().minute()))
-                    .monospacedDigit()
-            }
-            HStack {
-                Text(segment.destination)
-                Spacer()
-                Text(segment.arrivalTime.formatted(Date.FormatStyle.dateTime.hour().minute()))
-                    .monospacedDigit()
-            }
-        }
-        .font(.subheadline)
-    }
-
-    @ViewBuilder func bus_segment_details_view(_ segment: SolutionSegment) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack {
-                Text(segment.origin)
-                Spacer()
-                Text(segment.departureTime.formatted(Date.FormatStyle.dateTime.hour().minute()))
-                    .monospacedDigit()
-            }
-            HStack {
-                Text(segment.destination)
-                Spacer()
-                Text(segment.arrivalTime.formatted(Date.FormatStyle.dateTime.hour().minute()))
-                    .monospacedDigit()
-            }
-        }
-        .font(.subheadline)
-        .fontDesign(app_font_design)
-        .foregroundColor(.blue)
-    }
-
-    // bus-substitution leg, styled like the connection assistant but blue with a bus icon
-    @ViewBuilder func bus_segment_view(_ segment: SolutionSegment) -> some View {
-        HStack(alignment: .center, spacing: 8) {
-            Rectangle()
-                .fill(Color.blue.opacity(0.3))
-                .frame(width: 3)
-                .cornerRadius(1.5)
-
-            Image(systemName: "bus.fill")
-                .font(.title3)
-                .frame(width: 32)
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text("\(NSLocalizedString("Bus", comment: "")) \(segment.number)")
-                    .font(.footnote).fontWeight(.semibold)
-
-                VStack(alignment: .leading, spacing: 2) {
-                    HStack {
-                        Text(segment.origin)
-                        Spacer()
-                        Text(segment.departureTime.formatted(Date.FormatStyle.dateTime.hour().minute()))
-                            .monospacedDigit()
-                    }
-                    HStack {
-                        Text(segment.destination)
-                        Spacer()
-                        Text(segment.arrivalTime.formatted(Date.FormatStyle.dateTime.hour().minute()))
-                            .monospacedDigit()
-                    }
-                }
-                .font(.caption)
-            }
-
-            Spacer(minLength: 0)
-        }
-        .padding(.vertical, 8).padding(.horizontal)
-        .fontDesign(app_font_design)
-        .foregroundColor(.blue)
-    }
-
-    @ViewBuilder func connection_view(from: SolutionSegment, to: SolutionSegment) -> some View {
-        let totalMinutes = max(0, Int(to.departureTime.timeIntervalSince(from.arrivalTime)) / 60)
-        let hours = totalMinutes / 60
-        let minutes = totalMinutes % 60
-        let durationString = hours > 0 ? "\(hours)h \(minutes)m" : "\(minutes)m"
-
-        ConnectionIntervalView(
-            durationString: durationString,
-            totalMinutes: totalMinutes,
-            connectionStatus: ConnectionStatus(minutes: totalMinutes),
-            station: from.destination,
-            weather: nil,
-            index: 0,
-            total: 1,
-            manualRefreshCounter: 0
-        )
-        .padding(.leading, -16)
-    }
     
-    @ViewBuilder func choose_stops_view() -> some View {
+    @ViewBuilder func chooseStopsView() -> some View {
         ZStack(alignment: .bottom) {
             List {
-                ForEach(stops_fetched.enumerated(), id: \.offset) { index, stop in
+                ForEach(stopsFetched.enumerated(), id: \.offset) { index, stop in
                     let name = stop["name"] as? String ?? ""
                     let ref_time = stop["ref_time"] as? Date ?? .distantPast
                     
-                    let is_selected = stops_selected.contains(where: { $0["name"] as? String == name })
+                    let is_selected = stopsSelected.contains(where: { $0["name"] as? String == name })
                     
                     Button {
-                        stops_selected = select_stops(stopsFetched: stops_fetched, currentSelection: stops_selected, tappedIndex: index)
+                        stopsSelected = selectStops(stopsFetched: stopsFetched, currentSelection: stopsSelected, tappedIndex: index)
                     } label: {
                         HStack(spacing: 8) {
                             Image(systemName: is_selected ? "checkmark.circle.fill" : "circle")
@@ -1105,7 +977,7 @@ struct AddTrainView: View {
                                 .font(.subheadline)
                                 .monospacedDigit()
                         }
-                        .fontDesign(app_font_design)
+                        .fontDesign(appFontDesign)
                         .foregroundStyle(Color.primary)
                         .padding(4)
                         .contentShape(Rectangle())
@@ -1115,96 +987,141 @@ struct AddTrainView: View {
             }
             .listStyle(.insetGrouped)
             .scrollIndicators(.hidden)
-            .contentMargins(.top, 80, for: .scrollContent)
+            .contentMargins(.bottom, 120, for: .scrollContent)
+
+            Button {
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "lightbulb.fill")
+                        .font(.title)
+                        .foregroundStyle(Color.yellow.mix(with: .black, by: 0.05))
+                        .symbolEffect(.wiggle.byLayer, options: .repeat(.periodic(delay: 5.0)))
+                    
+                    Text("Choose only the departure and arrival stations. Intermediate stops are selected automatically.")
+                        .font(.footnote)
+                        .multilineTextAlignment(.leading)
+                }
+                .fontDesign(appFontDesign)
+                .symbolRenderingMode(.hierarchical)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+            }
+            .buttonStyle(.glassProminent)
+            .tint(Color.yellow.opacity(0.05))
+            .foregroundStyle(Color.yellow.mix(with: .black, by: 0.1))
+            .padding(.horizontal, 24).padding(.bottom, 24)
+            .allowsHitTesting(false)
         }
         .toolbar(.hidden, for: .tabBar)
     }
     
-    @ViewBuilder func choose_date_view() -> some View {
-        ScrollView {
-            DatePicker("", selection: $date_selected, in: Date()..., displayedComponents: [.date])
-                .datePickerStyle(GraphicalDatePickerStyle())
-            
-            Color.clear
-                .frame(height: 80)
-        }
-        .contentMargins(.top, 72, for: .scrollContent)
-        .padding(.horizontal, 8)
-    }
-    
-    // MARK: - Functions
-    private func schedule_station_fetch(for field: FocusField) {
-        let query = field == .departure ? departure_station : arrival_station
-        schedule_station_fetch(query: query, field: field)
+    private func scheduleStationFetch(for field: FocusField) {
+        let query = field == .departure ? departureStation : arrivalStation
+        scheduleStationFetch(query: query, field: field)
     }
 
-    private func schedule_station_fetch(query: String, field: FocusField) {
-        station_fetch_task?.cancel()
+    private func scheduleStationFetch(query: String, field: FocusField) {
+        stationFetchTask?.cancel()
 
         guard query.count >= 2 else {
-            station_suggestions = []
+            stationSuggestions = []
             return
         }
 
-        station_fetch_task = Task(priority: .userInitiated) {
-            await fetch_stations(for: query, field: field)
+        stationFetchTask = Task(priority: .userInitiated) {
+            await fetchStations(for: query, field: field)
         }
     }
 
-    private func fetch_stations(for query: String, field: FocusField) async {
+    private func fetchStations(for query: String, field: FocusField) async {
         guard query.count >= 2 else {
             await MainActor.run {
-                station_suggestions = []
+                stationSuggestions = []
             }
             return
         }
 
         guard !Task.isCancelled else { return }
-        let results = await TrenitaliaAPI().station_autocomplete(name: query)
+        let results = await TrenitaliaAPI().stationAutocomplete(name: query)
 
         await MainActor.run {
             guard !Task.isCancelled else { return }
-            guard focused_field == field else { return }
-            let current = field == .departure ? departure_station : arrival_station
+            guard focusedField == field else { return }
+            let current = field == .departure ? departureStation : arrivalStation
             guard current == query else { return }
-            station_suggestions = results
+            stationSuggestions = results
         }
     }
 
-    private func select_station(_ station: StationSuggestion, field: FocusField) {
+    /// Commits the top suggestion for a field the user typed into but never
+    /// picked from, so the code needed to fetch solutions is still filled in.
+    private func adoptFirstSuggestion(for field: FocusField) {
+        guard let match = stationSuggestions.first else { return }
+
+        switch field {
+        case .departure:
+            guard departureCode.isEmpty,
+                  !departureStation.trimmingCharacters(in: .whitespaces).isEmpty else { return }
+            if departureStation != match.name {
+                isSelectingStation = true
+                departureStation = match.name
+            }
+            departureCode = match.code
+        case .arrival:
+            guard arrivalCode.isEmpty,
+                  !arrivalStation.trimmingCharacters(in: .whitespaces).isEmpty else { return }
+            if arrivalStation != match.name {
+                isSelectingStation = true
+                arrivalStation = match.name
+            }
+            arrivalCode = match.code
+        case .number:
+            break
+        }
+    }
+
+    private func firstLetterCapitalized(_ source: Binding<String>) -> Binding<String> {
+        Binding(
+            get: { source.wrappedValue },
+            set: { source.wrappedValue = $0.isEmpty ? $0 : $0.prefix(1).uppercased() + $0.dropFirst() }
+        )
+    }
+
+    private func selectStation(_ station: StationSuggestion, field: FocusField) {
         HapticFeedback.select()
-        station_suggestions = []
-        is_selecting_station = true
+        stationSuggestions = []
+        isSelectingStation = true
         if field == .departure {
-            departure_station = station.name
-            departure_code = station.code
-            focused_field = .arrival
+            departureStation = station.name
+            departureCode = station.code
+            focusedField = .arrival
         } else {
-            arrival_station = station.name
-            arrival_code = station.code
-            focused_field = nil
+            arrivalStation = station.name
+            arrivalCode = station.code
+            focusedField = nil
         }
     }
 
-    private func fetch_solutions() async {
-        current_fetching = .fetching
+    private func fetchSolutions() async {
+        fetchState = .fetching
 
-        let results = await TrenitaliaAPI().train_solutions(
-            departureLocationId: departure_code,
-            arrivalLocationId: arrival_code,
-            departureTime: date_selected
+        let results = await TrenitaliaAPI().trainSolutions(
+            departureLocationId: departureCode,
+            arrivalLocationId: arrivalCode,
+            departureTime: dateSelected
         )
 
         await MainActor.run {
-            solutions_fetched = results
-            current_fetching = results.isEmpty ? .failure : .success
+            solutionsFetched = results
+            fetchState = results.isEmpty ? .failure : .success
         }
     }
 
     // saves the selected solution: each leg becomes its own train, so connected
     // journeys render with the connection manager just like in TodayView.
-    private func save_solution() async {
-        guard let solution = solutions_fetched.first(where: { $0.id == solutionID_selected }) else {
+    private func saveSolution() async {
+        guard let solution = solutionsFetched.first(where: { $0.id == solutionID_selected }) else {
             await MainActor.run { isSaving = false }
             return
         }
@@ -1218,12 +1135,12 @@ struct AddTrainView: View {
         if let cached = prefetchedSegments[solution.id], cached.count == solution.segments.count {
             preparedSegments = cached
         } else {
-            preparedSegments = await SolutionSegmentResolver.resolveAll(solution.segments)
+            preparedSegments = await SolutionSegmentResolver.resolveAll(solution.trackableSegments)
         }
 
         await MainActor.run {
             for prepared in preparedSegments {
-                save_segment(
+                saveSegment(
                     info: prepared.info,
                     fromStation: prepared.fromStation,
                     toStation: prepared.toStation,
@@ -1231,12 +1148,12 @@ struct AddTrainView: View {
                 )
             }
             try? modelContext.save()
-            reload_widget_timelines()
+            reloadWidgetTimelines()
             isSaving = false
         }
     }
 
-    private func save_segment(info: [String: Any], fromStation: String, toStation: String, dayOffset: Int = 0) {
+    private func saveSegment(info: [String: Any], fromStation: String, toStation: String, dayOffset: Int = 0) {
         let id = UUID()
         
         func offsetDate(_ date: Date) -> Date {
@@ -1269,7 +1186,7 @@ struct AddTrainView: View {
                 return i >= f && i <= t
             }()
 
-            let stop_to_add = Stop(
+            let stopToAdd = Stop(
                 id: id,
                 name: stop["name"] as? String ?? "",
                 platform: stop["platform"] as? String ?? "",
@@ -1286,44 +1203,42 @@ struct AddTrainView: View {
                 arr_time_eff: dayOffset != 0 ? offsetDate(stop["arr_time_id"] as? Date ?? .distantPast) : offsetDate(stop["arr_time_eff"] as? Date ?? .distantPast),
                 ref_time: offsetDate(stop["ref_time"] as? Date ?? .distantPast)
             )
-            modelContext.insert(stop_to_add)
+            modelContext.insert(stopToAdd)
         }
     }
 
-    private func fetch_trains() async {
-        // fetching status
-        current_fetching = .fetching
+    private func fetchTrains() async {
+        fetchState = .fetching
         
-        // fetching process
         Task {
             /// fetch from both providers
-            let results = await fetch_common_train_list(number : train_number)
+            let results = await fetchCommonTrainList(number : trainNumber)
             
             /// assign results to variables
             for result in results {
-                trains_fetched[UUID()] = result
+                trainsFetched[UUID()] = result
             }
             
             /// define fetching status again
             await MainActor.run {
-                if trains_fetched.isEmpty {
-                    current_fetching = .failure
+                if trainsFetched.isEmpty {
+                    fetchState = .failure
                 } else {
-                    current_fetching = .success
+                    fetchState = .success
                 }
             }
         }
     }
     
-    private func save_stops() {
-        let train = trains_fetched.filter { $0.key == trainID_selected }.first
+    private func saveStops() {
+        let train = trainsFetched.filter { $0.key == trainID_selected }.first
         let stops = train?.value["stops"] as? [[String: Any]] ?? []
         for stop in stops {
-            stops_fetched.append(stop)
+            stopsFetched.append(stop)
         }
     }
     
-    private func select_stops(stopsFetched: [[String: Any]], currentSelection: [[String: Any]], tappedIndex: Int) -> [[String: Any]] {
+    private func selectStops(stopsFetched: [[String: Any]], currentSelection: [[String: Any]], tappedIndex: Int) -> [[String: Any]] {
         let selectedIndices: [Int] = currentSelection.compactMap { selected in
             guard let name = selected["name"] as? String else { return nil }
             return stopsFetched.firstIndex(where: {
@@ -1358,72 +1273,72 @@ struct AddTrainView: View {
         }
     }
     
-    private func save_train() {
+    private func saveTrain() {
         // unique id for train and stops
         let id = UUID()
         
         // MARK: - day difference for future dates
         /// get the first stop selected reference time
-        let firstStop_refTime = stops_fetched.first?["ref_time"] as? Date ?? .distantPast
+        let firstStop_refTime = stopsFetched.first?["ref_time"] as? Date ?? .distantPast
         
         /// compare its day with the selected date
-        let startOfDay_dateSelected = Calendar.current.startOfDay(for: date_selected)
+        let startOfDay_dateSelected = Calendar.current.startOfDay(for: dateSelected)
         let startOfDay_firstStop_refTime = Calendar.current.startOfDay(for: firstStop_refTime)
         
         /// calculate the day difference
-        let day_difference = abs(Calendar.current.dateComponents([.day], from: startOfDay_dateSelected, to: startOfDay_firstStop_refTime).day ?? 0)
+        let dayDifference = abs(Calendar.current.dateComponents([.day], from: startOfDay_dateSelected, to: startOfDay_firstStop_refTime).day ?? 0)
         
         // MARK: - add train
         /// get selected train
-        let train_selected = trains_fetched.filter { $0.key == trainID_selected }.first
+        let trainSelected = trainsFetched.filter { $0.key == trainID_selected }.first
         
         /// get details
-        let logo = train_selected?.value["logo"] as? String ?? ""
-        let number = train_selected?.value["number"] as? String ?? ""
-        let identifier = train_selected?.value["identifier"] as? String ?? ""
-        let provider = train_selected?.value["provider"] as? String ?? ""
+        let logo = trainSelected?.value["logo"] as? String ?? ""
+        let number = trainSelected?.value["number"] as? String ?? ""
+        let identifier = trainSelected?.value["identifier"] as? String ?? ""
+        let provider = trainSelected?.value["provider"] as? String ?? ""
         
-        let last_update_time = train_selected?.value["last_update_time"] as? Date ?? Date()
-        let delay = train_selected?.value["delay"] as? Int ?? 0
-        let direction = train_selected?.value["direction"] as? String ?? ""
+        let last_update_time = trainSelected?.value["last_update_time"] as? Date ?? Date()
+        let delay = trainSelected?.value["delay"] as? Int ?? 0
+        let direction = trainSelected?.value["direction"] as? String ?? ""
         
-        let issue = train_selected?.value["issue"] as? String ?? ""
+        let issue = trainSelected?.value["issue"] as? String ?? ""
 
         /// adjust identifier timestamp based on day difference
-        let identifier_string: String = {
-            guard provider != "italo" else { return train_number }
+        let identifierString: String = {
+            guard provider != "italo" else { return trainNumber }
             
             let components = identifier.split(separator: "/").map { String($0) }
             var timestamp = Int(components.last ?? "") ?? 0
-            let adjustedDate = Date(timeIntervalSince1970: TimeInterval(timestamp)).addingTimeInterval(TimeInterval(day_difference) * 86_400)
+            let adjustedDate = Date(timeIntervalSince1970: TimeInterval(timestamp)).addingTimeInterval(TimeInterval(dayDifference) * 86_400)
             timestamp = Int(adjustedDate.timeIntervalSince1970)
             return components.dropLast().joined(separator: "/") + "/\(timestamp)"
         }()
         
         /// save to database
-        let train_to_add = Train(
+        let trainToAdd = Train(
             id: id,
             logo: logo,
             number: number,
-            identifier: identifier_string,
+            identifier: identifierString,
             provider: provider,
             last_update_time: last_update_time,
             delay: delay,
             direction: direction,
             issue: issue
         )
-        modelContext.insert(train_to_add)
+        modelContext.insert(trainToAdd)
         
         var addedStops: [Stop] = []
 
         // MARK: - add stops
-        for stop in stops_fetched {
+        for stop in stopsFetched {
             /// fetch details
             let name = stop["name"] as? String ?? ""
             let platform = stop["platform"] as? String ?? ""
             let weather = stop["weather"] as? String ?? ""
             
-            let is_selected = stops_selected.contains(where: { $0["name"] as? String == name })
+            let is_selected = stopsSelected.contains(where: { $0["name"] as? String == name })
             let status = stop["status"] as? Int ?? 0
             let is_completed = stop["is_completed"] as? Bool ?? false
             let is_in_station = stop["is_in_station"] as? Bool ?? false
@@ -1438,14 +1353,14 @@ struct AddTrainView: View {
             var ref_time = stop["ref_time"] as? Date ?? .distantPast
             
             /// adjust timestamps based on day difference
-            dep_time_id.addTimeInterval(TimeInterval(day_difference) * 86_400)
-            dep_time_eff.addTimeInterval(TimeInterval(day_difference) * 86_400)
-            arr_time_id.addTimeInterval(TimeInterval(day_difference) * 86_400)
-            arr_time_eff.addTimeInterval(TimeInterval(day_difference) * 86_400)
-            ref_time.addTimeInterval(TimeInterval(day_difference) * 86_400)
+            dep_time_id.addTimeInterval(TimeInterval(dayDifference) * 86_400)
+            dep_time_eff.addTimeInterval(TimeInterval(dayDifference) * 86_400)
+            arr_time_id.addTimeInterval(TimeInterval(dayDifference) * 86_400)
+            arr_time_eff.addTimeInterval(TimeInterval(dayDifference) * 86_400)
+            ref_time.addTimeInterval(TimeInterval(dayDifference) * 86_400)
             
             /// save to database
-            let stop_to_add = Stop(
+            let stopToAdd = Stop(
                 id: id,
                 name: name,
                 platform: platform,
@@ -1462,18 +1377,18 @@ struct AddTrainView: View {
                 arr_time_eff: arr_time_eff,
                 ref_time: ref_time
             )
-            modelContext.insert(stop_to_add)
-            addedStops.append(stop_to_add)
+            modelContext.insert(stopToAdd)
+            addedStops.append(stopToAdd)
         }
         
         try? modelContext.save()
         
         // MARK: - calendar sync
-        if let profile = profiles.first, profile.calendarSettings.autoSyncToCalendar {
+        if let profile = profiles.primary, profile.calendarSettings.autoSyncToCalendar {
             let settings = profile.calendarSettings
             Task {
                 await CalendarManager.shared.syncTrainEvent(
-                    train: train_to_add,
+                    train: trainToAdd,
                     stops: addedStops,
                     seats: [],
                     titleFormat: settings.titleFormat,
@@ -1483,56 +1398,59 @@ struct AddTrainView: View {
             }
         }
         
-        reload_widget_timelines()
+        reloadWidgetTimelines()
     }
 }
 
-// MARK: - Previews
 extension AddTrainView {
     init(
-        previewView: current_view,
+        previewView: AddTrainStep,
         stopsFetched: [[String: Any]] = [],
         stopsSelected: [[String: Any]] = [],
+        departureStation: String = "",
+        focusInitially: Bool = false
     ) {
-        self._current_view = State(initialValue: previewView)
-        self._stops_fetched = State(initialValue: stopsFetched)
-        self._stops_selected = State(initialValue: stopsSelected)
+        self.focusInitially = focusInitially
+        self._addTrainStep = State(initialValue: previewView)
+        self._stopsFetched = State(initialValue: stopsFetched)
+        self._stopsSelected = State(initialValue: stopsSelected)
+        self._departureStation = State(initialValue: departureStation)
     }
 
     // preview helper for the "Choose Train" step (number search → trains, stations search → solutions)
     init(
-        previewView: current_view,
+        previewView: AddTrainStep,
         searchType: SearchType,
-        fetching: current_fetching,
+        fetching: FetchState,
         trainsFetched: [UUID: [String: Any]] = [:],
-        solutionsFetched: [Solution] = []
+        solutionsFetched: [Solution] = [],
+        expandedSolutionID: UUID? = nil,
+        selectedSolutionID: UUID? = nil
     ) {
-        self._current_view = State(initialValue: previewView)
-        self._search_type = State(initialValue: searchType)
-        self._current_fetching = State(initialValue: fetching)
-        self._trains_fetched = State(initialValue: trainsFetched)
-        self._solutions_fetched = State(initialValue: solutionsFetched)
+        self._addTrainStep = State(initialValue: previewView)
+        self._searchType = State(initialValue: searchType)
+        self._fetchState = State(initialValue: fetching)
+        self._trainsFetched = State(initialValue: trainsFetched)
+        self._solutionsFetched = State(initialValue: solutionsFetched)
+        self._expandedSolutionID = State(initialValue: expandedSolutionID)
+        self._solutionID_selected = State(initialValue: selectedSolutionID)
     }
 }
 
 #Preview("Add Train View") {
-    // memory container
     let container = try! ModelContainer(for: Schema([Train.self, Stop.self]), configurations: ModelConfiguration(isStoredInMemoryOnly: true))
     
-    // view
     return Color(uiColor: .systemBackground)
         .sheet(isPresented: .constant(true)) {
-            AddTrainView(previewView: .add_train)
+            AddTrainView(previewView: .addTrain)
                 .modelContainer(container)
         }
 }
 
 #Preview("Choose Stops View") {
-    // memory container
     let schema = Schema([Train.self, Stop.self])
     let modelConfiguration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
     
-    // mock data
     let start = Date()
     let mockStops: [[String: Any]] = [
         ["name": "Torino Porta Nuova", "ref_time": start],
@@ -1551,11 +1469,10 @@ extension AddTrainView {
     do {
         let container = try ModelContainer(for: schema, configurations: modelConfiguration)
         
-        // view
         return Color(uiColor: .systemBackground)
             .sheet(isPresented: .constant(true)) {
                 AddTrainView(
-                    previewView: .choose_stops,
+                    previewView: .chooseStops,
                     stopsFetched: mockStops,
                     stopsSelected: [mockStops[0], mockStops[1]]
                 )
@@ -1564,11 +1481,11 @@ extension AddTrainView {
         
     } catch {
         return ContentUnavailableView("SwiftData Error", systemImage: "xmark.octagon", description: Text(error.localizedDescription))
+            .foregroundStyle(Color.red)
     }
 }
 
 #Preview("Choose Train - number search") {
-    // memory container
     let container = try! ModelContainer(for: Schema([Train.self, Stop.self, Favorite.self]), configurations: ModelConfiguration(isStoredInMemoryOnly: true))
 
     let start = Calendar.current.date(bySettingHour: 9, minute: 0, second: 0, of: Date())!
@@ -1596,7 +1513,7 @@ extension AddTrainView {
     return Color(uiColor: .systemBackground)
         .sheet(isPresented: .constant(true)) {
             AddTrainView(
-                previewView: .choose_train,
+                previewView: .chooseTrain,
                 searchType: .number,
                 fetching: .success,
                 trainsFetched: trainsFetched
@@ -1606,7 +1523,6 @@ extension AddTrainView {
 }
 
 #Preview("Choose Train - stations search") {
-    // memory container
     let container = try! ModelContainer(for: Schema([Train.self, Stop.self, Favorite.self]), configurations: ModelConfiguration(isStoredInMemoryOnly: true))
 
     let start = Calendar.current.date(bySettingHour: 8, minute: 30, second: 0, of: Date())!
@@ -1620,7 +1536,7 @@ extension AddTrainView {
                 departureTime: start, arrivalTime: start.addingTimeInterval(3 * 3600),
                 logo: "FR", number: "9612", stationCode: "S01700", isBus: false
             )
-        ]),
+        ], price: 51.45),
         // with a connection in Bologna
         Solution(segments: [
             SolutionSegment(
@@ -1633,7 +1549,7 @@ extension AddTrainView {
                 departureTime: start.addingTimeInterval(900 + 90 * 60), arrivalTime: start.addingTimeInterval(900 + 90 * 60 + 125 * 60),
                 logo: "IC", number: "605", stationCode: "S05043", isBus: false
             )
-        ]),
+        ], price: 33.00),
         // train + replacement bus
         Solution(segments: [
             SolutionSegment(
@@ -1646,13 +1562,13 @@ extension AddTrainView {
                 departureTime: start.addingTimeInterval(1800 + 140 * 60), arrivalTime: start.addingTimeInterval(1800 + 140 * 60 + 95 * 60),
                 logo: "BU", number: "FI451", stationCode: "S06421", isBus: true
             )
-        ])
+        ], price: 21.45)
     ]
 
     return Color(uiColor: .systemBackground)
         .sheet(isPresented: .constant(true)) {
             AddTrainView(
-                previewView: .choose_train,
+                previewView: .chooseTrain,
                 searchType: .stations,
                 fetching: .success,
                 solutionsFetched: solutionsFetched

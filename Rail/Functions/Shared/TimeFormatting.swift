@@ -1,6 +1,6 @@
 import Foundation
 
-func time_to_date(timeString: String) -> Date? {
+func timeToDate(timeString: String) -> Date? {
     if timeString == "" || timeString == "01:00" {
         return .distantPast
     }

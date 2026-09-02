@@ -4,18 +4,48 @@ import PhotosUI
 import WidgetKit
 
 struct PassView: View {
-    // MARK: - Properties
     @Environment(\.dismiss) private var dismiss
 
     @Environment(\.modelContext) private var modelContext
     @Query private var passes: [Pass]
+    @Query private var profiles: [UserProfile]
 
     var openPrincipalPassQR: Bool = false
 
     @State private var displayedPasses: [Pass] = []
+    /// Two-finger swipe on the list drives this; a non-empty set swaps the
+    /// bottom bar over to the delete and share actions.
+    @State private var selectedPassIDs: Set<PersistentIdentifier> = []
+    @State private var editMode: EditMode = .inactive
+    @State private var confirmingDelete = false
+    @State private var knownPassIDs: Set<PersistentIdentifier> = []
+    @State private var selectedYears: Set<Int> = []
+    @State private var archive: PassArchiveFile?
+    @State private var archiveError: String?
     @State private var searchText = ""
-    @State private var pass_filter: PassFilter = .active
-    @State private var pass_form_presentation: PassFormPresentation? = nil
+    @State private var passFilter: PassFilter = .all
+    @State private var passFormPresentation: PassFormPresentation? = nil
+    @State private var emailImportSheet = false
+    @State private var fetchSheetDetent: PresentationDetent = .medium
+    @State private var passSyncProgresses: [String: EmailPassSyncProgress] = [:]
+    @State private var isFetchingEmailPasses = false
+    @State private var showFetchResultCard = false
+    @State private var fetchedPassesCount = 0
+    @State private var emailFetchTask: Task<Void, Never>?
+    @State private var hasStartedAutoFetch = false
+    @State private var fetchingAccountEmails: [String] = []
+
+    private var fetchEmailsDownloaded: Int {
+        passSyncProgresses.values.map(\.emailsDownloaded).reduce(0, +)
+    }
+
+    private var fetchEmailsFound: Int {
+        passSyncProgresses.isEmpty ? fetchedPassesCount : passSyncProgresses.values.map(\.emailsFound).reduce(0, +)
+    }
+
+    private var showsFetchToolbarButton: Bool {
+        isFetchingEmailPasses || showFetchResultCard
+    }
 
     private enum PassFilter: CaseIterable {
         case all
@@ -28,7 +58,7 @@ struct PassView: View {
             let description: String
         }
 
-        var label: String {
+        var text: String {
             switch self {
             case .all:
                 return String(localized: "All")
@@ -86,100 +116,220 @@ struct PassView: View {
         displayedPasses.filter { matches($0, searchText: searchText) }
     }
 
-    // MARK: - Body
     var body: some View {
         NavigationStack {
             Group {
-                if passes.isEmpty {
+                if !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && filteredPasses.isEmpty && !isFetchingEmailPasses && !showFetchResultCard {
+                    ContentUnavailableView.search(text: searchText)
+                        .foregroundStyle(Color.secondary)
+                        .fontDesign(appFontDesign)
+                } else if passes.isEmpty {
                     ContentUnavailableView(
                         "No passes added",
                         systemImage: "ticket.fill",
                         description: Text("Add a new pass using the button below.")
                     )
                     .foregroundStyle(.secondary)
-                    .fontDesign(app_font_design)
-                } else if !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && filteredPasses.isEmpty {
-                    ContentUnavailableView.search(text: searchText)
-                        .fontDesign(app_font_design)
-                } else if displayedPasses.isEmpty {
-                    ContentUnavailableView(
-                        pass_filter.emptyState.title,
-                        systemImage: pass_filter.emptyState.icon,
-                        description: Text(pass_filter.emptyState.description)
-                    )
-                    .foregroundStyle(.secondary)
-                    .fontDesign(app_font_design)
+                    .fontDesign(appFontDesign)
+                } else if filteredPasses.isEmpty {
+                    ContentUnavailableView {
+                        Label(passFilter.emptyState.title, systemImage: passFilter.emptyState.icon)
+                    } description: {
+                        Text(passFilter.emptyState.description)
+                            .multilineTextAlignment(.center)
+                    }
+                    .foregroundStyle(Color.secondary)
+                    .fontDesign(appFontDesign)
                 } else {
-                    List {
-                        Section {
-                            ForEach(filteredPasses) { pass in
-                                passRow(pass: pass)
+                    List(selection: $selectedPassIDs) {
+                        ForEach(groupedPassSections, id: \.title) { section in
+                            Section {
+                                ForEach(section.passes) { pass in
+                                    passRow(pass: pass)
+                                        .tag(pass.persistentModelID)
+                                        // suppress the red minus beside the selection circle
+                                        .deleteDisabled(isSelecting)
+                                }
+                                .onDelete { offsets in
+                                    deletePasses(at: offsets, from: section.passes)
+                                }
+                            } header: {
+                                Text(section.title)
+                            } footer: {
+                                if section.title == groupedPassSections.last?.title {
+                                    Text("Swipe to the right to add the QR code to the widget")
+                                }
                             }
-                            .onDelete { offsets in
-                                delete_passes(at: offsets, from: filteredPasses)
-                            }
-                        } header: {
-                            Text("\(filteredPasses.count) \(filteredPasses.count == 1 ? "pass" : "passes")")
-                                .contentTransition(.numericText(value: Double(filteredPasses.count)))
-                                .animation(.snappy, value: filteredPasses.count)
-                        } footer: {
-                            if !filteredPasses.isEmpty {
-                                Text("Swipe to the right to add the QR code to the widget")
-                            }
+                            .fontDesign(appFontDesign)
                         }
-                        .fontDesign(app_font_design)
                     }
                     .listStyle(.insetGrouped)
                     .listSectionSpacing(32)
                     .scrollIndicators(.hidden)
+                    .environment(\.editMode, $editMode)
                 }
             }
             .navigationTitle("Passes")
             .toolbar {
+                // the close button doubles as the way out of selection mode,
+                // which frees the trailing slot up for "Select All"
                 ToolbarItem(placement: .navigationBarLeading) {
                     Button {
-                        dismiss()
+                        if isSelecting {
+                            HapticFeedback.tap()
+                            endSelection()
+                        } else {
+                            dismiss()
+                        }
                     } label: {
-                        Image(systemName: "xmark")
+                        if isSelecting {
+                            Text("Cancel")
+                                .fontDesign(appFontDesign)
+                        } else {
+                            Image(systemName: "xmark")
+                        }
                     }
                 }
 
-                ToolbarItem(placement: .topBarTrailing) {
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        HapticFeedback.tap()
+                        withAnimation(.snappy) {
+                            if isSelecting {
+                                toggleSelectAll()
+                            } else {
+                                editMode = .active
+                            }
+                        }
+                    } label: {
+                        Text(selectionActionTitle)
+                            .contentTransition(.numericText())
+                            .fontDesign(appFontDesign)
+                    }
+                    .disabled(isSelecting && filteredPasses.isEmpty)
+                }
+
+                if !isSelecting, showsFetchToolbarButton {
+                    ToolbarItem(placement: .primaryAction) {
+                        Button {
+                            openEmailFetchSheet()
+                        } label: {
+                            emailFetchToolbarLabel
+                        }
+                        .fontDesign(appFontDesign)
+                        .buttonStyle(.glassProminent)
+                        .tint(isFetchingEmailPasses ? Color.clear : Color.blue.opacity(0.15))
+                    }
+                }
+
+                if isSelecting {
+                    ToolbarItem(placement: .bottomBar) {
+                        Button(role: .destructive) {
+                            HapticFeedback.tap()
+                            confirmingDelete = true
+                        } label: {
+                            Label("Delete", systemImage: "trash")
+                        }
+                        .tint(.red)
+                        .disabled(selectedPassIDs.isEmpty)
+                        .confirmationDialog(
+                            "Delete \(selectedPassIDs.count) \(selectedPassIDs.count == 1 ? "pass" : "passes")?",
+                            isPresented: $confirmingDelete,
+                            titleVisibility: .visible
+                        ) {
+                            Button("Delete", role: .destructive) { deleteSelectedPasses() }
+                            Button("Cancel", role: .cancel) { }
+                        } message: {
+                            Text("This can't be undone.")
+                        }
+                    }
+
+                    ToolbarSpacer(.flexible, placement: .bottomBar)
+
+                    ToolbarItem(placement: .bottomBar) {
+                        Button {
+                            shareSelectedPasses()
+                        } label: {
+                            Image(systemName: "square.and.arrow.up")
+                        }
+                        .disabled(selectedPasses.isEmpty || selectedPasses.allSatisfy { ($0.pdf?.isEmpty ?? true) })
+                    }
+                }
+
+                if !isSelecting {
+                ToolbarItem(placement: .bottomBar) {
                     Menu {
-                        ForEach(PassFilter.allCases, id: \.self) { filter in
-                            Button {
-                                HapticFeedback.select()
-                                withAnimation(.snappy) {
-                                    pass_filter = filter
-                                    refreshDisplayedPasses()
+                        if isFiltering {
+                            ControlGroup {
+                                Button(role: .destructive) {
+                                    HapticFeedback.select()
+                                    withAnimation(.snappy) {
+                                        passFilter = .all
+                                        selectedYears = []
+                                        refreshDisplayedPasses()
+                                    }
+                                } label: {
+                                    Label("Clear filter", systemImage: "trash")
                                 }
-                            } label: {
-                                Label {
-                                    Text(filter.label)
-                                } icon: {
-                                    if pass_filter == filter {
-                                        Image(systemName: "checkmark")
+                            }
+                        }
+
+                        Section("Status") {
+                            ForEach([PassFilter.active, PassFilter.expired], id: \.self) { filter in
+                                Button {
+                                    HapticFeedback.select()
+                                    withAnimation(.snappy) {
+                                        // tapping the active one clears it
+                                        passFilter = passFilter == filter ? .all : filter
+                                        refreshDisplayedPasses()
+                                    }
+                                } label: {
+                                    Label {
+                                        Text(filter.text)
+                                    } icon: {
+                                        if passFilter == filter { Image(systemName: "checkmark") }
+                                    }
+                                    .foregroundStyle(passFilter == filter ? Color.blue : Color.primary)
+                                }
+                            }
+                        }
+
+                        if availableYears.count > 1 {
+                            Section("Year") {
+                                ForEach(availableYears, id: \.self) { year in
+                                    Button {
+                                        HapticFeedback.select()
+                                        withAnimation(.snappy) {
+                                            if selectedYears.contains(year) {
+                                                selectedYears.remove(year)
+                                            } else {
+                                                selectedYears.insert(year)
+                                            }
+                                            refreshDisplayedPasses()
+                                        }
+                                    } label: {
+                                        Label {
+                                            Text(verbatim: String(year))
+                                        } icon: {
+                                            if selectedYears.contains(year) { Image(systemName: "checkmark") }
+                                        }
+                                        .foregroundStyle(selectedYears.contains(year) ? Color.blue : Color.primary)
                                     }
                                 }
                             }
                         }
                     } label: {
                         HStack {
-                            Image(systemName: pass_filter == .all ? "line.horizontal.3.decrease" : "line.3.horizontal.decrease.circle.fill")
-                                .font(pass_filter == .all ? .headline : .title2)
-                                .padding(.leading, pass_filter == .all ? 0 : -2)
-                                .foregroundStyle(pass_filter != .all ? .blue : .primary)
-                            
-                            // show the filter label only if the filter is not set to "all"
-                            if pass_filter != .all {
-                                Text(pass_filter.label)
-                                    .font(.headline)
-                                    .foregroundStyle(.blue)
-                            }
+                            Image(systemName: isFiltering ? "line.3.horizontal.decrease.circle.fill" : "line.horizontal.3.decrease")
+                                .font(isFiltering ? .title2 : .headline)
+                                .padding(.horizontal, isFiltering ? -2 : 0)
+                                .foregroundStyle(isFiltering ? .blue : .primary)
                         }
-                        .fontDesign(app_font_design)
+                        .fontDesign(appFontDesign)
                     }
                 }
+                
+                ToolbarSpacer(.fixed, placement: .bottomBar)
 
                 DefaultToolbarItem(kind: .search, placement: .bottomBar)
 
@@ -188,42 +338,143 @@ struct PassView: View {
                 ToolbarItem(placement: .bottomBar) {
                     Button {
                         HapticFeedback.confirm()
-                        pass_form_presentation = .new
+                        passFormPresentation = .new
                     } label: {
                         Image(systemName: "plus")
                     }
-                    .buttonStyle(.glassProminent)
+                }
                 }
             }
             .searchable(text: $searchText, prompt: "Search passes")
-            .sheet(item: $pass_form_presentation) { presentation in
+            .sheet(item: $archive) { file in
+                ActivityShareSheet(items: [file.url]) {
+                    try? FileManager.default.removeItem(at: file.url)
+                    endSelection()
+                }
+            }
+            .alert("Couldn't share", isPresented: Binding(
+                get: { archiveError != nil },
+                set: { if !$0 { archiveError = nil } }
+            )) {
+                Button("OK", role: .cancel) { archiveError = nil }
+            } message: {
+                Text(archiveError ?? "")
+            }
+            .sheet(item: $passFormPresentation) { presentation in
                 PassFormSheet(passToEdit: presentation.passToEdit) {
                     refreshDisplayedPasses()
                 }
             }
-        }
-        .background(app_background_color.ignoresSafeArea())
-        .onAppear {
-            refreshDisplayedPasses()
-            if openPrincipalPassQR, let principal = passes.first(where: \.is_principal) {
-                pass_form_presentation = .edit(principal)
+            .sheet(isPresented: $emailImportSheet) {
+                NavigationStack {
+                    Group {
+                        if isFetchingEmailPasses {
+                            EmailSyncProgressView(
+                                isFetching: isFetchingEmailPasses,
+                                progressTitle: fetchProgressTitle,
+                                globalPercentage: fetchProgressValue > 0 ? (fetchProgressValue / Double(max(1, fetchEmailsFound))) * 100 : 0,
+                                accountProgresses: computedAccountProgresses,
+                                progressSublabel: fetchProgressSublabel
+                            ) {
+                                emailFetchTask?.cancel()
+                                emailFetchTask = Task {
+                                    await fetchEmailPasses(reloadAll: true)
+                                }
+                            }
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                                .transition(.opacity.combined(with: .scale(scale: 0.98)))
+                        } else {
+                            EmailPassImportView(
+                                autoScanOnAppear: false,
+                                onPassAdded: { refreshDisplayedPasses() },
+                                onReloadRequested: {
+                                    triggerEmailPassRefresh(reloadAll: true)
+                                }
+                            )
+                            .transition(.opacity.combined(with: .scale(scale: 0.98)))
+                        }
+                    }
+                    .animation(.spring(response: 0.4, dampingFraction: 0.8), value: isFetchingEmailPasses)
+                }
+                .presentationDetents(
+                    isFetchingEmailPasses ? [.medium] : [.large],
+                    selection: $fetchSheetDetent
+                )
+                .presentationDragIndicator(.hidden)
+                .presentationBackground(appBackgroundColor)
+                .onChange(of: isFetchingEmailPasses) { _, isFetching in
+                    withAnimation(.snappy) {
+                        fetchSheetDetent = isFetching ? .medium : .large
+                    }
+                }
             }
         }
-        .onChange(of: passes.count) { _, _ in refreshDisplayedPasses() }
-        .onChange(of: pass_filter) { _, _ in refreshDisplayedPasses() }
+        .background(appBackgroundColor.ignoresSafeArea())
+        .onAppear {
+            // seed so the first insert is the only thing treated as new
+            knownPassIDs = Set(passes.map(\.persistentModelID))
+            refreshDisplayedPasses()
+            if !hasStartedAutoFetch {
+                hasStartedAutoFetch = true
+                triggerEmailPassRefresh()
+            }
+            if openPrincipalPassQR, let principal = passes.first(where: \.is_principal) {
+                passFormPresentation = .edit(principal)
+            }
+        }
+        .onChange(of: passes.count) { _, _ in revealNewPassesIfHidden() }
+        .onChange(of: passFilter) { _, _ in refreshDisplayedPasses() }
+        .onDisappear {
+            emailFetchTask?.cancel()
+        }
+    }
+
+    /// Drops the status filter when a pass arrives that it would hide — adding an
+    /// expired pass while "Active" is on would otherwise look like nothing happened.
+    private func revealNewPassesIfHidden() {
+        let current = Set(passes.map(\.persistentModelID))
+        let added = current.subtracting(knownPassIDs)
+        knownPassIDs = current
+
+        if passFilter != .all,
+           added.contains(where: { id in
+               guard let pass = passes.first(where: { $0.persistentModelID == id }) else { return false }
+               return !matchesStatusFilter(pass)
+           }) {
+            withAnimation(.snappy) { passFilter = .all }
+        }
+        refreshDisplayedPasses()
+    }
+
+    private func matchesStatusFilter(_ pass: Pass) -> Bool {
+        let startOfToday = Calendar.current.startOfDay(for: Date())
+        switch passFilter {
+        case .all: return true
+        case .active: return pass.expiry_date >= startOfToday
+        case .expired: return pass.expiry_date < startOfToday
+        }
     }
 
     private func refreshDisplayedPasses() {
-        let all = passes.sorted { $0.expiry_date > $1.expiry_date }
+        let all = passes.sorted {
+            if $0.start_date != $1.start_date {
+                return $0.start_date > $1.start_date
+            }
+            return $0.expiry_date > $1.expiry_date
+        }
         let startOfToday = Calendar.current.startOfDay(for: Date())
 
-        displayedPasses = switch pass_filter {
+        let byYear = selectedYears.isEmpty ? all : all.filter {
+            selectedYears.contains(Calendar.current.component(.year, from: $0.start_date))
+        }
+
+        displayedPasses = switch passFilter {
         case .all:
-            all
+            byYear
         case .active:
-            all.filter { $0.expiry_date >= startOfToday }
+            byYear.filter { $0.expiry_date >= startOfToday }
         case .expired:
-            all.filter { $0.expiry_date < startOfToday }
+            byYear.filter { $0.expiry_date < startOfToday }
         }
     }
 
@@ -236,7 +487,11 @@ struct PassView: View {
         }
 
         let expiryDate = pass.expiry_date
+        let startDate = pass.start_date
         let searchableDates = [
+            startDate.formatted(.dateTime.day().month().year()),
+            startDate.formatted(date: .abbreviated, time: .omitted),
+            startDate.formatted(date: .numeric, time: .omitted),
             expiryDate.formatted(.dateTime.day().month().year()),
             expiryDate.formatted(date: .abbreviated, time: .omitted),
             expiryDate.formatted(date: .long, time: .omitted),
@@ -250,12 +505,11 @@ struct PassView: View {
         return searchableDates.contains { $0.lowercased().contains(query) }
     }
 
-    // MARK: - Functions
     @ViewBuilder
     private func passRow(pass: Pass) -> some View {
-        let is_active = pass.expiry_date >= Calendar.current.startOfDay(for: Date())
-        let time_remaining: String = {
-            if !is_active {
+        let isActive = pass.expiry_date >= Calendar.current.startOfDay(for: Date())
+        let timeRemaining: String = {
+            if !isActive {
                 let dateString = pass.expiry_date.formatted(.dateTime.day().month().year())
                 return String(localized: "Expired on \(dateString)")
             }
@@ -268,13 +522,13 @@ struct PassView: View {
         }()
 
         let amber = Color(red: 1.0, green: 0.75, blue: 0.0)
-        let status_color: Color = pass.is_principal ? amber : (is_active ? .green : .red)
-        let status_icon: String = pass.is_principal ? "star.fill" : (is_active ? "checkmark.circle.fill" : "xmark.circle.fill")
+        let statusColor: Color = pass.is_principal ? amber : (isActive ? .green : .red)
+        let statusIcon: String = pass.is_principal ? "star.fill" : (isActive ? "checkmark.circle.fill" : "xmark.circle.fill")
 
         HStack(spacing: 12) {
-            Image(systemName: status_icon)
+            Image(systemName: statusIcon)
                 .font(.largeTitle)
-                .foregroundStyle(status_color)
+                .foregroundStyle(statusColor)
                 .contentTransition(.symbolEffect(.replace.downUp.wholeSymbol, options: .nonRepeating))
 
             VStack(alignment: .leading, spacing: 4) {
@@ -283,12 +537,20 @@ struct PassView: View {
                     .lineLimit(1)
                     .truncationMode(.tail)
 
-                Text(time_remaining)
+                Text(timeRemaining)
                     .font(.subheadline)
-                    .foregroundStyle(status_color)
+                    .foregroundStyle(statusColor)
             }
 
-            Spacer(minLength: 0)
+            Spacer(minLength: 8)
+
+            if !pass.price.trimmingCharacters(in: .whitespaces).isEmpty {
+                Text(pass.price)
+                    .font(.subheadline)
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
 
             Image(systemName: "chevron.right")
                 .font(.footnote.weight(.semibold))
@@ -297,10 +559,23 @@ struct PassView: View {
         .contentShape(Rectangle())
         .onTapGesture {
             HapticFeedback.tap()
-            pass_form_presentation = .edit(pass)
+            // while selecting, the whole row toggles the pass; the tick alone was
+            // the only reliable target because this gesture swallowed the rest
+            if isSelecting {
+                withAnimation(.snappy) {
+                    let id = pass.persistentModelID
+                    if selectedPassIDs.contains(id) {
+                        selectedPassIDs.remove(id)
+                    } else {
+                        selectedPassIDs.insert(id)
+                    }
+                }
+            } else {
+                passFormPresentation = .edit(pass)
+            }
         }
         .swipeActions(edge: .leading, allowsFullSwipe: true) {
-            if is_active {
+            if isActive {
                 Button {
                     HapticFeedback.impactHeavy()
                     withAnimation(.snappy) {
@@ -326,7 +601,99 @@ struct PassView: View {
         }
     }
 
-    private func delete_passes(at offsets: IndexSet, from list: [Pass]) {
+    /// Passes grouped by the month they start in, newest first.
+    private var groupedPassSections: [(title: String, passes: [Pass])] {
+        let calendar = Calendar.current
+        let grouped = Dictionary(grouping: filteredPasses) { pass -> Date in
+            let comps = calendar.dateComponents([.year, .month], from: pass.start_date)
+            return calendar.date(from: comps) ?? pass.start_date
+        }
+        return grouped.keys.sorted(by: >).map { key in
+            (monthSectionTitle(for: key), (grouped[key] ?? []).sorted { $0.start_date > $1.start_date })
+        }
+    }
+
+    private func monthSectionTitle(for date: Date) -> String {
+        let calendar = Calendar.current
+        let formatter = DateFormatter()
+        formatter.locale = .current
+        formatter.dateFormat = calendar.component(.year, from: date) == calendar.component(.year, from: Date())
+            ? "LLLL" : "LLLL yyyy"
+        return formatter.string(from: date).capitalized
+    }
+
+    private var isFiltering: Bool { passFilter != .all || !selectedYears.isEmpty }
+
+    /// Years covered by the saved passes, newest first.
+    private var availableYears: [Int] {
+        let calendar = Calendar.current
+        return Set(passes.map { calendar.component(.year, from: $0.start_date) }).sorted(by: >)
+    }
+
+    private var isSelecting: Bool { editMode.isEditing }
+
+    private func endSelection() {
+        withAnimation(.snappy) {
+            selectedPassIDs.removeAll()
+            editMode = .inactive
+        }
+    }
+
+    /// Only what's on screen: a filter or a search narrows what "all" means.
+    private var selectablePassIDs: Set<PersistentIdentifier> {
+        Set(filteredPasses.map(\.persistentModelID))
+    }
+
+    private var allPassesSelected: Bool {
+        let selectable = selectablePassIDs
+        return !selectable.isEmpty && selectable.isSubset(of: selectedPassIDs)
+    }
+
+    private var selectionActionTitle: LocalizedStringKey {
+        guard isSelecting else { return "Select" }
+        return allPassesSelected ? "Deselect All" : "Select All"
+    }
+
+    private func toggleSelectAll() {
+        let selectable = selectablePassIDs
+        if allPassesSelected {
+            selectedPassIDs.subtract(selectable)
+        } else {
+            selectedPassIDs.formUnion(selectable)
+        }
+    }
+
+    private var selectedPasses: [Pass] {
+        filteredPasses.filter { selectedPassIDs.contains($0.persistentModelID) }
+    }
+
+    private func deleteSelectedPasses() {
+        let doomed = selectedPasses
+        guard !doomed.isEmpty else { return }
+        HapticFeedback.impactHeavy()
+        withAnimation(.snappy) {
+            for pass in doomed { modelContext.delete(pass) }
+            selectedPassIDs.removeAll()
+            editMode = .inactive
+        }
+        try? modelContext.save()
+        refreshDisplayedPasses()
+        reloadWidgetTimelines()
+    }
+
+    private func shareSelectedPasses() {
+        let chosen = selectedPasses
+        guard !chosen.isEmpty else { return }
+        HapticFeedback.confirm()
+        do {
+            let result = try PassPDFArchive.makeArchive(from: chosen)
+            archive = PassArchiveFile(url: result.url)
+        } catch {
+            archiveError = error.localizedDescription
+        }
+    }
+
+    private func deletePasses(at offsets: IndexSet, from list: [Pass]) {
         for index in offsets {
             modelContext.delete(list[index])
         }
@@ -334,284 +701,164 @@ struct PassView: View {
         WidgetCenter.shared.reloadAllTimelines()
         refreshDisplayedPasses()
     }
-}
 
-// MARK: - Secondary Views
-
-private struct PassFormSheet: View {
-    @Environment(\.dismiss) private var dismiss
-    @Environment(\.modelContext) private var modelContext
-
-    let passToEdit: Pass?
-    let onSave: () -> Void
-
-    @State private var name: String
-    @State private var expiry_date: Date
-    @State private var picked_image: PhotosPickerItem?
-    @State private var qr_image_data: Data?
-    @State private var preview_image: UIImage?
-    @State private var image_status: image_status = .empty
-    @State private var is_processing_image = false
-    @State private var is_editing: Bool
-
-    init(passToEdit: Pass?, onSave: @escaping () -> Void) {
-        self.passToEdit = passToEdit
-        self.onSave = onSave
-
-        _name = State(initialValue: passToEdit?.name ?? String(localized: "Weekly"))
-        _expiry_date = State(initialValue: passToEdit?.expiry_date ?? Calendar.current.date(byAdding: .day, value: 7, to: Date()) ?? Date())
-        _qr_image_data = State(initialValue: passToEdit?.image)
-        _image_status = State(initialValue: passToEdit?.image != nil ? .saved : .empty)
-        _is_editing = State(initialValue: passToEdit == nil)
-
-        if let data = passToEdit?.image, let image = UIImage(data: data) {
-            _preview_image = State(initialValue: image)
+    private var fetchProgressValue: Double {
+        if passSyncProgresses.isEmpty {
+            return -2.0
         }
-    }
-
-    private var is_form_editable: Bool {
-        passToEdit == nil || is_editing
-    }
-
-    private var can_save: Bool {
-        is_form_editable && !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && qr_image_data != nil && !is_processing_image
-    }
-
-    var body: some View {
-        NavigationStack {
-            List {
-                Section(header: Text("Pass Information")) {
-                    LabeledContent(String(localized: "Name")) {
-                        if is_form_editable {
-                            TextField(String(localized: "Weekly"), text: $name)
-                                .multilineTextAlignment(.trailing)
-                                .fontDesign(app_font_design)
-                                .onChange(of: name) { _, new_value in
-                                    if new_value.count >= 15 {
-                                        name = String(new_value.prefix(15))
-                                    }
-                                }
-                        } else {
-                            Text(name)
-                                .multilineTextAlignment(.trailing)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-
-                    if is_form_editable {
-                        DatePicker(String(localized: "Expiration Date"), selection: $expiry_date, displayedComponents: .date)
-                            .fontDesign(app_font_design)
-                            .onChange(of: expiry_date) { _, new_date in
-                                let days = Calendar.current.dateComponents([.day], from: Date(), to: new_date).day ?? 0
-                                let new_title: String
-                                if days <= 14 {
-                                    new_title = String(localized: "Weekly")
-                                } else if days <= 60 {
-                                    new_title = String(localized: "Monthly")
-                                } else {
-                                    new_title = String(localized: "Annual")
-                                }
-
-                                if name != new_title {
-                                    withAnimation(.snappy) {
-                                        name = new_title
-                                    }
-                                }
-                            }
-                    } else {
-                        LabeledContent(String(localized: "Expiration Date")) {
-                            Text(expiry_date.formatted(.dateTime.day().month().year()))
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                }
-
-                Section {
-                    Group {
-                        if is_form_editable {
-                            PhotosPicker(selection: $picked_image, matching: .images) {
-                                qrCodePreview
-                            }
-                            .buttonStyle(.plain)
-                            .onChange(of: picked_image) { _, newItem in
-                                process_image(newItem: newItem)
-                            }
-                        } else {
-                            qrCodePreview
-                        }
-                    }
-                    .listRowSeparator(.hidden)
-                } header: {
-                    Text("QR Code")
-                } footer: {
-                    if is_form_editable {
-                        if image_status == .error {
-                            Text("Couldn't detect a QR code in that photo. Try another image.")
-                                .foregroundStyle(.red)
-                        } else {
-                            Text("Tap the photo area to choose an image or tap it again to change it.")
-                        }
-                    }
-                }
-            }
-            .listStyle(.insetGrouped)
-            .fontDesign(app_font_design)
-            .navigationTitle(passToEdit == nil ? String(localized: "New Pass") : String(localized: "Edit Pass"))
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button {
-                        dismiss()
-                    } label: {
-                        Image(systemName: "xmark")
-                    }
-                }
-
-                ToolbarItem(placement: .topBarTrailing) {
-                    if passToEdit != nil && !is_editing {
-                        Button(String(localized: "Edit")) {
-                            HapticFeedback.confirm()
-                            withAnimation(.snappy) {
-                                is_editing = true
-                            }
-                        }
-                    }
-                }
-
-                ToolbarItem(placement: .confirmationAction) {
-                    if passToEdit == nil || is_editing {
-                        Button {
-                            save_pass()
-                        } label: {
-                            Image(systemName: "checkmark")
-                        }
-                        .buttonStyle(.glassProminent)
-                        .disabled(!can_save)
-                    }
-                }
-            }
+        if passSyncProgresses.values.allSatisfy({ $0.stage == .searching }) {
+            return -1.0
         }
-        .background(app_background_color)
+        if passSyncProgresses.values.allSatisfy({ $0.stage == .finished }) {
+            return Double(fetchEmailsFound + 1)
+        }
+        return Double(fetchEmailsDownloaded)
     }
 
+    private var fetchProgressTitle: String {
+        if passSyncProgresses.isEmpty {
+            return String(localized: "Connecting…")
+        }
+        if passSyncProgresses.values.allSatisfy({ $0.stage == .searching }) {
+            return String(localized: "Searching…")
+        }
+        if passSyncProgresses.values.allSatisfy({ $0.stage == .finished }) {
+            return String(localized: "Finishing up…")
+        }
+        let totalFound = fetchEmailsFound
+        let downloaded = fetchEmailsDownloaded
+        let percentage = totalFound > 0 ? Double(downloaded) / Double(totalFound) : 0.0
+        return String(localized: "Fetching \(Int(percentage * 100))%")
+    }
+
+    private var fetchProgressSublabel: String? {
+        if passSyncProgresses.isEmpty {
+            return String(localized: "This can take a moment on the first scan.")
+        }
+        return nil
+    }
+
+    /// Icon only: the progress wording lives in the fetch sheet, so repeating it
+    /// in the toolbar just crowded the navigation bar.
     @ViewBuilder
-    private var qrCodePreview: some View {
+    private var emailFetchToolbarLabel: some View {
+        let isFetching = isFetchingEmailPasses
+
         Group {
-            if is_processing_image {
-                VStack(spacing: 12) {
-                    ProgressView()
-                    Text("Processing photo…")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                }
-                .frame(maxWidth: .infinity, minHeight: 160)
-            } else if let preview_image {
-                Image(uiImage: preview_image)
-                    .resizable()
-                    .interpolation(.none)
-                    .scaledToFit()
-                    .frame(maxWidth: .infinity)
-                    .padding(8)
-                    .frame(maxWidth: .infinity)
-                    .background(Color.white)
-                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            if isFetching {
+                Image(systemName: "progress.indicator")
+                    .symbolEffect(.rotate.byLayer, options: .repeat(.continuous))
             } else {
-                VStack(spacing: 10) {
-                    Image(systemName: "photo.on.rectangle.angled")
-                        .font(.system(size: 34, weight: .regular))
-                        .foregroundStyle(.tertiary)
-
-                    Text("Add Photo")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                }
-                .frame(maxWidth: .infinity, minHeight: 160)
+                Image(systemName: "envelope.badge")
             }
         }
-        .frame(maxWidth: .infinity)
+        .contentTransition(.symbolEffect(.replace.downUp.wholeSymbol, options: .nonRepeating))
+        .foregroundStyle(isFetching ? Color.primary : Color.blue)
+        .font(.callout).fontWeight(.medium).fontDesign(appFontDesign)
+        .animation(.snappy, value: isFetching)
     }
 
-    private func save_pass() {
-        HapticFeedback.impactHeavy()
-
-        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        if let pass = passToEdit {
-            pass.name = trimmedName
-            pass.expiry_date = expiry_date
-            pass.image = qr_image_data
-        } else {
-            let new_pass = Pass(
-                id: UUID(),
-                name: trimmedName,
-                expiry_date: expiry_date,
-                is_principal: false,
-                image: qr_image_data
+    private var computedAccountProgresses: [AccountSyncProgress] {
+        fetchingAccountEmails.map { email in
+            let progress = passSyncProgresses[email]
+            return AccountSyncProgress(
+                email: email,
+                found: progress?.emailsFound ?? 0,
+                processed: progress?.emailsDownloaded ?? 0
             )
-            modelContext.insert(new_pass)
         }
-
-        try? modelContext.save()
-        WidgetCenter.shared.reloadAllTimelines()
-        onSave()
-        dismiss()
     }
 
-    private func process_image(newItem: PhotosPickerItem?) {
-        guard let newItem else { return }
+    private func openEmailFetchSheet() {
+        HapticFeedback.tap()
+        fetchSheetDetent = isFetchingEmailPasses ? .medium : .large
+        emailImportSheet = true
+    }
 
-        is_processing_image = true
-        image_status = .empty
-        qr_image_data = nil
-        preview_image = nil
+    private func triggerEmailPassRefresh(reloadAll: Bool = false) {
+        guard !isFetchingEmailPasses else { return }
+        emailFetchTask = Task {
+            await fetchEmailPasses(reloadAll: reloadAll)
+        }
+    }
 
-        Task {
-            do {
-                if let data = try await newItem.loadTransferable(type: Data.self) {
-                    if let originalImage = UIImage(data: data) {
-                        await MainActor.run {
-                            preview_image = originalImage
+    @MainActor
+    private func fetchEmailPasses(reloadAll: Bool = false) async {
+        guard let profile = profiles.primary else { return }
+        withAnimation(.snappy) {
+            isFetchingEmailPasses = true
+            showFetchResultCard = false
+        }
+        passSyncProgresses = [:]
+
+        let configured = profile.emails.filter(\.hasConfiguredCredentials)
+        fetchingAccountEmails = configured.map(\.email)
+        let accounts = await validatedEmailAccounts(from: profile)
+        fetchingAccountEmails = accounts.map(\.email)
+
+        await withTaskGroup(of: Void.self) { group in
+            for account in accounts {
+                group.addTask { @MainActor in
+                    do {
+                        _ = try await EmailPassSyncService.syncAccount(
+                            accountID: account.id,
+                            profile: profile,
+                            modelContext: modelContext,
+                            reloadAll: reloadAll
+                        ) { progress in
+                            passSyncProgresses[progress.accountEmail] = progress
                         }
-                    }
-
-                    let processedData = await cropCodeFromImage(originalData: data)
-
-                    await MainActor.run {
-                        is_processing_image = false
-                        qr_image_data = processedData
-                        if let processedData, let processedImage = UIImage(data: processedData) {
-                            preview_image = processedImage
-                            image_status = .saved
-                        } else {
-                            image_status = .error
-                        }
-                    }
-                } else {
-                    await MainActor.run {
-                        is_processing_image = false
-                        image_status = .error
+                    } catch {
                     }
                 }
-            } catch {
-                await MainActor.run {
-                    is_processing_image = false
-                    image_status = .error
-                }
-            }
-
-            if await MainActor.run(body: { image_status }) == .error {
-                try? await Task.sleep(nanoseconds: 1_000_000_000)
-                await MainActor.run { image_status = .empty }
             }
         }
+
+        fetchedPassesCount = passSyncProgresses.values.map(\.emailsFound).reduce(0, +)
+        if fetchedPassesCount == 0 {
+            fetchedPassesCount = EmailPassSyncService.passes(from: profile).count
+        }
+        if !Task.isCancelled {
+            withAnimation(.snappy) {
+                isFetchingEmailPasses = false
+                showFetchResultCard = true
+            }
+        }
+    }
+
+    @MainActor
+    private func validatedEmailAccounts(from profile: UserProfile) async -> [Emails] {
+        var validAccounts: [Emails] = []
+        for account in profile.emails where account.hasConfiguredCredentials {
+            guard !Task.isCancelled else { break }
+            do {
+                try await EmailTrainFetcher(account: account).verifyCredentials()
+                validAccounts.append(account)
+            } catch {
+                continue
+            }
+        }
+        return validAccounts
     }
 }
 
-// MARK: - Previews
 #Preview("Pass View - Full") {
-    let schema = Schema([Pass.self])
+    let schema = Schema([Pass.self, UserProfile.self])
     let config = ModelConfiguration(isStoredInMemoryOnly: true)
     let container = try! ModelContainer(for: schema, configurations: config)
+
+    container.mainContext.insert(
+        UserProfile(
+            name: "Francesco",
+            emails: [
+                Emails(
+                    provider: .google,
+                    email: PreviewCredentials.googleEmail,
+                    appPassword: PreviewCredentials.googleAppPassword
+                )
+            ]
+        )
+    )
 
     let pass1 = Pass(
         id: UUID(),
@@ -647,9 +894,22 @@ private struct PassFormSheet: View {
 }
 
 #Preview("Pass View - Empty") {
-    let schema = Schema([Pass.self])
+    let schema = Schema([Pass.self, UserProfile.self])
     let config = ModelConfiguration(isStoredInMemoryOnly: true)
     let container = try! ModelContainer(for: schema, configurations: config)
+    
+    container.mainContext.insert(
+        UserProfile(
+            name: "Francesco",
+            emails: [
+                Emails(
+                    provider: .google,
+                    email: PreviewCredentials.googleEmail,
+                    appPassword: PreviewCredentials.googleAppPassword
+                )
+            ]
+        )
+    )
 
     return Color(uiColor: .systemBackground)
         .sheet(isPresented: .constant(true)) {

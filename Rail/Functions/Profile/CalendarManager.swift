@@ -61,7 +61,6 @@ class CalendarManager {
             }
         }
         
-        // Title
         event.title = calendarTitle(
             for: train,
             firstStop: firstStop,
@@ -69,19 +68,15 @@ class CalendarManager {
             titleFormat: titleFormat
         )
         
-        // Date
         event.startDate = firstStop.dep_time_eff
         event.endDate = lastStop.arr_time_eff
         
-        // Travel Time
         if event.responds(to: NSSelectorFromString("setTravelTime:")) {
             event.setValue(travelTime > 0 ? travelTime : 0, forKey: "travelTime")
         }
         
-        // Location
         event.location = firstStop.name
         
-        // Notes
         var notes = NSLocalizedString("Train details:", comment: "") + "\n"
         notes += "- \(train.logo) \(train.number)\n"
         notes += "- " + NSLocalizedString("Departure:", comment: "") + " \(firstStop.name) \(firstStop.dep_time_eff.formatted(Date.FormatStyle.dateTime.hour().minute()))\n"
@@ -94,7 +89,7 @@ class CalendarManager {
         let travelTimeString = hours > 0 ? "\(hours)h \(minutes)m" : "\(minutes)m"
         notes += "- " + NSLocalizedString("Travel time:", comment: "") + " \(travelTimeString)\n"
         
-        let distance = distance_between_stations(from: firstStop.name, to: lastStop.name) ?? 0
+        let distance = distanceBetweenStations(from: firstStop.name, to: lastStop.name) ?? 0
         if distance > 0 {
             notes += "- " + NSLocalizedString("Travel distance:", comment: "") + " \(distance) km\n"
         }

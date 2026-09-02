@@ -2,6 +2,19 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLName</key>
+			<string>com.francescoparadis.Rail.share</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>rail</string>
+			</array>
+		</dict>
+	</array>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSExceptionDomains</key>
@@ -22,14 +35,14 @@
 			</dict>
 		</dict>
 	</dict>
+	<key>NSCalendarsFullAccessUsageDescription</key>
+	<string>Rail needs full access to your calendar to add and manage train journey events.</string>
+	<key>NSCalendarsUsageDescription</key>
+	<string>Rail needs access to your calendar to add train journeys as events.</string>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>remote-notification</string>
 		<string>fetch</string>
 	</array>
-	<key>NSCalendarsUsageDescription</key>
-	<string>Rail needs access to your calendar to add train journeys as events.</string>
-	<key>NSCalendarsFullAccessUsageDescription</key>
-	<string>Rail needs full access to your calendar to add and manage train journey events.</string>
 </dict>
 </plist>

@@ -1,5 +1,6 @@
 import Foundation
 import SwiftData
+import WidgetKit
 
 enum EmailTicketSyncStage: Sendable {
     case searching
@@ -17,6 +18,7 @@ struct EmailTicketSyncProgress: Sendable {
     let latestWarning: String?
     let detailsTotal: Int
     let detailsCompleted: Int
+    let newTicketsCount: Int
 }
 
 struct EmailAccountSyncResult: Sendable {
@@ -37,18 +39,35 @@ enum EmailTicketSyncService {
         }
         let account = profile.emails[emailIndex]
 
-        if reloadAll {
-            var updatedEmails = profile.emails
-            updatedEmails[emailIndex].content = []
+        var updatedEmails = profile.emails
+        let sampleIDs = Set(updatedEmails[emailIndex].content.filter(\.isSampleTicket).map(\.id))
+        if !sampleIDs.isEmpty {
+            updatedEmails[emailIndex].content.removeAll { $0.isSampleTicket }
+            profile.emails = updatedEmails
+            try deleteTrains(linkedTo: sampleIDs, modelContext: modelContext)
+            try modelContext.save()
+        }
+
+        // Full scan only on first sync (or after a parser upgrade). Refresh is incremental.
+        let needsFullScan = reloadAll || updatedEmails[emailIndex].needsFullMailboxScan
+        if needsFullScan {
+            updatedEmails = profile.emails
+            updatedEmails[emailIndex].lastSyncedUID = nil
+            updatedEmails[emailIndex].pendingFailedUIDs = nil
+            
+            // If it's an explicit reloadAll, we still fetch all emails again, 
+            // but we keep existing tickets so we don't delete saved trains.
+
             profile.emails = updatedEmails
             try modelContext.save()
         }
 
-        progress?(progressValue(account: account.email, stage: .searching))
-        let fetchResult = try await EmailFetcher(account: account).fetchEmails(
-            afterUID: reloadAll ? nil : account.lastSyncedUID,
-            expectedUIDValidity: reloadAll ? nil : account.imapUIDValidity,
-            retryUIDs: reloadAll ? [] : (account.pendingFailedUIDs ?? [])
+        let accountSnapshot = profile.emails[emailIndex]
+        progress?(progressValue(account: accountSnapshot.email, stage: .searching))
+        let fetchResult = try await EmailTrainFetcher(account: accountSnapshot).fetchEmails(
+            afterUID: needsFullScan ? nil : accountSnapshot.lastSyncedUID,
+            expectedUIDValidity: needsFullScan ? nil : accountSnapshot.imapUIDValidity,
+            retryUIDs: needsFullScan ? [] : (accountSnapshot.pendingFailedUIDs ?? [])
         ) { value in
             progress?(
                 EmailTicketSyncProgress(
@@ -59,47 +78,38 @@ enum EmailTicketSyncService {
                     emailsSkipped: value.skipped,
                     latestWarning: value.latestWarning,
                     detailsTotal: 0,
-                    detailsCompleted: 0
+                    detailsCompleted: 0,
+                    newTicketsCount: 0
                 )
             )
         }
         try Task.checkCancellation()
-        let pending = try saveFetchedEmails(
+        let (pending, newCount) = try saveFetchedEmails(
             fetchResult,
             emailIndex: emailIndex,
             profile: profile,
             modelContext: modelContext
-        )
-        let warnings = await fetchDetails(
-            for: pending,
-            emailIndex: emailIndex,
-            accountEmail: account.email,
-            emailsFound: fetchResult.foundCount,
-            emailsDownloaded: fetchResult.foundCount,
-            emailsSkipped: fetchResult.failedUIDs.count,
-            profile: profile,
-            modelContext: modelContext,
-            progress: progress
         )
         progress?(
             EmailTicketSyncProgress(
                 accountEmail: account.email,
                 stage: .finished,
                 emailsFound: fetchResult.foundCount,
-                emailsDownloaded: fetchResult.foundCount,
+                emailsDownloaded: fetchResult.emails.count,
                 emailsSkipped: fetchResult.failedUIDs.count,
                 latestWarning: nil,
                 detailsTotal: pending.count,
-                detailsCompleted: pending.count
+                detailsCompleted: pending.count,
+                newTicketsCount: newCount
             )
         )
-        return EmailAccountSyncResult(warnings: fetchResult.warnings + warnings)
+        return EmailAccountSyncResult(warnings: fetchResult.warnings)
     }
 
     static func tickets(from profile: UserProfile) -> [(account: Emails, ticket: EmailContent)] {
         profile.emails.flatMap { account in
             account.content
-                .filter { CheckInLink.extractID(from: $0.link) != nil }
+                .filter { !$0.isSampleTicket }
                 .map { (account, $0) }
         }
         .sorted {
@@ -118,7 +128,7 @@ enum EmailTicketSyncService {
         emailIndex: Int,
         profile: UserProfile,
         modelContext: ModelContext
-    ) throws -> [EmailContent] {
+    ) throws -> ([EmailContent], Int) {
         var updatedEmails = profile.emails
         var updatedAccount = updatedEmails[emailIndex]
 
@@ -126,15 +136,23 @@ enum EmailTicketSyncService {
             updatedAccount.content = []
         }
 
+        var newCount = 0
         for item in result.emails {
             if let index = updatedAccount.content.firstIndex(where: { $0.imapUID == item.imapUID }) {
                 applyParsedJourney(from: item, to: &updatedAccount.content[index])
+            } else if let index = updatedAccount.content.firstIndex(where: {
+                CheckInLink.extractID(from: $0.link) == item.checkInID
+            }) {
+                applyParsedJourney(from: item, to: &updatedAccount.content[index])
+                updatedAccount.content[index].imapUID = item.imapUID
             } else {
                 updatedAccount.content.append(emailContent(from: item))
+                newCount += 1
             }
         }
         updatedAccount.lastSyncedUID = result.highestUID
         updatedAccount.pendingFailedUIDs = result.failedUIDs
+        updatedAccount.syncGenerator = Emails.currentSyncGenerator
         if let uidValidity = result.uidValidity {
             updatedAccount.imapUIDValidity = uidValidity
         }
@@ -143,62 +161,7 @@ enum EmailTicketSyncService {
         profile.emails = updatedEmails
         try modelContext.save()
 
-        return profile.emails[emailIndex].content.filter { ticket in
-            ticket.isImportEligible
-                && CheckInLink.extractID(from: ticket.link) != nil
-                && !ticket.hasLoadedDetails
-        }
-    }
-
-    @MainActor
-    private static func fetchDetails(
-        for pending: [EmailContent],
-        emailIndex: Int,
-        accountEmail: String,
-        emailsFound: Int,
-        emailsDownloaded: Int,
-        emailsSkipped: Int,
-        profile: UserProfile,
-        modelContext: ModelContext,
-        progress: ((EmailTicketSyncProgress) -> Void)?
-    ) async -> [String] {
-        var warnings: [String] = []
-        for (index, ticket) in pending.enumerated() {
-            guard !Task.isCancelled else { break }
-            guard !ticket.hasLoadedDetails else { continue }
-            progress?(
-                EmailTicketSyncProgress(
-                    accountEmail: accountEmail,
-                    stage: .fetchingDetails,
-                    emailsFound: emailsFound,
-                    emailsDownloaded: emailsDownloaded,
-                    emailsSkipped: emailsSkipped,
-                    latestWarning: nil,
-                    detailsTotal: pending.count,
-                    detailsCompleted: index
-                )
-            )
-            do {
-                try await fetchAndSaveTicketDetails(
-                    for: ticket.id,
-                    checkInID: ticket.link,
-                    emailIndex: emailIndex,
-                    profile: profile,
-                    modelContext: modelContext
-                )
-            } catch {
-                let message = error.localizedDescription
-                warnings.append(message)
-                saveDetailError(
-                    message,
-                    ticketID: ticket.id,
-                    emailIndex: emailIndex,
-                    profile: profile,
-                    modelContext: modelContext
-                )
-            }
-        }
-        return warnings
+        return (profile.emails[emailIndex].content.filter(\.shouldFetchCheckInDetails), newCount)
     }
 
     private static func emailContent(from item: FetchedEmail) -> EmailContent {
@@ -207,26 +170,42 @@ enum EmailTicketSyncService {
             date: item.date,
             link: item.checkInID,
             departureDate: item.departureDate,
+            arrivalDate: item.arrivalDate,
             trainNumber: item.trainNumber,
             departureStation: item.departureStation,
-            arrivalStation: item.arrivalStation
+            arrivalStation: item.arrivalStation,
+            price: item.price
         )
     }
 
     private static func applyParsedJourney(from item: FetchedEmail, to ticket: inout EmailContent) {
         ticket.date = item.date
         ticket.link = item.checkInID
-        ticket.departureDate = item.departureDate
-
-        guard !ticket.hasLoadedDetails else { return }
-
-        ticket.trainNumber = item.trainNumber
-        ticket.departureStation = item.departureStation
-        ticket.arrivalStation = item.arrivalStation
+        // Always restore timed departure/arrival from the email body when available.
+        // Prefer email times over midnight-only values left by the check-in scraper.
+        if let departureDate = item.departureDate,
+           ticket.departureDate == nil || isMidnightOnly(ticket.departureDate) || !isMidnightOnly(departureDate) {
+            ticket.departureDate = departureDate
+        }
+        if let arrivalDate = item.arrivalDate {
+            ticket.arrivalDate = arrivalDate
+        }
+        if !item.trainNumber.isEmpty {
+            ticket.trainNumber = item.trainNumber
+        }
+        if !item.departureStation.isEmpty {
+            ticket.departureStation = item.departureStation
+        }
+        if !item.arrivalStation.isEmpty {
+            ticket.arrivalStation = item.arrivalStation
+        }
+        if item.price != "Unknown" {
+            ticket.price = item.price
+        }
     }
 
     @MainActor
-    private static func fetchAndSaveTicketDetails(
+    static func fetchAndSaveTicketDetails(
         for ticketID: UUID,
         checkInID: String,
         emailIndex: Int,
@@ -235,24 +214,78 @@ enum EmailTicketSyncService {
     ) async throws {
         guard !checkInID.isEmpty else { return }
 
-        let details = try await fetchTicketDetails(checkInID: checkInID)
+        guard profile.emails.indices.contains(emailIndex) else { return }
+        let account = profile.emails[emailIndex]
+        guard let ticketIndex = account.content.firstIndex(where: { $0.id == ticketID }) else { return }
+              
+        let uid = account.content[ticketIndex].imapUID
+        var fetchedDetails: EmailContent?
+        
+        // 1. Try extracting details from a PDF attachment if available
+        let fetcher = EmailTrainFetcher(account: account)
+        if let pdfs = try? await fetcher.fetchPDFs(forUID: uid),
+           let firstPDF = pdfs.first {
+            let passengers = PDFTicketParser.parse(pdfData: firstPDF)
+            if !passengers.isEmpty && passengers.allSatisfy({ !$0.qrcode.isEmpty }) {
+                fetchedDetails = account.content[ticketIndex]
+                fetchedDetails?.passengers = passengers
+                print("[PDFParser] Successfully extracted ticket details from PDF for \(uid)")
+            }
+        }
+        
+        // 2. Fallback to scraping the check-in web link
+        if fetchedDetails == nil {
+            print("[PDFParser] Falling back to check-in scraper for \(uid)")
+            fetchedDetails = try await fetchTicketDetails(checkInID: checkInID)
+        }
+        
+        guard let details = fetchedDetails else { return }
         try Task.checkCancellation()
-
-        guard let ticketIndex = profile.emails[emailIndex].content.firstIndex(where: { $0.id == ticketID }) else { return }
 
         var updatedEmails = profile.emails
         updatedEmails[emailIndex].content[ticketIndex].link = checkInID
-        updatedEmails[emailIndex].content[ticketIndex].trainNumber = details.trainNumber
-        updatedEmails[emailIndex].content[ticketIndex].departureStation = details.departureStation
-        updatedEmails[emailIndex].content[ticketIndex].arrivalStation = details.arrivalStation
-        updatedEmails[emailIndex].content[ticketIndex].passengers = details.passengers
-        if updatedEmails[emailIndex].content[ticketIndex].departureDate == nil {
-            updatedEmails[emailIndex].content[ticketIndex].departureDate = details.departureDate
+        if !details.trainNumber.isEmpty {
+            updatedEmails[emailIndex].content[ticketIndex].trainNumber = details.trainNumber
         }
+        if !details.departureStation.isEmpty {
+            updatedEmails[emailIndex].content[ticketIndex].departureStation = details.departureStation
+            updatedEmails[emailIndex].content[ticketIndex].arrivalStation = details.arrivalStation
+        }
+        updatedEmails[emailIndex].content[ticketIndex].passengers = details.passengers
+        
+        let currentDeparture = updatedEmails[emailIndex].content[ticketIndex].departureDate
+        if currentDeparture == nil || isMidnightOnly(currentDeparture) {
+            if let scraped = details.departureDate, !isMidnightOnly(scraped) || currentDeparture == nil {
+                updatedEmails[emailIndex].content[ticketIndex].departureDate = scraped
+            }
+        }
+        
         updatedEmails[emailIndex].content[ticketIndex].detailsFetchedAt = .now
         updatedEmails[emailIndex].content[ticketIndex].detailsError = nil
         profile.emails = updatedEmails
         try modelContext.save()
+    }
+
+    private static func isMidnightOnly(_ date: Date?) -> Bool {
+        guard let date else { return true }
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "Europe/Rome") ?? .current
+        return calendar.component(.hour, from: date) == 0
+            && calendar.component(.minute, from: date) == 0
+    }
+
+    @MainActor
+    private static func deleteTrains(linkedTo ticketIDs: Set<UUID>, modelContext: ModelContext) throws {
+        guard !ticketIDs.isEmpty else { return }
+        let trains = try modelContext.fetch(FetchDescriptor<Train>())
+        for train in trains where train.sourceEmailTicketID.map(ticketIDs.contains) == true {
+            let trainID = train.id
+            let stops = try modelContext.fetch(FetchDescriptor<Stop>(predicate: #Predicate { $0.id == trainID }))
+            let seats = try modelContext.fetch(FetchDescriptor<Seat>(predicate: #Predicate { $0.trainID == trainID }))
+            stops.forEach(modelContext.delete)
+            seats.forEach(modelContext.delete)
+            modelContext.delete(train)
+        }
     }
 
     @MainActor
@@ -283,7 +316,8 @@ enum EmailTicketSyncService {
             emailsSkipped: 0,
             latestWarning: nil,
             detailsTotal: 0,
-            detailsCompleted: 0
+            detailsCompleted: 0,
+            newTicketsCount: 0
         )
     }
 }

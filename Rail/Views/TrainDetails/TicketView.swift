@@ -3,21 +3,16 @@ import SwiftData
 import StoreKit
 
 struct TicketView: View {
-    // MARK: - Properties
-    // environment variables
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.requestReview) var request_review
+    @Environment(\.requestReview) var requestReview
     
-    // data variables
     let seat: Seat
     
-    // MARK: - Body
     var body: some View {
         VStack(spacing: 24) {
             Spacer(minLength: 0)
             
             VStack(spacing: 16) {
-                // code
                 if let imageData = seat.image, let uiImage = UIImage(data: imageData) {
                     Image(uiImage: uiImage)
                         .resizable()
@@ -25,15 +20,19 @@ struct TicketView: View {
                         .scaledToFit()
                         .padding()
                         .background(Color.white)
-                        .cornerRadius(24)
+                        .clipShape(ConcentricRectangle(corners: .concentric(minimum: .fixed(8)), isUniform: true))
                         
                 } else {
-                    ContentUnavailableView("No Code", systemImage: "qrcode.viewfinder")
+                    ContentUnavailableView(
+                        "No Code",
+                        systemImage: "qrcode.viewfinder",
+                        description: Text("This seat has no ticket code saved.")
+                    )
+                        .foregroundStyle(Color.secondary)
                         .frame(maxWidth: .infinity)
                         .padding()
                 }
                 
-                // info
                 HStack {
                     Text(seat.name)
                         .font(.headline)
@@ -57,7 +56,7 @@ struct TicketView: View {
                         .font(.body)
                     }
                 }
-                .fontDesign(app_font_design)
+                .fontDesign(appFontDesign)
                 .padding(.vertical, 8).padding(.horizontal, 12)
                 .foregroundStyle(.secondary)
             }
@@ -66,10 +65,10 @@ struct TicketView: View {
             Spacer(minLength: 0)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(app_background_color)
+        .background(appBackgroundColor)
         .presentationDetents([.medium, .large])
         .onAppear {
-            ReviewManager.shared.requestReviewIfAppropriate(action: request_review)
+            ReviewManager.shared.requestReviewIfAppropriate(action: requestReview)
         }
     }
 }

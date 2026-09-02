@@ -3,24 +3,19 @@ import SwiftData
 import StoreKit
 
 struct PastView: View {
-    // MARK: - Properties
-    // enviroment variables
-    @Environment(\.requestReview) var request_review
+    @Environment(\.requestReview) var requestReview
     
-    // deep link variables
     @Binding var ticketTrainID: UUID?
     @Binding var ticketSeatID: UUID?
-    @Binding var show_ticket_view: Bool
+    @Binding var showTicketView: Bool
     @Binding var searchText: String
     @Binding var navigationPath: [Train]
     var isActive: Bool = true
     
-    // database variables
-    @Environment(\.modelContext) private var model_context
+    @Environment(\.modelContext) private var modelContext
     @Query private var trains: [Train]
     @Query private var stops: [Stop]
 
-    // sheet variables
     @State private var rowItems: [TrainRowItem] = []
     @State private var listNow = Date()
     @State private var stopsByTrain: [UUID: [Stop]] = [:]
@@ -30,17 +25,27 @@ struct PastView: View {
         rowItems.filter { TrainListBuilder.matches($0, searchText: searchText) }
     }
 
-    // MARK: - Body
     var body: some View {
         Group {
             if filteredRowItems.isEmpty {
                 if rowItems.isEmpty {
-                    ContentUnavailableView("No past journeys",
-                                           systemImage: "exclamationmark.magnifyingglass",
-                                           description: Text("Add a new journey by tapping the button below."))
+                    ContentUnavailableView {
+                        Label("No past journeys", systemImage: "exclamationmark.magnifyingglass")
+                    } description: {
+                        Text("Add a new journey by tapping the button below.")
+                    } actions: {
+                        Button {
+                            Task {
+                                refreshRowItems()
+                            }
+                        } label: {
+                            Label("Refresh Network", systemImage: "arrow.clockwise")
+                        }
+                        .buttonStyle(.bordered)
+                    }
                     .padding()
-                    .fontDesign(app_font_design)
-                    .foregroundColor(Color.primary)
+                    .fontDesign(appFontDesign)
+                    .foregroundStyle(Color.secondary)
                 } else {
                     ContentUnavailableView(
                         "No results",
@@ -48,21 +53,32 @@ struct PastView: View {
                         description: Text("No trains match \"\(searchText)\".")
                     )
                     .padding()
-                    .fontDesign(app_font_design)
+                    .foregroundStyle(Color.secondary)
+                    .fontDesign(appFontDesign)
                 }
             } else {
                 List {
-                    ForEach(filteredRowItems) { item in
-                        PastTrainRow(item: item, now: listNow)
-                            .equatable()
-                            .listRowSeparator(.hidden)
-                            .listRowBackground(Color.clear)
+                    ForEach(groupedRowSections, id: \.title) { section in
+                        Section(section.title) {
+                            ForEach(section.items) { item in
+                                PastTrainRow(
+                                    item: item,
+                                    now: listNow,
+                                    isFirst: item.id == section.items.first?.id,
+                                    isLast: item.id == section.items.last?.id
+                                )
+                                .equatable()
+                                .listRowInsets(EdgeInsets())
+                                .listRowSeparator(.hidden)
+                            }
+                            .onDelete { offsets in
+                                deletePastTrains(at: offsets, in: section.items)
+                            }
+                        }
                     }
-                    .onDelete(perform: delete_past_trains)
                 }
                 .scrollIndicators(.hidden)
-                .scrollContentBackground(.hidden)
-                .listStyle(.plain)
+                .listStyle(.insetGrouped)
                 .onChange(of: ticketTrainID) { _, newID in
                     if let id = newID, let train = trains.first(where: { $0.id == id }) {
                         if navigationPath.last?.id != train.id {
@@ -74,9 +90,9 @@ struct PastView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(app_background_color)
+        .background(appBackgroundColor)
         .onAppear {
-            ReviewManager.shared.requestReviewIfAppropriate(action: request_review)
+            ReviewManager.shared.requestReviewIfAppropriate(action: requestReview)
             if rowItems.isEmpty {
                 refreshRowItems()
             }
@@ -107,17 +123,41 @@ struct PastView: View {
         rowItems = TrainListBuilder.pastItems(trains: trains, stops: stops)
     }
     
-    // MARK: - Functions
-    private func delete_past_trains(at offsets: IndexSet) {
-        let items = offsets.map { filteredRowItems[$0] }
+    /// Past journeys grouped by the month they ran in, newest first — the same
+    /// grouping the email ticket list uses.
+    private var groupedRowSections: [(title: String, items: [TrainRowItem])] {
+        let calendar = Calendar.current
+        let grouped = Dictionary(grouping: filteredRowItems) { item -> Date in
+            let date = item.summary.lastNoIssues.arr_time_eff
+            return calendar.date(from: calendar.dateComponents([.year, .month], from: date)) ?? date
+        }
+        return grouped.keys.sorted(by: >).map { key in
+            let items = (grouped[key] ?? []).sorted {
+                $0.summary.lastNoIssues.arr_time_eff > $1.summary.lastNoIssues.arr_time_eff
+            }
+            return (monthSectionTitle(for: key), items)
+        }
+    }
+
+    private func monthSectionTitle(for date: Date) -> String {
+        let calendar = Calendar.current
+        let formatter = DateFormatter()
+        formatter.locale = .current
+        formatter.dateFormat = calendar.component(.year, from: date) == calendar.component(.year, from: Date())
+            ? "LLLL" : "LLLL yyyy"
+        return formatter.string(from: date).capitalized
+    }
+
+    private func deletePastTrains(at offsets: IndexSet, in sectionItems: [TrainRowItem]) {
+        let items = offsets.compactMap { sectionItems.indices.contains($0) ? sectionItems[$0] : nil }
         for item in items {
             Task {
                 await CalendarManager.shared.removeTrainEvent(train: item.train)
             }
             
             let relatedStops = stops.filter { $0.id == item.train.id }
-            relatedStops.forEach { model_context.delete($0) }
-            model_context.delete(item.train)
+            relatedStops.forEach { modelContext.delete($0) }
+            modelContext.delete(item.train)
         }
         refreshRowItems()
     }

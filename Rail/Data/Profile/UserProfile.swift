@@ -1,69 +1,12 @@
 import Foundation
 import SwiftData
-
-enum EmailProvider: String, Codable, CaseIterable, Sendable {
-    case apple
-    case google
-
-    var title: String {
-        switch self {
-        case .apple: return "Apple"
-        case .google: return "Google"
-        }
-    }
-
-    var icon: String {
-        switch self {
-        case .apple: return "icloud"
-        case .google: return "envelope"
-        }
-    }
-
-    var linkDestination: URL {
-        switch self {
-        case .apple:
-            return URL(string: "https://account.apple.com/account/manage/section/security")!
-        case .google:
-            return URL(string: "https://myaccount.google.com/apppasswords")!
-        }
-    }
-
-    var linkTitle: String {
-        switch self {
-        case .apple: return "Generate App-Specific Password"
-        case .google: return "Generate App Password"
-        }
-    }
-
-    var linkDescription: String {
-        switch self {
-        case .apple:
-            return "Enter your iCloud email and an App-Specific Password."
-        case .google:
-            return "Enter your Google email and an App Password. Note that 2-Step Verification must be enabled on your Google account."
-        }
-    }
-
-    nonisolated var server: String {
-        switch self {
-        case .apple: return "imap.mail.me.com"
-        case .google: return "imap.gmail.com"
-        }
-    }
-
-    nonisolated var port: Int {
-        switch self {
-        case .apple: return 993
-        case .google: return 993
-        }
-    }
-}
+import CoreData
 
 @Model
 final class UserProfile {
     var id: UUID = UUID()
     var name: String = ""
-    var photo: Data?
+    @Attribute(.externalStorage) var photo: Data?
     var calendarSettings: CalendarSettings = CalendarSettings()
     var emails: [Emails] = []
 
@@ -80,129 +23,204 @@ final class UserProfile {
         self.calendarSettings = calendarSettings
         self.emails = emails
     }
-}
 
-struct CalendarSettings: Codable, Identifiable, Sendable {
-    var id: UUID = UUID()
-    var autoSyncToCalendar: Bool = true
-    var calendarIdentifier: String = ""
-    var titleFormat: String = "Train {number}"
-    var travelTime: Double = 0
-
-    init(
-        id: UUID = UUID(),
-        autoSyncToCalendar: Bool = true,
-        calendarIdentifier: String = "",
-        titleFormat: String = "Train {number}",
-        travelTime: Double = 0
-    ) {
-        self.id = id
-        self.autoSyncToCalendar = autoSyncToCalendar
-        self.calendarIdentifier = calendarIdentifier
-        self.titleFormat = titleFormat
-        self.travelTime = travelTime
+    /// Prefers the richest profile so a blank local stub never hides CloudKit data.
+    static func primary(from profiles: [UserProfile]) -> UserProfile? {
+        profiles.max(by: { completenessScore(of: $0) < completenessScore(of: $1) })
     }
 
-    private enum CodingKeys: String, CodingKey {
-        case id, autoSyncToCalendar, calendarIdentifier, titleFormat, travelTime
-    }
+    /// Waits briefly for CloudKit import, merges duplicate profiles, then creates one only if still missing.
+    @MainActor
+    static func maintainSyncedProfile(in context: ModelContext) async {
+        reconcile(in: context, createIfNeeded: false)
 
-    nonisolated init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        id = try container.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
-        autoSyncToCalendar = try container.decodeIfPresent(Bool.self, forKey: .autoSyncToCalendar) ?? true
-        calendarIdentifier = try container.decodeIfPresent(String.self, forKey: .calendarIdentifier) ?? ""
-        titleFormat = try container.decodeIfPresent(String.self, forKey: .titleFormat) ?? "Train {number}"
-        travelTime = try container.decodeIfPresent(Double.self, forKey: .travelTime) ?? 0
-    }
-
-    nonisolated func encode(to encoder: Encoder) throws {
-        var container = encoder.container(keyedBy: CodingKeys.self)
-        try container.encode(id, forKey: .id)
-        try container.encode(autoSyncToCalendar, forKey: .autoSyncToCalendar)
-        try container.encode(calendarIdentifier, forKey: .calendarIdentifier)
-        try container.encode(titleFormat, forKey: .titleFormat)
-        try container.encode(travelTime, forKey: .travelTime)
-    }
-}
-
-struct Emails: Codable, Identifiable, Sendable {
-    var id: UUID = UUID()
-    var provider: EmailProvider
-    var email: String
-    var appPassword: String
-    var content: [EmailContent] = []
-    var lastSyncedUID: UInt64?
-    var imapUIDValidity: UInt64?
-    var pendingFailedUIDs: [UInt64]?
-}
-
-struct EmailContent: Codable, Identifiable, Sendable {
-    var id: UUID = UUID()
-    var imapUID: String
-    var date: Date
-    var link: String
-    var departureDate: Date?
-    var trainNumber: String = ""
-    var departureStation: String = ""
-    var arrivalStation: String = ""
-    var passengers: [EmailContentPassenger] = []
-    var detailsFetchedAt: Date?
-    var detailsError: String?
-
-    var hasLoadedDetails: Bool {
-        detailsFetchedAt != nil || !passengers.isEmpty
-    }
-
-    nonisolated var isImportEligible: Bool {
-        guard let departureDate else { return false }
-        return Calendar.current.startOfDay(for: departureDate) >= Calendar.current.startOfDay(for: Date())
-    }
-
-    nonisolated var isPastDeparture: Bool {
-        guard let departureDate else { return false }
-        return Calendar.current.startOfDay(for: departureDate) < Calendar.current.startOfDay(for: Date())
-    }
-}
-
-enum CheckInLink {
-    static let baseURL = "https://www.lefrecce.it/Channels.Website.WEB/#/self-check-in?id="
-
-    static func url(for checkInID: String) -> String {
-        baseURL + normalizeID(checkInID) + "&lang=it"
-    }
-
-    nonisolated static func extractID(from url: String) -> String? {
-        let trimmed = url.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-
-        if let idRange = trimmed.range(of: "id=") {
-            let remainder = trimmed[idRange.upperBound...]
-            let raw = remainder.split(separator: "&", maxSplits: 1).first.map(String.init) ?? ""
-            return normalizedID(from: raw)
+        let existing = (try? context.fetch(FetchDescriptor<UserProfile>())) ?? []
+        if existing.contains(where: { completenessScore(of: $0) > 0 }) {
+            return
         }
 
-        return normalizedID(from: trimmed)
+        let remoteChanges = NotificationCenter.default.notifications(
+            named: .NSPersistentStoreRemoteChange
+        )
+        let importWait = Task {
+            try await Task.sleep(for: .seconds(4))
+        }
+
+        await withTaskGroup(of: Void.self) { group in
+            group.addTask {
+                _ = await importWait.result
+            }
+            group.addTask { @MainActor in
+                for await _ in remoteChanges {
+                    reconcile(in: context, createIfNeeded: false)
+                    let profiles = (try? context.fetch(FetchDescriptor<UserProfile>())) ?? []
+                    if profiles.contains(where: { completenessScore(of: $0) > 0 }) {
+                        importWait.cancel()
+                        break
+                    }
+                }
+            }
+            await group.next()
+            group.cancelAll()
+        }
+
+        reconcile(in: context, createIfNeeded: true)
     }
 
-    static func normalizeID(_ raw: String) -> String {
-        normalizedID(from: raw) ?? ""
+    @MainActor
+    @discardableResult
+    static func reconcile(in context: ModelContext, createIfNeeded: Bool) -> UserProfile? {
+        let profiles: [UserProfile]
+        do {
+            profiles = try context.fetch(FetchDescriptor<UserProfile>())
+        } catch {
+            return nil
+        }
+
+        if profiles.isEmpty {
+            guard createIfNeeded else { return nil }
+            let profile = UserProfile()
+            context.insert(profile)
+            try? context.save()
+            return profile
+        }
+
+        guard let winner = primary(from: profiles) else { return nil }
+        let losers = profiles.filter { $0.persistentModelID != winner.persistentModelID }
+        guard !losers.isEmpty else { return winner }
+
+        for loser in losers {
+            merge(loser, into: winner)
+            context.delete(loser)
+        }
+        try? context.save()
+        return winner
     }
 
-    nonisolated private static func normalizedID(from raw: String) -> String? {
-        var id = raw.removingPercentEncoding ?? raw
-        id = id.trimmingCharacters(in: .whitespacesAndNewlines)
-        id = id.trimmingCharacters(in: CharacterSet(charactersIn: ".,;\"'<>"))
-        while id.hasSuffix("=") { id.removeLast() }
-        guard id.count >= 20, id.allSatisfy({ $0.isLetter || $0.isNumber || "+/_-".contains($0) }) else { return nil }
-        return id
+    private static func completenessScore(of profile: UserProfile) -> Int {
+        var score = 0
+        if !profile.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { score += 10 }
+        if let photo = profile.photo, !photo.isEmpty { score += 5 }
+        score += calendarScore(profile.calendarSettings)
+        for account in profile.emails {
+            score += 20
+            if !account.appPassword.isEmpty { score += 10 }
+            score += min(account.content.count, 50)
+        }
+        return score
+    }
+
+    private static func calendarScore(_ settings: CalendarSettings) -> Int {
+        var score = 0
+        if !settings.calendarIdentifier.isEmpty { score += 3 }
+        if settings.titleFormat != "Train {number}" { score += 2 }
+        if settings.travelTime != 0 { score += 2 }
+        if !settings.autoSyncToCalendar { score += 1 }
+        return score
+    }
+
+    private static func merge(_ source: UserProfile, into target: UserProfile) {
+        let targetName = target.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let sourceName = source.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        if targetName.isEmpty, !sourceName.isEmpty {
+            target.name = source.name
+        }
+
+        switch (target.photo, source.photo) {
+        case (nil, let sourcePhoto?):
+            target.photo = sourcePhoto
+        case (let targetPhoto?, let sourcePhoto?) where sourcePhoto.count > targetPhoto.count:
+            target.photo = sourcePhoto
+        default:
+            break
+        }
+
+        if calendarScore(source.calendarSettings) > calendarScore(target.calendarSettings) {
+            target.calendarSettings = source.calendarSettings
+        }
+
+        var emails = target.emails
+        for sourceEmail in source.emails {
+            if let index = emails.firstIndex(where: {
+                $0.email.compare(sourceEmail.email, options: [.caseInsensitive, .diacriticInsensitive]) == .orderedSame
+            }) {
+                emails[index] = mergedEmail(emails[index], sourceEmail)
+            } else {
+                emails.append(sourceEmail)
+            }
+        }
+        target.emails = emails
+    }
+
+    private static func mergedEmail(_ existing: Emails, _ incoming: Emails) -> Emails {
+        var result = existing
+        if result.appPassword.isEmpty, !incoming.appPassword.isEmpty {
+            result.appPassword = incoming.appPassword
+        }
+        if result.provider != incoming.provider, !incoming.appPassword.isEmpty {
+            result.provider = incoming.provider
+        }
+
+        var content = existing.content
+        for ticket in incoming.content {
+            if let index = content.firstIndex(where: { $0.id == ticket.id || $0.imapUID == ticket.imapUID }) {
+                if !ticket.passengers.isEmpty, content[index].passengers.isEmpty {
+                    content[index] = ticket
+                }
+            } else {
+                content.append(ticket)
+            }
+        }
+        result.content = content
+
+        var passes = existing.passes
+        for pass in incoming.passes {
+            if let index = passes.firstIndex(where: {
+                $0.id == pass.id || $0.imapUID == pass.imapUID || $0.fingerprint == pass.fingerprint
+            }) {
+                if passes[index].qrcode.isEmpty, !pass.qrcode.isEmpty {
+                    passes[index] = pass
+                }
+            } else {
+                passes.append(pass)
+            }
+        }
+        result.passes = passes
+
+        if let incomingUID = incoming.lastSyncedUID {
+            if let existingUID = result.lastSyncedUID {
+                result.lastSyncedUID = max(existingUID, incomingUID)
+            } else {
+                result.lastSyncedUID = incomingUID
+            }
+        }
+        if let incomingPassUID = incoming.lastSyncedPassUID {
+            if let existingPassUID = result.lastSyncedPassUID {
+                result.lastSyncedPassUID = max(existingPassUID, incomingPassUID)
+            } else {
+                result.lastSyncedPassUID = incomingPassUID
+            }
+        }
+        if result.imapUIDValidity == nil {
+            result.imapUIDValidity = incoming.imapUIDValidity
+        }
+        if result.passImapUIDValidity == nil {
+            result.passImapUIDValidity = incoming.passImapUIDValidity
+        }
+
+        var failed = Set(result.pendingFailedUIDs ?? [])
+        failed.formUnion(incoming.pendingFailedUIDs ?? [])
+        result.pendingFailedUIDs = failed.isEmpty ? nil : Array(failed).sorted()
+
+        var failedPasses = Set(result.pendingFailedPassUIDs ?? [])
+        failedPasses.formUnion(incoming.pendingFailedPassUIDs ?? [])
+        result.pendingFailedPassUIDs = failedPasses.isEmpty ? nil : Array(failedPasses).sorted()
+        return result
     }
 }
 
-struct EmailContentPassenger: Codable, Identifiable, Sendable {
-    var id: UUID = UUID()
-    var name: String
-    var carriage: Int
-    var seat: String
-    var qrcode: Data
+extension Array where Element == UserProfile {
+    var primary: UserProfile? {
+        UserProfile.primary(from: self)
+    }
 }

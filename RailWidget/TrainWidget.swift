@@ -257,15 +257,15 @@ struct TrainWidgetEntryView: View {
             .cornerRadius(16)
         } else if Date() < data.firstStopDepTimeId {
             HStack(spacing: 8) {
-                let dep_time = data.firstStopDepTimeEff != .distantPast && Calendar.current.isDateInToday(data.firstStopDepTimeEff) ? data.firstStopDepTimeEff : data.firstStopDepTimeId
-                let time_to_departure = Calendar.current.dateComponents([.day, .hour, .minute], from: Date(), to: dep_time)
-                let day = time_to_departure.day ?? 0
-                let hour = time_to_departure.hour ?? 0
-                let minute = time_to_departure.minute ?? 0
+                let depTime = data.firstStopDepTimeEff != .distantPast && Calendar.current.isDateInToday(data.firstStopDepTimeEff) ? data.firstStopDepTimeEff : data.firstStopDepTimeId
+                let timeToDeparture = Calendar.current.dateComponents([.day, .hour, .minute], from: Date(), to: depTime)
+                let day = timeToDeparture.day ?? 0
+                let hour = timeToDeparture.hour ?? 0
+                let minute = timeToDeparture.minute ?? 0
                 
-                let time_string: String = {
+                let timeString: String = {
                     if day > 0 {
-                        return "\(NSLocalizedString("Departure on", comment: "")) \(dep_time.formatted(date: .abbreviated, time: .omitted))"
+                        return "\(NSLocalizedString("Departure on", comment: "")) \(depTime.formatted(date: .abbreviated, time: .omitted))"
                     } else if hour > 0 && minute > 0 {
                         return "\(NSLocalizedString("Departure in", comment: "")) \(hour)h \(minute)m"
                     } else if hour > 0 && minute == 0 {
@@ -278,7 +278,7 @@ struct TrainWidgetEntryView: View {
                 }()
                 
                 ZStack {
-                    Text(time_string)
+                    Text(timeString)
                         .font(.subheadline)
                         .fontDesign(widgetFontDesign)
                         .padding(.vertical, 8).padding(.horizontal, 12)
@@ -302,7 +302,7 @@ struct TrainWidgetEntryView: View {
             }
         } else {
             HStack(spacing: 8) {
-                let delay_string: String = {
+                let delayString: String = {
                     if data.delay < 0 {
                         let delay = abs(data.delay)
                         if delay >= 60 {
@@ -320,7 +320,7 @@ struct TrainWidgetEntryView: View {
                 }()
                 
                 ZStack {
-                    Text(delay_string)
+                    Text(delayString)
                         .font(.subheadline)
                         .fontDesign(widgetFontDesign)
                         .foregroundStyle(data.delay > 0 ? .red : .green)

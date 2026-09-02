@@ -1,23 +1,13 @@
 import SwiftUI
 import SwiftData
 
-// MARK: - Enums
-
 enum PreloadState: Equatable {
     case loading
     case ready
     case unavailable
 }
 
-enum FavoriteRowStrokeAppearance {
-    case loading
-    case ready
-    case unavailable
-    case selected
-}
-
 struct FavoriteTrainsView: View {
-    // MARK: - Properties
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \Favorite.index) private var favorites: [Favorite]
@@ -28,9 +18,7 @@ struct FavoriteTrainsView: View {
     var onTrainAdded: (() -> Void)? = nil
 
     @State private var searchText = ""
-    @State private var selectedFavoriteID: UUID?
 
-    // MARK: - Computed Properties
     private var filteredFavorites: [Favorite] {
         favorites.filter { matches($0, searchText: searchText) }
     }
@@ -39,7 +27,6 @@ struct FavoriteTrainsView: View {
         !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
-    // MARK: - Body
     var body: some View {
         NavigationStack {
             Group {
@@ -49,20 +36,21 @@ struct FavoriteTrainsView: View {
                         systemImage: "heart",
                         description: Text("Save a train as a favorite from its details page.")
                     )
-                    .fontDesign(app_font_design)
+                    .foregroundStyle(Color.secondary)
+                    .fontDesign(appFontDesign)
                 } else if isSearching && filteredFavorites.isEmpty {
                     ContentUnavailableView.search(text: searchText)
-                        .fontDesign(app_font_design)
+                        .foregroundStyle(Color.secondary)
+                        .fontDesign(appFontDesign)
                 } else {
                     List {
-                        ForEach(Array(filteredFavorites.enumerated()), id: \.element.id) { index, favorite in
-                            favoriteRow(favorite, index: index, totalCount: filteredFavorites.count)
+                        ForEach(filteredFavorites) { favorite in
+                            favoriteRow(favorite)
                         }
                     }
-                    .listStyle(.plain)
-                    .scrollIndicators(.hidden)
-                    .scrollContentBackground(.hidden)
-                    .padding(.horizontal)
+                    .listStyle(.insetGrouped)
+                    .contentMargins(.bottom, 80, for: .scrollContent)
+                    .scrollIndicators(.visible)
                 }
             }
             .navigationTitle("Favorites")
@@ -76,45 +64,29 @@ struct FavoriteTrainsView: View {
                     }
                 }
 
-                ToolbarItem(placement: .topBarTrailing) {
-                    if let selectedFavoriteID,
-                       preloadStates[selectedFavoriteID] == .ready,
-                       preparedTrains[selectedFavoriteID] != nil {
-                        Button {
-                            confirmAdd(selectedFavoriteID)
-                        } label: {
-                            Image(systemName: "checkmark")
-                        }
-                        .buttonStyle(.glassProminent)
-                    }
-                }
-
                 DefaultToolbarItem(kind: .search, placement: .bottomBar)
             }
             .searchable(text: $searchText, prompt: "Search favorites")
         }
-        .background(app_background_color.ignoresSafeArea())
+        .background(appBackgroundColor.ignoresSafeArea())
     }
 
-    // MARK: - Secondary Views
     @ViewBuilder
-    private func favoriteRow(_ favorite: Favorite, index: Int, totalCount: Int) -> some View {
+    private func favoriteRow(_ favorite: Favorite) -> some View {
         let state = preloadStates[favorite.id] ?? .loading
-        let stroke = strokeAppearance(for: favorite, state: state)
 
         FavoriteTrainCard(
             favorite: favorite,
-            strokeAppearance: stroke
+            isLoading: state == .loading,
+            isUnavailable: state == .unavailable
         )
         .contentShape(Rectangle())
         .onTapGesture {
-            selectFavorite(favorite, state: state)
+            // a favorite is already fully resolved by the time it's tappable,
+            // so there is nothing left to confirm
+            guard state == .ready else { return }
+            addFavorite(favorite.id)
         }
-        .listRowInsets(EdgeInsets())
-        .listRowSeparator(.hidden)
-        .listRowBackground(Color.clear)
-        .padding(.top, index == 0 ? 16 : 24)
-        .padding(.bottom, index == totalCount - 1 ? 24 : 0)
         .swipeActions(edge: .trailing, allowsFullSwipe: true) {
             Button(role: .destructive) {
                 deleteFavorite(favorite)
@@ -124,29 +96,7 @@ struct FavoriteTrainsView: View {
         }
     }
 
-    // MARK: - Functions
-    private func strokeAppearance(for favorite: Favorite, state: PreloadState) -> FavoriteRowStrokeAppearance {
-        if selectedFavoriteID == favorite.id, state == .ready {
-            return .selected
-        }
-
-        switch state {
-        case .loading:
-            return .loading
-        case .ready:
-            return .ready
-        case .unavailable:
-            return .unavailable
-        }
-    }
-
-    private func selectFavorite(_ favorite: Favorite, state: PreloadState) {
-        guard state == .ready else { return }
-        HapticFeedback.select()
-        selectedFavoriteID = favorite.id
-    }
-
-    private func confirmAdd(_ favoriteID: UUID) {
+    private func addFavorite(_ favoriteID: UUID) {
         guard preloadStates[favoriteID] == .ready,
               let prepared = preparedTrains[favoriteID] else { return }
 
@@ -154,7 +104,7 @@ struct FavoriteTrainsView: View {
         FavoriteTrainService.savePreparedTrain(
             prepared,
             modelContext: modelContext,
-            profile: profiles.first
+            profile: profiles.primary
         )
         onTrainAdded?()
         dismiss()
@@ -162,10 +112,6 @@ struct FavoriteTrainsView: View {
 
     private func deleteFavorite(_ favorite: Favorite) {
         HapticFeedback.confirm()
-
-        if selectedFavoriteID == favorite.id {
-            selectedFavoriteID = nil
-        }
 
         modelContext.delete(favorite)
 
@@ -195,80 +141,73 @@ struct FavoriteTrainsView: View {
     }
 }
 
-// MARK: - Secondary Views
+#Preview("Favorite Trains View") {
+    let schema = Schema([Favorite.self, UserProfile.self])
+    let config = ModelConfiguration(isStoredInMemoryOnly: true)
+    let container = try! ModelContainer(for: schema, configurations: config)
+    let context = container.mainContext
 
-struct FavoriteTrainCard: View {
-    let favorite: Favorite
-    let strokeAppearance: FavoriteRowStrokeAppearance
-
-    var body: some View {
-        VStack(spacing: 16) {
-            HStack {
-                Image(favorite.logo)
-                    .resizable()
-                    .scaledToFit()
-                    .frame(height: UIFont.preferredFont(forTextStyle: .title3).lineHeight * 0.8)
-                Text(favorite.number)
-                    .font(.title3)
-                    .fontWeight(.semibold)
-                Spacer()
-            }
-            VStack(alignment: .leading, spacing: 4) {
-                HStack {
-                    Text(favorite.stop_names.first ?? "")
-                    Spacer()
-                    if let time = favorite.stop_ref_times.first {
-                        Text(time.formatted(Date.FormatStyle.dateTime.hour().minute()))
-                            .monospacedDigit()
-                    }
-                }
-                HStack {
-                    Text(favorite.stop_names.last ?? "")
-                    Spacer()
-                    if let time = favorite.stop_ref_times.last {
-                        Text(time.formatted(Date.FormatStyle.dateTime.hour().minute()))
-                            .monospacedDigit()
-                    }
-                }
-            }
-            .font(.subheadline)
-        }
-        .fontDesign(app_font_design)
-        .foregroundStyle(Color.primary)
-        .padding()
-        .contentShape(Rectangle())
-        .background {
-            FavoriteTrainCardBorder(appearance: strokeAppearance)
-        }
+    func time(_ hour: Int, _ min: Int) -> Date {
+        Calendar.current.date(bySettingHour: hour, minute: min, second: 0, of: Date()) ?? .distantPast
     }
+
+    let fav1ID = UUID()
+    let fav2ID = UUID()
+    let fav3ID = UUID()
+    let fav4ID = UUID()
+
+    let favorites = [
+        Favorite(
+            id: fav1ID, index: 0, identifier: "IT9904", provider: "italo", logo: "ITALO", number: "9904",
+            stop_names: ["Roma Termini", "Milano Centrale"], stop_ref_times: [time(6, 20), time(8, 46)]
+        ),
+        Favorite(
+            id: fav2ID, index: 1, identifier: "REG3224", provider: "trenitalia", logo: "REG", number: "3224",
+            stop_names: ["Cuneo", "Carmagnola"], stop_ref_times: [time(9, 24), time(10, 9)]
+        ),
+        Favorite(
+            id: fav3ID, index: 2, identifier: "FR9612", provider: "trenitalia", logo: "FR", number: "9612",
+            stop_names: ["Milano Centrale", "Roma Termini"], stop_ref_times: [time(7, 0), time(10, 0)]
+        ),
+        Favorite(
+            id: fav4ID, index: 3, identifier: "IC605", provider: "trenitalia", logo: "IC", number: "605",
+            stop_names: ["Torino Porta Nuova", "Genova Piazza Principe"], stop_ref_times: [time(14, 15), time(16, 40)]
+        )
+    ]
+    favorites.forEach { context.insert($0) }
+
+    let preloadStates: [UUID: PreloadState] = [
+        fav1ID: .ready,
+        fav2ID: .loading,
+        fav3ID: .unavailable,
+        fav4ID: .ready
+    ]
+    let preparedTrains: [UUID: PreparedFavoriteTrain] = [
+        fav1ID: PreparedFavoriteTrain(info: [:], fromStation: "Roma Termini", toStation: "Milano Centrale"),
+        fav4ID: PreparedFavoriteTrain(info: [:], fromStation: "Torino Porta Nuova", toStation: "Genova Piazza Principe")
+    ]
+
+    return Color(uiColor: .systemBackground)
+        .sheet(isPresented: .constant(true)) {
+            FavoriteTrainsView(
+                preloadStates: .constant(preloadStates),
+                preparedTrains: .constant(preparedTrains)
+            )
+            .modelContainer(container)
+        }
 }
 
-private struct FavoriteTrainCardBorder: View {
-    let appearance: FavoriteRowStrokeAppearance
+#Preview("Favorite Trains View - Empty") {
+    let schema = Schema([Favorite.self, UserProfile.self])
+    let config = ModelConfiguration(isStoredInMemoryOnly: true)
+    let container = try! ModelContainer(for: schema, configurations: config)
 
-    private var shape: some InsettableShape {
-        RoundedRectangle(cornerRadius: 24, style: .continuous).inset(by: 0.5)
-    }
-
-    var body: some View {
-        switch appearance {
-        case .loading:
-            TimelineView(.animation) { context in
-                let phase = CGFloat((context.date.timeIntervalSinceReferenceDate * 3).truncatingRemainder(dividingBy: 1)) * 12
-                shape.stroke(
-                    Color.secondary,
-                    style: StrokeStyle(lineWidth: 1.5, lineCap: .round, dash: [6, 6], dashPhase: phase)
-                )
-            }
-        case .ready:
-            shape.stroke(
-                Color.secondary,
-                style: StrokeStyle(lineWidth: 1, dash: [5])
+    return Color(uiColor: .systemBackground)
+        .sheet(isPresented: .constant(true)) {
+            FavoriteTrainsView(
+                preloadStates: .constant([:]),
+                preparedTrains: .constant([:])
             )
-        case .unavailable:
-            shape.stroke(Color.red, lineWidth: 1.5)
-        case .selected:
-            shape.stroke(Color.blue, lineWidth: 2)
+            .modelContainer(container)
         }
-    }
 }

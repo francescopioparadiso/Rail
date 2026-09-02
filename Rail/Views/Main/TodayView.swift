@@ -4,27 +4,21 @@ import WidgetKit
 import StoreKit
 
 struct TodayView: View {
-    // MARK: - Properties
-    // enviroment variables
     @Environment(\.requestReview) var requestReview
     
-    // deep link variables
     @Binding var ticketTrainID: UUID?
     @Binding var ticketSeatID: UUID?
-    @Binding var show_ticket_view: Bool
+    @Binding var showTicketView: Bool
     @Binding var searchText: String
     @Binding var navigationPath: [Train]
     var isActive: Bool = true
     
-    // database variables
     @Environment(\.modelContext) private var modelContext
     @Query private var trains: [Train]
     @Query private var stops: [Stop]
     @Query private var seats: [Seat]
     @Query private var profiles: [UserProfile]
 
-    // state variables
-    // refresh variables
     @State private var isUpdating = false
     @State private var manualRefreshCounter = 0
     @State private var rowItems: [TrainRowItem] = []
@@ -38,17 +32,18 @@ struct TodayView: View {
         rowItems.filter { TrainListBuilder.matches($0, searchText: searchText) }
     }
 
-    // MARK: - Body
     var body: some View {
         Group {
             if filteredRowItems.isEmpty {
                 if rowItems.isEmpty {
-                    ContentUnavailableView("No ongoing journeys",
-                                           systemImage: "exclamationmark.magnifyingglass",
-                                           description: Text("Add a new journey by tapping the button below."))
+                    ContentUnavailableView {
+                        Label("No ongoing journeys", systemImage: "exclamationmark.magnifyingglass")
+                    } description: {
+                        Text("Add a new journey by tapping the button below.")
+                    }
                     .padding()
-                    .foregroundColor(Color.primary)
-                    .fontDesign(app_font_design)
+                    .foregroundStyle(Color.secondary)
+                    .fontDesign(appFontDesign)
                 } else {
                     ContentUnavailableView(
                         "No results",
@@ -56,26 +51,30 @@ struct TodayView: View {
                         description: Text("No trains match \"\(searchText)\".")
                     )
                     .padding()
-                    .fontDesign(app_font_design)
+                    .foregroundStyle(Color.secondary)
+                    .fontDesign(appFontDesign)
                 }
             } else {
                 List {
                     ForEach(filteredRowItems) { item in
-                        TodayTrainRow(item: item, now: listNow, manualRefreshCounter: manualRefreshCounter)
-                            .equatable()
-                            .listRowInsets(EdgeInsets())
-                            .listRowSeparator(.hidden)
-                            .listRowBackground(Color.clear)
+                        TodayTrainRow(
+                            item: item,
+                            now: listNow,
+                            manualRefreshCounter: manualRefreshCounter,
+                            isFirst: item.id == filteredRowItems.first?.id,
+                            isLast: item.id == filteredRowItems.last?.id
+                        )
+                        .equatable()
+                        .listRowInsets(EdgeInsets())
+                        .listRowSeparator(.hidden)
                     }
-                    .onDelete(perform: delete_today_trains)
+                    .onDelete(perform: deleteTodayTrains)
                 }
                 .scrollIndicators(.hidden)
-                .scrollContentBackground(.hidden)
-                .listStyle(.plain)
-                .padding(.horizontal)
+                .listStyle(.insetGrouped)
                 .refreshable {
                     refreshRowItems()
-                    await update_today_trains(isManual: true)
+                    await updateTodayTrains(isManual: true)
                 }
                 .onChange(of: ticketTrainID) { _, newID in
                     if let id = newID, let train = trains.first(where: { $0.id == id }) {
@@ -88,7 +87,7 @@ struct TodayView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(app_background_color)
+        .background(appBackgroundColor)
         .onAppear {
             ReviewManager.shared.requestReviewIfAppropriate(action: requestReview)
             if rowItems.isEmpty {
@@ -100,12 +99,12 @@ struct TodayView: View {
         .task(id: isActive) {
             guard isActive else { return }
             refreshRowItems()
-            await update_today_trains()
+            await updateTodayTrains()
 
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 30_000_000_000)
                 if Task.isCancelled { break }
-                await update_today_trains()
+                await updateTodayTrains()
             }
         }
         .task(id: isActive) {
@@ -133,8 +132,7 @@ struct TodayView: View {
         rowItems = TrainListBuilder.todayItems(trains: trains, stops: stops, now: listNow)
     }
     
-    // MARK: - Functions
-    private func delete_today_trains(at offsets: IndexSet) {
+    private func deleteTodayTrains(at offsets: IndexSet) {
         let items = offsets.map { filteredRowItems[$0] }
         for item in items {
             Task {
@@ -149,14 +147,14 @@ struct TodayView: View {
     }
 
     @MainActor
-    private func update_today_trains(isManual: Bool = false) async {
+    private func updateTodayTrains(isManual: Bool = false) async {
         guard !isUpdating else { return }
         isUpdating = true
         defer { isUpdating = false }
 
         let trainsToUpdate = rowItems.map(\.train)
         let currentStopsByTrain = stopsByTrain
-        let calendarSettings = profiles.first?.calendarSettings
+        let calendarSettings = profiles.primary?.calendarSettings
         let allSeats = seats
 
         var didChange = false
@@ -174,9 +172,9 @@ struct TodayView: View {
                     let results: [String: Any] = await {
                         switch train.provider {
                         case "trenitalia":
-                            return await TrenitaliaAPI().info(identifier: train.identifier, should_fetch_weather: false) ?? [:]
+                            return await TrenitaliaAPI().info(identifier: train.identifier, shouldFetchWeather: false) ?? [:]
                         case "italo":
-                            return await ItaloAPI().info(identifier: train.identifier, should_fetch_weather: false) ?? [:]
+                            return await ItaloAPI().info(identifier: train.identifier, shouldFetchWeather: false) ?? [:]
                         default:
                             return [:]
                         }
@@ -196,21 +194,21 @@ struct TodayView: View {
                         if train.direction != newDirection { train.direction = newDirection; trainChanged = true }
                         if train.issue != newIssue { train.issue = newIssue; trainChanged = true }
 
-                        let today_stops = currentStopsByTrain[train.id] ?? []
-                        let stops_updated = results["stops"] as? [[String: Any]] ?? []
+                        let todayStops = currentStopsByTrain[train.id] ?? []
+                        let stopsUpdated = results["stops"] as? [[String: Any]] ?? []
 
-                        for stop in today_stops {
-                            guard let stop_updated = stops_updated.first(where: { ($0["name"] as? String) == stop.name }) else { continue }
+                        for stop in todayStops {
+                            guard let stopUpdated = stopsUpdated.first(where: { ($0["name"] as? String) == stop.name }) else { continue }
 
-                            let newPlatform = stop_updated["platform"] as? String ?? ""
-                            let newWeather = stop_updated["weather"] as? String ?? ""
-                            let newStatus = stop_updated["status"] as? Int ?? 0
-                            let newCompleted = stop_updated["is_completed"] as? Bool ?? false
-                            let newInStation = stop_updated["is_in_station"] as? Bool ?? false
-                            let newDepDelay = stop_updated["dep_delay"] as? Int ?? 0
-                            let newArrDelay = stop_updated["arr_delay"] as? Int ?? 0
-                            let newDepEff = stop_updated["dep_time_eff"] as? Date ?? .distantPast
-                            let newArrEff = stop_updated["arr_time_eff"] as? Date ?? .distantPast
+                            let newPlatform = stopUpdated["platform"] as? String ?? ""
+                            let newWeather = stopUpdated["weather"] as? String ?? ""
+                            let newStatus = stopUpdated["status"] as? Int ?? 0
+                            let newCompleted = stopUpdated["is_completed"] as? Bool ?? false
+                            let newInStation = stopUpdated["is_in_station"] as? Bool ?? false
+                            let newDepDelay = stopUpdated["dep_delay"] as? Int ?? 0
+                            let newArrDelay = stopUpdated["arr_delay"] as? Int ?? 0
+                            let newDepEff = stopUpdated["dep_time_eff"] as? Date ?? .distantPast
+                            let newArrEff = stopUpdated["arr_time_eff"] as? Date ?? .distantPast
 
                             if stop.platform != newPlatform { stop.platform = newPlatform; trainChanged = true }
                             if !newWeather.isEmpty && stop.weather != newWeather { stop.weather = newWeather; trainChanged = true }
@@ -232,7 +230,7 @@ struct TodayView: View {
                                 let trainSeats = allSeats.filter { $0.trainID == train.id }
                                 await CalendarManager.shared.syncTrainEvent(
                                     train: train,
-                                    stops: today_stops,
+                                    stops: todayStops,
                                     seats: trainSeats,
                                     titleFormat: settings.titleFormat,
                                     calendarIdentifier: settings.calendarIdentifier,
@@ -258,54 +256,11 @@ struct TodayView: View {
 
         if isManual {
             manualRefreshCounter += 1
-            reload_widget_timelines()
+            reloadWidgetTimelines()
         }
     }
 }
 
-// MARK: - Secondary Views
-struct ConnectionIntervalView: View {
-    let durationString: String
-    let totalMinutes: Int
-    let connectionStatus: ConnectionStatus
-    let station: String
-    let weather: String?
-    let index: Int
-    let total: Int
-    let manualRefreshCounter: Int
-    
-    var body: some View {
-        HStack(alignment: .center, spacing: 8) {
-            Rectangle()
-                .fill(connectionStatus.color.opacity(0.3))
-                .frame(width: 3)
-                .cornerRadius(1.5)
-                .fixedSize(horizontal: true, vertical: false)
-            
-            HStack(spacing: 8) {
-                Image(systemName: connectionStatus.icon)
-                    .font(.title3)
-                    .frame(width: 32)
-                
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("\(NSLocalizedString("Connection:", comment: "")) \(durationString)")
-                        .font(.footnote).fontWeight(.semibold)
-                    
-                    Text(connectionStatus.text)
-                        .font(.caption)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                
-                Spacer()
-            }
-        }
-        .padding(.vertical, 8).padding(.horizontal)
-        .fontDesign(app_font_design)
-        .foregroundColor(connectionStatus.color)
-    }
-}
-
-// MARK: - Previews
 #Preview {
     let config = ModelConfiguration(isStoredInMemoryOnly: true)
     let container = try! ModelContainer(for: Train.self, Stop.self, Seat.self, Favorite.self, Pass.self, configurations: config)
@@ -478,7 +433,7 @@ struct ConnectionIntervalView: View {
     return TodayView(
         ticketTrainID: .constant(nil),
         ticketSeatID: .constant(nil),
-        show_ticket_view: .constant(false),
+        showTicketView: .constant(false),
         searchText: .constant(""),
         navigationPath: .constant([])
     )

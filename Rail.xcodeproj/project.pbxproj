@@ -58,8 +58,13 @@
 		2C68D1EC2F2612C2002C0EAA /* Exceptions for "Rail" folder in "RailWidgetExtension" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
+				Data/Email/EmailAccount.swift,
+				Data/Email/EmailContent.swift,
+				Data/Email/EmailPassContent.swift,
+				Data/Email/EmailProvider.swift,
 				Data/Favorite/Favorite.swift,
 				Data/Pass/Pass.swift,
+				Data/Profile/CalendarSettings.swift,
 				Data/Profile/UserProfile.swift,
 				Data/Train/Seat.swift,
 				Data/Train/Stop.swift,

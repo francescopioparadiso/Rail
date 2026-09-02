@@ -3,7 +3,7 @@ import SwiftData
 import PhotosUI
 import Vision
 
-enum image_status: CaseIterable {
+enum ImageStatus: CaseIterable {
     case empty
     case saved
     case error
@@ -30,7 +30,6 @@ enum image_status: CaseIterable {
         }
     }
 }
-
 
 // crop code from image data
 func cropCodeFromImage(originalData: Data) async -> Data? {
@@ -85,7 +84,6 @@ func cropCodeFromImage(originalData: Data) async -> Data? {
     }
 }
 
-// enhance image quality
 private func enhanceImageQuality(cgImage: CGImage) -> Data {
     let ciImage = CIImage(cgImage: cgImage)
     let context = CIContext()
@@ -119,7 +117,6 @@ private func enhanceImageQuality(cgImage: CGImage) -> Data {
         outputImage = upscaleFilter.outputImage ?? outputImage
     }
     
-    // Render to Data
     if let resultCG = context.createCGImage(outputImage, from: outputImage.extent) {
         let resultUI = UIImage(cgImage: resultCG)
         // Use PNG to avoid JPEG artifacts on the sharp edges of the QR code
