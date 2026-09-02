@@ -44,15 +44,6 @@ struct ContentView: View {
     @State private var ticketSeatID: UUID? = nil
     @State private var showTicketView = false
 
-    private var fetchEmailAddressesText: String {
-        if !fetchingAccountEmails.isEmpty {
-            return fetchingAccountEmails.joined(separator: "\n")
-        }
-        return ticketSyncProgresses.values.first?.accountEmail
-            ?? profiles.primary?.emails.filter(\.hasConfiguredCredentials).map(\.email).joined(separator: "\n")
-            ?? ""
-    }
-
     private var fetchEmailsDownloaded: Int {
         ticketSyncProgresses.values.map(\.emailsDownloaded).reduce(0, +)
     }
@@ -636,19 +627,6 @@ private struct ProfileToolbarButton: View {
                 profileImage = image
             }
         }
-    }
-}
-
-private struct ContentViewEmailImportPreview: View {
-    let container: ModelContainer
-
-    var body: some View {
-        ContentView()
-            .modelContainer(container)
-            .sheet(isPresented: .constant(true)) {
-                EmailTrainImportView(onTrainAdded: {})
-                    .modelContainer(container)
-            }
     }
 }
 

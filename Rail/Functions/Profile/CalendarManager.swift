@@ -125,10 +125,6 @@ class CalendarManager {
         return eventStore.calendars(for: .event).sorted(by: { $0.title < $1.title })
     }
     
-    func getCalendar(with identifier: String) -> EKCalendar? {
-        return eventStore.calendar(withIdentifier: identifier)
-    }
-    
     func removeTrainEvent(train: Train) async {
         guard await requestAccess() else { return }
         guard let identifier = train.calendarEventIdentifier, let event = eventStore.event(withIdentifier: identifier) else { return }

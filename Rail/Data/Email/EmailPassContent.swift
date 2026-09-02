@@ -11,7 +11,6 @@ struct EmailPassContent: Codable, Identifiable, Sendable {
     var qrcode: Data
     /// Staged source PDF, resolved through `PassPDFStore` at import time.
     var pdfFilename: String?
-    var parseError: String?
 
     nonisolated var isImportEligible: Bool {
         var calendar = Calendar(identifier: .gregorian)

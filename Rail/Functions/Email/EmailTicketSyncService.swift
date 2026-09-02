@@ -288,22 +288,6 @@ enum EmailTicketSyncService {
         }
     }
 
-    @MainActor
-    private static func saveDetailError(
-        _ message: String,
-        ticketID: UUID,
-        emailIndex: Int,
-        profile: UserProfile,
-        modelContext: ModelContext
-    ) {
-        guard profile.emails.indices.contains(emailIndex),
-              let ticketIndex = profile.emails[emailIndex].content.firstIndex(where: { $0.id == ticketID }) else { return }
-        var updatedEmails = profile.emails
-        updatedEmails[emailIndex].content[ticketIndex].detailsError = message
-        profile.emails = updatedEmails
-        try? modelContext.save()
-    }
-
     private static func progressValue(
         account: String,
         stage: EmailTicketSyncStage

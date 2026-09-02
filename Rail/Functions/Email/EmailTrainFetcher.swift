@@ -12,10 +12,6 @@ struct FetchedEmail: Sendable {
     let arrivalStation: String
     let price: String
 
-    var shouldFetchDetails: Bool {
-        guard let departureDate else { return false }
-        return EmailContent.isUpcomingDeparture(departureDate)
-    }
 }
 
 struct EmailFetchProgress: Sendable {

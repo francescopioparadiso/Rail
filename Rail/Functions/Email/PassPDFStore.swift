@@ -43,13 +43,4 @@ nonisolated enum PassPDFStore {
         try? FileManager.default.removeItem(at: directory.appending(path: filename))
     }
 
-    /// Drops staged files no longer referenced by any pending pass.
-    static func prune(keeping filenames: Set<String>) {
-        guard let directory,
-              let contents = try? FileManager.default.contentsOfDirectory(atPath: directory.path)
-        else { return }
-        for file in contents where !filenames.contains(file) {
-            try? FileManager.default.removeItem(at: directory.appending(path: file))
-        }
-    }
 }
