@@ -34,16 +34,10 @@ struct BoardTrain: Identifiable, Hashable {
     let platform: String
     let isCancelled: Bool
 
-    /// The board says whether a train has left its own origin yet. Until it has,
-    /// the delay it reports is a placeholder zero rather than an observation.
-    let hasLeftOrigin: Bool
-
+    /// When the train is actually expected here.
     var effectiveTime: Date {
         Calendar.current.date(byAdding: .minute, value: delayMinutes, to: scheduledTime) ?? scheduledTime
     }
-
-    /// True only when the train is running and off its booked time.
-    var reportsDelay: Bool { hasLeftOrigin && delayMinutes != 0 }
 }
 
 /// The timetable viaggiatreno publishes for a single station: everything due
@@ -148,8 +142,7 @@ enum StationBoardAPI {
             scheduledTime: Date(timeIntervalSince1970: TimeInterval(milliseconds) / 1000),
             delayMinutes: entry["ritardo"] as? Int ?? 0,
             platform: platform.map { romanToArabic(platform: $0) } ?? "",
-            isCancelled: (entry["provvedimento"] as? Int ?? 0) == 1,
-            hasLeftOrigin: !(entry["nonPartito"] as? Bool ?? true)
+            isCancelled: (entry["provvedimento"] as? Int ?? 0) == 1
         )
     }
 }
