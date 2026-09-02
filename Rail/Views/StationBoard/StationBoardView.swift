@@ -10,12 +10,6 @@ struct StationBoardView: View {
     // MARK: - Properties
 
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.modelContext) private var modelContext
-
-    @Query private var profiles: [UserProfile]
-    @Query private var trains: [Train]
-
-    var onTrainAdded: (() -> Void)? = nil
 
     @State private var stationText = ""
     @State private var station: StationSuggestion?
@@ -34,8 +28,6 @@ struct StationBoardView: View {
 
     /// Restarts the board whenever the station or the side of it changes.
     private var boardKey: String { "\(station?.code ?? "")|\(kind.rawValue)" }
-
-    private var savedIdentifiers: Set<String> { Set(trains.map(\.identifier)) }
 
     // MARK: - Body
 
@@ -73,9 +65,7 @@ struct StationBoardView: View {
                 BoardTrainDetailView(
                     boardTrain: boardTrain,
                     station: station?.name ?? "",
-                    kind: kind,
-                    isAlreadySaved: savedIdentifiers.contains(boardTrain.id),
-                    onSave: save
+                    kind: kind
                 )
             }
             // sits above the keyboard while a station is being typed, exactly as
@@ -219,15 +209,6 @@ struct StationBoardView: View {
             guard !Task.isCancelled, stationText == query else { return }
             suggestions = results
         }
-    }
-
-    private func save(_ prepared: PreparedFavoriteTrain) {
-        FavoriteTrainService.savePreparedTrain(
-            prepared,
-            modelContext: modelContext,
-            profile: profiles.primary
-        )
-        onTrainAdded?()
     }
 }
 

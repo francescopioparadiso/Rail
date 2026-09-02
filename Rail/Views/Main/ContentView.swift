@@ -224,7 +224,7 @@ struct ContentView: View {
                 emailImportSheetContent
             }
             .sheet(isPresented: $stationBoardSheet) {
-                StationBoardView(onTrainAdded: { selectedSection = .today })
+                StationBoardView()
             }
             .onOpenURL(perform: handleOpenURL)
     }
@@ -567,7 +567,7 @@ private struct ProfileToolbarButton: View {
         }
         .onAppear { refreshImage() }
         .onChange(of: profiles.primary?.photo) { _, _ in refreshImage() }
-        .padding(.trailing, -4).padding(.leading, -8)
+        .padding(.trailing, -4)
     }
 
     // MARK: - Actions

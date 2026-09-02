@@ -1,25 +1,20 @@
 import SwiftUI
 import SwiftData
 
-/// A train opened from a station board, before it belongs to the app.
+/// A train opened from a station board, which does not belong to the app.
 ///
 /// The board knows only an identifier, so the journey is resolved on the way in and
 /// staged in a throwaway in-memory store. That store, not the app's database, is
 /// what the details screen reads and writes, so a train can be browsed — refreshing
-/// as it runs, like any other — without leaving a trace behind. Only Save copies it
-/// across for real.
+/// as it runs, like any other — and leave nothing behind when it is closed.
 struct BoardTrainDetailView: View {
     // MARK: - Properties
 
     let boardTrain: BoardTrain
     let station: String
     let kind: StationBoardKind
-    let isAlreadySaved: Bool
-    let onSave: (PreparedFavoriteTrain) -> Void
-
     @State private var journey: StagedJourney?
     @State private var didFail = false
-    @State private var didSave = false
 
     // MARK: - Body
 
@@ -30,10 +25,7 @@ struct BoardTrainDetailView: View {
                     train: journey.train,
                     showTicketInitially: .constant(false),
                     ticketSeatID: .constant(nil),
-                    saveAction: DetailsSaveAction(isSaved: didSave || isAlreadySaved) {
-                        onSave(journey.prepared)
-                        didSave = true
-                    }
+                    isPreview: true
                 )
                 .modelContainer(journey.container)
             } else if didFail {
@@ -84,11 +76,11 @@ struct BoardTrainDetailView: View {
         let configuration = ModelConfiguration(isStoredInMemoryOnly: true)
         guard let container = try? ModelContainer(for: schema, configurations: configuration) else { return nil }
 
-        let prepared = PreparedFavoriteTrain(info: info, fromStation: from, toStation: to)
-        let (train, _) = FavoriteTrainService.insert(prepared, into: container.mainContext)
+        let journey = PreparedFavoriteTrain(info: info, fromStation: from, toStation: to)
+        let (train, _) = FavoriteTrainService.insert(journey, into: container.mainContext)
         try? container.mainContext.save()
 
-        return StagedJourney(container: container, train: train, prepared: prepared)
+        return StagedJourney(container: container, train: train)
     }
 
     /// Which stop on the route is the one whose board this is. Both endpoints draw
@@ -108,9 +100,8 @@ struct BoardTrainDetailView: View {
     }
 }
 
-/// A journey held in a store of its own, alongside what it would take to save it.
+/// A journey held in a store of its own.
 private struct StagedJourney {
     let container: ModelContainer
     let train: Train
-    let prepared: PreparedFavoriteTrain
 }
