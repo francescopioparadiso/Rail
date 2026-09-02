@@ -1,5 +1,16 @@
 import Foundation
 
+/// Month heading for a list section: "Marzo" within the current year, "Marzo 2024"
+/// otherwise. Used by the past-trains, passes and both email-import lists.
+nonisolated func monthSectionTitle(for date: Date) -> String {
+    let calendar = Calendar.current
+    let formatter = DateFormatter()
+    formatter.locale = .current
+    formatter.dateFormat = calendar.component(.year, from: date) == calendar.component(.year, from: Date())
+        ? "LLLL" : "LLLL yyyy"
+    return formatter.string(from: date).capitalized
+}
+
 func timeToDate(timeString: String) -> Date? {
     if timeString == "" || timeString == "01:00" {
         return .distantPast

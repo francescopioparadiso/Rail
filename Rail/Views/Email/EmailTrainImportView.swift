@@ -233,16 +233,6 @@ struct EmailTrainImportView: View {
         }
     }
 
-    private func monthSectionTitle(for date: Date) -> String {
-        let calendar = Calendar.current
-        let currentYear = calendar.component(.year, from: Date())
-        let year = calendar.component(.year, from: date)
-        let formatter = DateFormatter()
-        formatter.locale = .current
-        formatter.dateFormat = year == currentYear ? "LLLL" : "LLLL yyyy"
-        return formatter.string(from: date).capitalized
-    }
-
     @ViewBuilder
     private var progressView: some View {
         EmailSyncProgressView(

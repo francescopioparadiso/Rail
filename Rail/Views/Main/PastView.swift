@@ -139,15 +139,6 @@ struct PastView: View {
         }
     }
 
-    private func monthSectionTitle(for date: Date) -> String {
-        let calendar = Calendar.current
-        let formatter = DateFormatter()
-        formatter.locale = .current
-        formatter.dateFormat = calendar.component(.year, from: date) == calendar.component(.year, from: Date())
-            ? "LLLL" : "LLLL yyyy"
-        return formatter.string(from: date).capitalized
-    }
-
     private func deletePastTrains(at offsets: IndexSet, in sectionItems: [TrainRowItem]) {
         let items = offsets.compactMap { sectionItems.indices.contains($0) ? sectionItems[$0] : nil }
         for item in items {

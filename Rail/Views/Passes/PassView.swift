@@ -613,15 +613,6 @@ struct PassView: View {
         }
     }
 
-    private func monthSectionTitle(for date: Date) -> String {
-        let calendar = Calendar.current
-        let formatter = DateFormatter()
-        formatter.locale = .current
-        formatter.dateFormat = calendar.component(.year, from: date) == calendar.component(.year, from: Date())
-            ? "LLLL" : "LLLL yyyy"
-        return formatter.string(from: date).capitalized
-    }
-
     private var isFiltering: Bool { passFilter != .all || !selectedYears.isEmpty }
 
     /// Years covered by the saved passes, newest first.
@@ -826,20 +817,6 @@ struct PassView: View {
         }
     }
 
-    @MainActor
-    private func validatedEmailAccounts(from profile: UserProfile) async -> [Emails] {
-        var validAccounts: [Emails] = []
-        for account in profile.emails where account.hasConfiguredCredentials {
-            guard !Task.isCancelled else { break }
-            do {
-                try await EmailTrainFetcher(account: account).verifyCredentials()
-                validAccounts.append(account)
-            } catch {
-                continue
-            }
-        }
-        return validAccounts
-    }
 }
 
 #Preview("Pass View - Full") {

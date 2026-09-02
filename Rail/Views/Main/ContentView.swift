@@ -513,31 +513,6 @@ struct ContentView: View {
         }
     }
 
-    @MainActor
-    private func validatedEmailAccounts(from profile: UserProfile) async -> [Emails] {
-        var validAccounts: [Emails] = []
-        let configured = profile.emails.filter(\.hasConfiguredCredentials)
-        await withTaskGroup(of: Emails?.self) { group in
-            for account in configured {
-                group.addTask {
-                    guard !Task.isCancelled else { return nil }
-                    do {
-                        try await EmailTrainFetcher(account: account).verifyCredentials()
-                        return account
-                    } catch {
-                        return nil
-                    }
-                }
-            }
-            for await result in group {
-                if let account = result {
-                    validAccounts.append(account)
-                }
-            }
-        }
-        return validAccounts
-    }
-
     private func reloadPreloadedFavorites() {
         favoritePreloadTask?.cancel()
         favoritePreloadTask = Task {
