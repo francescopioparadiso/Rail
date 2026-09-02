@@ -74,7 +74,8 @@ enum StationBoardAPI {
         }
     }
 
-    /// Everything due at `code` around `date`, in time order.
+    /// Everything due at `code` around `date`, in the order it will actually
+    /// call — a train running late takes its delayed place in the queue.
     static func board(_ kind: StationBoardKind, at code: String, on date: Date = Date()) async -> [BoardTrain] {
         let path = kind == .departures ? "partenze" : "arrivi"
         guard !code.isEmpty,
@@ -86,7 +87,7 @@ enum StationBoardAPI {
             let (data, _) = try await URLSession.shared.data(from: url)
             guard let entries = try JSONSerialization.jsonObject(with: data) as? [[String: Any]] else { return [] }
             return entries.compactMap { boardTrain(from: $0, kind: kind) }
-                .sorted { $0.scheduledTime < $1.scheduledTime }
+                .sorted { $0.effectiveTime < $1.effectiveTime }
         } catch {
             print("Error fetching station board: \(error)")
             return []

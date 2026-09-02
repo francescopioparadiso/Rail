@@ -7,6 +7,7 @@ struct StationBoardRow: View {
     // MARK: - Properties
 
     let train: BoardTrain
+    let kind: StationBoardKind
 
     // MARK: - Computed
 
@@ -26,21 +27,23 @@ struct StationBoardRow: View {
     // MARK: - Body
 
     var body: some View {
-        HStack(spacing: 14) {
+        HStack(spacing: 20) {
             time
 
+            // the station is what you scan a board for; the train that serves it
+            // is the detail underneath
             VStack(alignment: .leading, spacing: 4) {
+                Text(train.counterpart)
+                    .font(.headline).fontWeight(.semibold)
+                    .foregroundStyle(Color.primary)
+                    .lineLimit(1)
+
                 HStack(spacing: 6) {
                     logo
                     Text(train.number)
-                        .font(.headline).fontWeight(.semibold)
-                        .foregroundStyle(Color.primary)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
                 }
-
-                Text(train.counterpart)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
             }
 
             Spacer(minLength: 8)
@@ -71,7 +74,7 @@ struct StationBoardRow: View {
             Image(train.logo)
                 .resizable()
                 .scaledToFit()
-                .frame(height: UIFont.preferredFont(forTextStyle: .headline).lineHeight * 0.8)
+                .frame(height: UIFont.preferredFont(forTextStyle: .subheadline).lineHeight * 0.9)
         } else if !train.logo.isEmpty {
             Text(train.logo)
                 .font(.caption).fontWeight(.bold)
@@ -85,14 +88,21 @@ struct StationBoardRow: View {
     private var platform: some View {
         if !train.platform.isEmpty, train.platform != "-" {
             // the same yellow chip a platform wears everywhere else in the app,
-            // kept narrow enough to sit at the end of a board row
-            Text(train.platform)
-                .font(.subheadline).fontWeight(.medium)
-                .monospacedDigit()
-                .foregroundStyle(Color.primary)
-                .padding(.horizontal, 10).padding(.vertical, 6)
-                .background(Color.yellow.opacity(0.5))
-                .cornerRadius(16)
+            // with the arrow that says which way the train is going through here
+            HStack(spacing: 4) {
+                Image(systemName: kind == .departures ? "arrow.up.right" : "arrow.down.right")
+
+                // a minimum width so "3" and "12" make chips of the same size,
+                // while a platform like "1 /" still gets the room it needs
+                Text(train.platform)
+                    .monospacedDigit()
+                    .frame(minWidth: 18)
+            }
+            .font(.subheadline).fontWeight(.medium)
+            .foregroundStyle(Color.primary)
+            .padding(.horizontal, 10).padding(.vertical, 6)
+            .background(Color.yellow.opacity(0.5))
+            .cornerRadius(16)
         }
     }
 }
