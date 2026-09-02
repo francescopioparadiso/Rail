@@ -42,14 +42,21 @@ struct StationBoardView: View {
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                stationField
-
                 if station != nil {
                     kindPicker
                 }
 
                 boardContent
             }
+            // the system search field, pinned under the title rather than left to
+            // collapse into the toolbar
+            .searchable(
+                text: $stationText,
+                placement: .navigationBarDrawer(displayMode: .always),
+                prompt: "Station"
+            )
+            .searchFocused($isEditingStation)
+            .onSubmit(of: .search) { adoptFirstSuggestion() }
             .navigationTitle(station?.name ?? String(localized: "Timetable"))
             .navigationBarTitleDisplayMode(.inline)
             .background(appBackgroundColor.ignoresSafeArea())
@@ -127,41 +134,6 @@ struct StationBoardView: View {
     }
 
     // MARK: - Subviews
-
-    private var stationField: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "magnifyingglass")
-                .foregroundStyle(.secondary)
-
-            TextField("Station", text: $stationText)
-                .focused($isEditingStation)
-                .textInputAutocapitalization(.words)
-                .autocorrectionDisabled()
-                .submitLabel(.search)
-                .onSubmit { adoptFirstSuggestion() }
-
-            if !stationText.isEmpty {
-                Button {
-                    HapticFeedback.tap()
-                    stationText = ""
-                    isEditingStation = true
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .foregroundStyle(.tertiary)
-                }
-                .buttonStyle(.plain)
-                .transition(.opacity)
-            }
-        }
-        .fontDesign(appFontDesign)
-        .padding(.horizontal, 14)
-        .padding(.vertical, 12)
-        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 14))
-        .padding(.horizontal, 16)
-        .padding(.top, 8)
-        .padding(.bottom, 12)
-        .animation(.snappy, value: stationText.isEmpty)
-    }
 
     private var kindPicker: some View {
         Picker("Board", selection: $kind) {

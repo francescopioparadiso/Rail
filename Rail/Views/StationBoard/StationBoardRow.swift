@@ -16,7 +16,10 @@ struct StationBoardRow: View {
         !train.logo.isEmpty && UIImage(named: train.logo) != nil
     }
 
-    private var delayColor: Color {
+    /// One colour for the whole row's time: red once the train is losing time,
+    /// green while it is not. It applies to a train still sitting at its origin
+    /// just as much as to one already running.
+    private var timeColor: Color {
         train.delayMinutes > 0 ? .red : .green
     }
 
@@ -24,7 +27,7 @@ struct StationBoardRow: View {
 
     var body: some View {
         HStack(spacing: 14) {
-            times
+            time
 
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 6) {
@@ -50,28 +53,16 @@ struct StationBoardRow: View {
 
     // MARK: - Subviews
 
-    /// The booked time, with the revised one under it whenever the train is
-    /// running off schedule — the way a real board reads.
-    private var times: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(train.scheduledTime, format: .dateTime.hour().minute())
-                .font(.title3).fontWeight(.semibold)
-                .monospacedDigit()
-                .strikethrough(train.isCancelled || train.reportsDelay, color: .secondary)
-                .foregroundStyle(train.isCancelled || train.reportsDelay ? Color.secondary : Color.primary)
-
-            if train.isCancelled {
-                Text("Cancelled")
-                    .font(.caption).fontWeight(.semibold)
-                    .foregroundStyle(Color.red)
-            } else if train.reportsDelay {
-                Text(train.effectiveTime, format: .dateTime.hour().minute())
-                    .font(.subheadline).fontWeight(.semibold)
-                    .monospacedDigit()
-                    .foregroundStyle(delayColor)
-            }
-        }
-        .frame(width: 64, alignment: .leading)
+    /// When the train is actually expected, and nothing else — the colour already
+    /// says whether that is late, so printing the booked time beside it only ever
+    /// repeated the same fact twice.
+    private var time: some View {
+        Text(train.effectiveTime, format: .dateTime.hour().minute())
+            .font(.title3).fontWeight(.semibold)
+            .monospacedDigit()
+            .strikethrough(train.isCancelled, color: .red)
+            .foregroundStyle(train.isCancelled ? Color.red : timeColor)
+            .frame(width: 58, alignment: .leading)
     }
 
     @ViewBuilder
@@ -93,13 +84,15 @@ struct StationBoardRow: View {
     @ViewBuilder
     private var platform: some View {
         if !train.platform.isEmpty, train.platform != "-" {
+            // the same yellow chip a platform wears everywhere else in the app,
+            // kept narrow enough to sit at the end of a board row
             Text(train.platform)
-                .font(.subheadline).fontWeight(.semibold)
+                .font(.subheadline).fontWeight(.medium)
                 .monospacedDigit()
                 .foregroundStyle(Color.primary)
-                .frame(minWidth: 28)
-                .padding(.horizontal, 8).padding(.vertical, 6)
-                .background(Color(.tertiarySystemFill), in: RoundedRectangle(cornerRadius: 8))
+                .padding(.horizontal, 10).padding(.vertical, 6)
+                .background(Color.yellow.opacity(0.5))
+                .cornerRadius(16)
         }
     }
 }
