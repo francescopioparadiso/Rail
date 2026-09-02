@@ -1,0 +1,105 @@
+import SwiftUI
+import UIKit
+
+/// One line of a station board: when the train is due, what it is, and where it is
+/// headed or coming from.
+struct StationBoardRow: View {
+    // MARK: - Properties
+
+    let train: BoardTrain
+
+    // MARK: - Computed
+
+    /// Trenitalia prints categories the app has no badge for. Rather than leave a
+    /// blank where the logo goes, those fall back to the acronym itself.
+    private var hasLogoImage: Bool {
+        !train.logo.isEmpty && UIImage(named: train.logo) != nil
+    }
+
+    private var delayColor: Color {
+        train.delayMinutes > 0 ? .red : .green
+    }
+
+    // MARK: - Body
+
+    var body: some View {
+        HStack(spacing: 14) {
+            times
+
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 6) {
+                    logo
+                    Text(train.number)
+                        .font(.headline).fontWeight(.semibold)
+                        .foregroundStyle(Color.primary)
+                }
+
+                Text(train.counterpart)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+
+            Spacer(minLength: 8)
+
+            platform
+        }
+        .fontDesign(appFontDesign)
+        .padding(.vertical, 4)
+    }
+
+    // MARK: - Subviews
+
+    /// The booked time, with the revised one under it whenever the train is
+    /// running off schedule — the way a real board reads.
+    private var times: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(train.scheduledTime, format: .dateTime.hour().minute())
+                .font(.title3).fontWeight(.semibold)
+                .monospacedDigit()
+                .strikethrough(train.isCancelled || train.reportsDelay, color: .secondary)
+                .foregroundStyle(train.isCancelled || train.reportsDelay ? Color.secondary : Color.primary)
+
+            if train.isCancelled {
+                Text("Cancelled")
+                    .font(.caption).fontWeight(.semibold)
+                    .foregroundStyle(Color.red)
+            } else if train.reportsDelay {
+                Text(train.effectiveTime, format: .dateTime.hour().minute())
+                    .font(.subheadline).fontWeight(.semibold)
+                    .monospacedDigit()
+                    .foregroundStyle(delayColor)
+            }
+        }
+        .frame(width: 64, alignment: .leading)
+    }
+
+    @ViewBuilder
+    private var logo: some View {
+        if hasLogoImage {
+            Image(train.logo)
+                .resizable()
+                .scaledToFit()
+                .frame(height: UIFont.preferredFont(forTextStyle: .headline).lineHeight * 0.8)
+        } else if !train.logo.isEmpty {
+            Text(train.logo)
+                .font(.caption).fontWeight(.bold)
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 6).padding(.vertical, 2)
+                .background(Color(.tertiarySystemFill), in: RoundedRectangle(cornerRadius: 6))
+        }
+    }
+
+    @ViewBuilder
+    private var platform: some View {
+        if !train.platform.isEmpty, train.platform != "-" {
+            Text(train.platform)
+                .font(.subheadline).fontWeight(.semibold)
+                .monospacedDigit()
+                .foregroundStyle(Color.primary)
+                .frame(minWidth: 28)
+                .padding(.horizontal, 8).padding(.vertical, 6)
+                .background(Color(.tertiarySystemFill), in: RoundedRectangle(cornerRadius: 8))
+        }
+    }
+}

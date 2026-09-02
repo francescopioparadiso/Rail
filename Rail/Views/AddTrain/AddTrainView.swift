@@ -466,43 +466,9 @@ struct AddTrainView: View {
 
     // floating bar shown while typing a station: horizontally scrolling suggestions.
     func suggestionsPill(field: FocusField) -> some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                ForEach(stationSuggestions, id: \.self) { station in
-                    Button {
-                        selectStation(station, field: field)
-                    } label: {
-                        Text(station.name)
-                            .font(.subheadline).fontWeight(.medium)
-                            .fontDesign(appFontDesign)
-                            .foregroundStyle(.primary)
-                            .lineLimit(1)
-                            .frame(height: 32)
-                            .padding(.vertical, 6).padding(.horizontal, 16)
-                            .background(.thinMaterial, in: Capsule())
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-            .padding(.horizontal, 8)
-            .frame(maxHeight: .infinity)
+        StationSuggestionsBar(suggestions: stationSuggestions) { station in
+            selectStation(station, field: field)
         }
-        .frame(maxWidth: .infinity)
-        .frame(height: 52)
-        // fade the chips at the edges, masking before the glass keeps the pill solid
-        .mask(
-            LinearGradient(
-                stops: [
-                    .init(color: .clear, location: 0),
-                    .init(color: .black, location: 0.12),
-                    .init(color: .black, location: 0.88),
-                    .init(color: .clear, location: 1),
-                ],
-                startPoint: .leading,
-                endPoint: .trailing
-            )
-        )
-        .glassEffect(.regular)
     }
 
     @ViewBuilder var chooseTrainView: some View {

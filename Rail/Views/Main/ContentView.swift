@@ -26,6 +26,7 @@ struct ContentView: View {
     @State private var openPrincipalPassQR = false
     @State private var favoriteTrainsSheet = false
     @State private var emailImportSheet = false
+    @State private var stationBoardSheet = false
     @State private var fetchSheetDetent: PresentationDetent = .medium
     @State private var ticketSyncProgresses: [String: EmailTicketSyncProgress] = [:]
     @State private var isFetchingEmailTickets = false
@@ -64,8 +65,18 @@ struct ContentView: View {
         }
         .blendedToolbarItemBackground()
 
-        // No spacer between these two: without one they share a single glass
+        // No spacers between these: without one they share a single glass
         // container, with the profile picture at the very edge of the bar.
+        ToolbarItem(placement: .topBarTrailing) {
+            Button {
+                HapticFeedback.tap()
+                stationBoardSheet = true
+            } label: {
+                Image(systemName: "tablecells")
+            }
+            .fontDesign(appFontDesign)
+        }
+
         if showsFetchToolbarButton {
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
@@ -159,6 +170,7 @@ struct ContentView: View {
                     addPassSheet = false
                     favoriteTrainsSheet = false
                     emailImportSheet = false
+                    stationBoardSheet = false
                     navigationPath = []
                     selectedSection = section
                 }
@@ -210,6 +222,9 @@ struct ContentView: View {
             }
             .sheet(isPresented: $emailImportSheet) {
                 emailImportSheetContent
+            }
+            .sheet(isPresented: $stationBoardSheet) {
+                StationBoardView(onTrainAdded: { selectedSection = .today })
             }
             .onOpenURL(perform: handleOpenURL)
     }

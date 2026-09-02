@@ -105,6 +105,37 @@ enum FavoriteTrainService {
         modelContext: ModelContext,
         profile: UserProfile?
     ) {
+        let (train, addedStops) = insert(prepared, into: modelContext)
+        try? modelContext.save()
+
+        if let profile, profile.calendarSettings.autoSyncToCalendar {
+            let settings = profile.calendarSettings
+            Task {
+                await CalendarManager.shared.syncTrainEvent(
+                    train: train,
+                    stops: addedStops,
+                    seats: [],
+                    titleFormat: settings.titleFormat,
+                    calendarIdentifier: settings.calendarIdentifier,
+                    travelTime: settings.travelTime
+                )
+            }
+        }
+
+        reloadWidgetTimelines()
+    }
+
+    /// Turns a resolved journey into a train and its stops inside `modelContext`,
+    /// without committing, syncing a calendar or touching the widgets.
+    ///
+    /// Kept apart from saving so the same mapping can fill a throwaway store for a
+    /// journey being looked at before it is added to the app at all.
+    @MainActor
+    @discardableResult
+    static func insert(
+        _ prepared: PreparedFavoriteTrain,
+        into modelContext: ModelContext
+    ) -> (train: Train, stops: [Stop]) {
         let id = UUID()
         let info = prepared.info
 
@@ -154,23 +185,7 @@ enum FavoriteTrainService {
             addedStops.append(stopToAdd)
         }
 
-        try? modelContext.save()
-
-        if let profile, profile.calendarSettings.autoSyncToCalendar {
-            let settings = profile.calendarSettings
-            Task {
-                await CalendarManager.shared.syncTrainEvent(
-                    train: train,
-                    stops: addedStops,
-                    seats: [],
-                    titleFormat: settings.titleFormat,
-                    calendarIdentifier: settings.calendarIdentifier,
-                    travelTime: settings.travelTime
-                )
-            }
-        }
-
-        reloadWidgetTimelines()
+        return (train, addedStops)
     }
 
     private static func adjustedIdentifierForToday(_ identifier: String) -> String {

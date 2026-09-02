@@ -10,6 +10,16 @@ extension String: @retroactive Identifiable {
     public var id: String { self }
 }
 
+/// The Save control a journey carries while it is only being looked at.
+///
+/// The station board opens a train that is not in the app at all, so the details
+/// screen shows it read-only — no seats, no favourite, nothing to share — with
+/// this one button standing in for all of them until the journey is added.
+struct DetailsSaveAction {
+    let isSaved: Bool
+    let save: () -> Void
+}
+
 struct DetailsView: View {
     // MARK: - Properties
 
@@ -24,6 +34,9 @@ struct DetailsView: View {
     @Binding var showTicketInitially: Bool
     @Binding var ticketSeatID: UUID?
 
+    /// Set only for a journey that has not been added yet.
+    let saveAction: DetailsSaveAction?
+
     @State private var seatsSheet: Bool = false
     @State private var pendingSeatID: UUID?
     @State private var showAllStops: Bool = false
@@ -36,9 +49,11 @@ struct DetailsView: View {
     init(
         train: Train,
         showTicketInitially: Binding<Bool>,
-        ticketSeatID: Binding<UUID?>
+        ticketSeatID: Binding<UUID?>,
+        saveAction: DetailsSaveAction? = nil
     ) {
         self.train = train
+        self.saveAction = saveAction
         let trainID = train.id
         _stops = Query(
             filter: #Predicate<Stop> { $0.id == trainID },
@@ -493,102 +508,32 @@ struct DetailsView: View {
             
             ToolbarSpacer(.flexible)
             
-            // add seat button
-            ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    HapticFeedback.confirm()
-                    seatsSheet = true
-                } label: {
-                    HStack {
-                        Image(systemName: "figure.seated.seatbelt")
-                            .fontWeight(.semibold)
-
-                        let textString = {
-                            if let firstUser = seats.first {
-                                let carriage = firstUser.carriage
-                                let number = firstUser.number
-                                if !carriage.isEmpty && !number.isEmpty {
-                                    return "\(carriage)-\(number)"
-                                } else {
-                                    return "\(firstUser.name)"
-                                }
-                            }
-                            return String(localized: "Add")
-                        }()
-
-                        Text(textString)
-                    }
-                    .fontDesign(appFontDesign)
-                    .foregroundStyle(Color.primary)
-                }
-            }
-
-            ToolbarSpacer(.fixed, placement: .topBarTrailing)
-
-            // favorite button, paired with share
-            ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    HapticFeedback.confirm()
-                    
-                    let stop_names = stops.filter { $0.is_selected }.map { $0.name }
-                    
-                    let stopRefTimesStrings = stops.filter { $0.is_selected }
-                        .map { $0.ref_time.formatted(date: .omitted, time: .shortened) }
-                    
-                    let identifier = normalizedIdentifier
-                    
-                    if isFavorite {
-                        // remove favorite
-                        let favoriteToRemove = matchingFavorites().filter { fav in
-                            let favTimesStrings = fav.stop_ref_times.map {
-                                $0.formatted(date: .omitted, time: .shortened)
-                            }
-                            
-                            return fav.identifier == identifier &&
-                                    fav.stop_names == stop_names &&
-                                    favTimesStrings == stopRefTimesStrings
-                        }
-                        
-                        for favorite in favoriteToRemove {
-                            modelContext.delete(favorite)
-                        }
-                        isFavorite = false
-                    } else {
-                        // add favorite
-                        let stop_ref_times = stops.filter { $0.is_selected }.map { $0.ref_time }
-                        
-                        let favoriteToAdd = Favorite(
-                            id: UUID(),
-                            index: 0,
-                            identifier: identifier,
-                            provider: train.provider,
-                            logo: train.logo,
-                            number: train.number,
-                            stop_names: stop_names,
-                            stop_ref_times: stop_ref_times
-                        )
-                        modelContext.insert(favoriteToAdd)
-                        isFavorite = true
-                    }
-                } label: {
-                    Image(systemName: isFavorite ? "heart.fill" : "heart")
-                }
-                .tint(isFavorite ? Color.red : Color.primary)
-            }
-
-            ToolbarItem(placement: .topBarTrailing) {
-                if let shareURL = TrainSharing.url(train: train, stops: stops, seats: seats) {
-                    // the bare link, with no title alongside it
-                    ShareLink(item: shareURL) {
-                        Image(systemName: "square.and.arrow.up")
-                            .fontWeight(.semibold)
-                            .foregroundStyle(Color.primary)
-                    }
-                    .simultaneousGesture(TapGesture().onEnded { HapticFeedback.tap() })
-                }
+            if saveAction == nil {
+                journeyActions
             }
 
             DefaultToolbarItem(kind: .search, placement: .bottomBar)
+
+            if let saveAction {
+                ToolbarSpacer(.fixed, placement: .bottomBar)
+
+                ToolbarItem(placement: .bottomBar) {
+                    Button {
+                        HapticFeedback.confirm()
+                        saveAction.save()
+                    } label: {
+                        Label(
+                            saveAction.isSaved ? "Saved" : "Save",
+                            systemImage: saveAction.isSaved ? "checkmark" : "plus"
+                        )
+                        .fontDesign(appFontDesign)
+                        .contentTransition(.symbolEffect(.replace.downUp.wholeSymbol, options: .nonRepeating))
+                    }
+                    .buttonStyle(.glassProminent)
+                    .tint(.blue)
+                    .disabled(saveAction.isSaved)
+                }
+            }
         }
         .searchable(text: $searchText, prompt: "Search stops")
         .sheet(isPresented: $seatsSheet) {
@@ -597,7 +542,9 @@ struct DetailsView: View {
         }
         .background(appBackgroundColor)
         .onAppear {
-            ReviewManager.shared.requestReviewIfAppropriate(action: requestReview)
+            if saveAction == nil {
+                ReviewManager.shared.requestReviewIfAppropriate(action: requestReview)
+            }
 
             if showTicketInitially {
                 pendingSeatID = ticketSeatID
@@ -643,6 +590,106 @@ struct DetailsView: View {
                 }
                 showTicketInitially = false
                 ticketSeatID = nil
+            }
+        }
+    }
+
+    /// Everything that only makes sense once a journey is in the app: its seats,
+    /// its place among the favourites, and the link that shares it.
+    @ToolbarContentBuilder
+    private var journeyActions: some ToolbarContent {
+        // add seat button
+        ToolbarItem(placement: .topBarTrailing) {
+            Button {
+                HapticFeedback.confirm()
+                seatsSheet = true
+            } label: {
+                HStack {
+                    Image(systemName: "figure.seated.seatbelt")
+                        .fontWeight(.semibold)
+
+                    let textString = {
+                        if let firstUser = seats.first {
+                            let carriage = firstUser.carriage
+                            let number = firstUser.number
+                            if !carriage.isEmpty && !number.isEmpty {
+                                return "\(carriage)-\(number)"
+                            } else {
+                                return "\(firstUser.name)"
+                            }
+                        }
+                        return String(localized: "Add")
+                    }()
+
+                    Text(textString)
+                }
+                .fontDesign(appFontDesign)
+                .foregroundStyle(Color.primary)
+            }
+        }
+
+        ToolbarSpacer(.fixed, placement: .topBarTrailing)
+
+        // favorite button, paired with share
+        ToolbarItem(placement: .topBarTrailing) {
+            Button {
+                HapticFeedback.confirm()
+                
+                let stop_names = stops.filter { $0.is_selected }.map { $0.name }
+                
+                let stopRefTimesStrings = stops.filter { $0.is_selected }
+                    .map { $0.ref_time.formatted(date: .omitted, time: .shortened) }
+                
+                let identifier = normalizedIdentifier
+                
+                if isFavorite {
+                    // remove favorite
+                    let favoriteToRemove = matchingFavorites().filter { fav in
+                        let favTimesStrings = fav.stop_ref_times.map {
+                            $0.formatted(date: .omitted, time: .shortened)
+                        }
+                        
+                        return fav.identifier == identifier &&
+                                fav.stop_names == stop_names &&
+                                favTimesStrings == stopRefTimesStrings
+                    }
+                    
+                    for favorite in favoriteToRemove {
+                        modelContext.delete(favorite)
+                    }
+                    isFavorite = false
+                } else {
+                    // add favorite
+                    let stop_ref_times = stops.filter { $0.is_selected }.map { $0.ref_time }
+                    
+                    let favoriteToAdd = Favorite(
+                        id: UUID(),
+                        index: 0,
+                        identifier: identifier,
+                        provider: train.provider,
+                        logo: train.logo,
+                        number: train.number,
+                        stop_names: stop_names,
+                        stop_ref_times: stop_ref_times
+                    )
+                    modelContext.insert(favoriteToAdd)
+                    isFavorite = true
+                }
+            } label: {
+                Image(systemName: isFavorite ? "heart.fill" : "heart")
+            }
+            .tint(isFavorite ? Color.red : Color.primary)
+        }
+
+        ToolbarItem(placement: .topBarTrailing) {
+            if let shareURL = TrainSharing.url(train: train, stops: stops, seats: seats) {
+                // the bare link, with no title alongside it
+                ShareLink(item: shareURL) {
+                    Image(systemName: "square.and.arrow.up")
+                        .fontWeight(.semibold)
+                        .foregroundStyle(Color.primary)
+                }
+                .simultaneousGesture(TapGesture().onEnded { HapticFeedback.tap() })
             }
         }
     }
