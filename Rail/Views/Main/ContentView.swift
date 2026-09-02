@@ -67,16 +67,6 @@ struct ContentView: View {
 
         // No spacers between these: without one they share a single glass
         // container, with the profile picture at the very edge of the bar.
-        ToolbarItem(placement: .topBarTrailing) {
-            Button {
-                HapticFeedback.tap()
-                stationBoardSheet = true
-            } label: {
-                Image(systemName: "tablecells")
-            }
-            .fontDesign(appFontDesign)
-        }
-
         if showsFetchToolbarButton {
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
@@ -86,6 +76,16 @@ struct ContentView: View {
                 }
                 .fontDesign(appFontDesign)
             }
+        }
+
+        ToolbarItem(placement: .topBarTrailing) {
+            Button {
+                HapticFeedback.tap()
+                stationBoardSheet = true
+            } label: {
+                Image(systemName: "tablecells")
+            }
+            .fontDesign(appFontDesign)
         }
 
         ToolbarItem(placement: .topBarTrailing) {
