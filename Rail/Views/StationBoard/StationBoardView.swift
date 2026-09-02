@@ -11,6 +11,10 @@ struct StationBoardView: View {
 
     @Environment(\.dismiss) private var dismiss
 
+    /// A station to open straight onto, named as a journey names it. Set when the
+    /// board is reached from a stop rather than from the toolbar.
+    var initialStation: String? = nil
+
     @State private var stationText = ""
     @State private var station: StationSuggestion?
     @State private var kind: StationBoardKind = .departures
@@ -18,6 +22,7 @@ struct StationBoardView: View {
     @State private var suggestions: [StationSuggestion] = []
     @State private var suggestionTask: Task<Void, Never>?
     @State private var isAdoptingSuggestion = false
+    @State private var hasResolvedInitialStation = false
 
     @State private var board: [BoardTrain] = []
     @State private var isLoadingBoard = false
@@ -85,10 +90,13 @@ struct StationBoardView: View {
             .ignoresSafeArea(.container, edges: .bottom)
         }
         .onAppear {
+            // nothing to type when the station is already known
+            guard initialStation == nil else { return }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                 isEditingStation = true
             }
         }
+        .task { await resolveInitialStation() }
         .onDisappear { suggestionTask?.cancel() }
         .onChange(of: stationText) { _, newValue in
             // choosing a suggestion writes the field itself; everything else is
@@ -194,6 +202,18 @@ struct StationBoardView: View {
     private func adoptFirstSuggestion() {
         guard let first = suggestions.first else { return }
         select(first)
+    }
+
+    /// Turns the name a journey gave us into a station the boards will answer for.
+    private func resolveInitialStation() async {
+        guard let initialStation, !hasResolvedInitialStation else { return }
+        hasResolvedInitialStation = true
+
+        guard let match = await StationBoardAPI.station(named: initialStation) else { return }
+
+        isAdoptingSuggestion = true
+        stationText = match.name
+        station = match
     }
 
     private func scheduleSuggestions(for query: String) {

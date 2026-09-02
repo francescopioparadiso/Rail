@@ -21,6 +21,7 @@ struct ConnectionDivider: View {
                 .animation(.snappy, value: minutes)
             line
         }
+        .padding(.vertical, 4)
     }
 
     // MARK: - Subviews
