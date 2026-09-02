@@ -10,16 +10,6 @@ extension String: @retroactive Identifiable {
     public var id: String { self }
 }
 
-/// The Save control a journey carries while it is only being looked at.
-///
-/// The station board opens a train that is not in the app at all, so the details
-/// screen shows it read-only — no seats, no favourite, nothing to share — with
-/// this one button standing in for all of them until the journey is added.
-struct DetailsSaveAction {
-    let isSaved: Bool
-    let save: () -> Void
-}
-
 struct DetailsView: View {
     // MARK: - Properties
 
@@ -34,8 +24,10 @@ struct DetailsView: View {
     @Binding var showTicketInitially: Bool
     @Binding var ticketSeatID: UUID?
 
-    /// Set only for a journey that has not been added yet.
-    let saveAction: DetailsSaveAction?
+    /// True for a journey opened from a station board, which is not in the app at
+    /// all: it is shown read-only, with nothing on it that only a saved train can
+    /// answer for.
+    let isPreview: Bool
 
     @State private var seatsSheet: Bool = false
     @State private var pendingSeatID: UUID?
@@ -50,10 +42,10 @@ struct DetailsView: View {
         train: Train,
         showTicketInitially: Binding<Bool>,
         ticketSeatID: Binding<UUID?>,
-        saveAction: DetailsSaveAction? = nil
+        isPreview: Bool = false
     ) {
         self.train = train
-        self.saveAction = saveAction
+        self.isPreview = isPreview
         let trainID = train.id
         _stops = Query(
             filter: #Predicate<Stop> { $0.id == trainID },
@@ -99,7 +91,10 @@ struct DetailsView: View {
         return baseStops.filter { $0.name.lowercased().contains(query) }
     }
 
+    /// The gauge reads the phone's own speed, so it only means anything on a train
+    /// you are actually aboard — never on one being browsed off a board.
     private var showSpeed: Bool {
+        guard !isPreview else { return false }
         return Date() <= summary.last.arr_time_eff || Calendar.current.isDateInToday(summary.last.arr_time_eff)
     }
 
@@ -508,32 +503,11 @@ struct DetailsView: View {
             
             ToolbarSpacer(.flexible)
             
-            if saveAction == nil {
+            if !isPreview {
                 journeyActions
             }
 
             DefaultToolbarItem(kind: .search, placement: .bottomBar)
-
-            if let saveAction {
-                ToolbarSpacer(.fixed, placement: .bottomBar)
-
-                ToolbarItem(placement: .bottomBar) {
-                    Button {
-                        HapticFeedback.confirm()
-                        saveAction.save()
-                    } label: {
-                        Label(
-                            saveAction.isSaved ? "Saved" : "Save",
-                            systemImage: saveAction.isSaved ? "checkmark" : "plus"
-                        )
-                        .fontDesign(appFontDesign)
-                        .contentTransition(.symbolEffect(.replace.downUp.wholeSymbol, options: .nonRepeating))
-                    }
-                    .buttonStyle(.glassProminent)
-                    .tint(.blue)
-                    .disabled(saveAction.isSaved)
-                }
-            }
         }
         .searchable(text: $searchText, prompt: "Search stops")
         .sheet(isPresented: $seatsSheet) {
@@ -542,7 +516,7 @@ struct DetailsView: View {
         }
         .background(appBackgroundColor)
         .onAppear {
-            if saveAction == nil {
+            if !isPreview {
                 ReviewManager.shared.requestReviewIfAppropriate(action: requestReview)
             }
 
