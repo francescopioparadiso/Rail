@@ -64,20 +64,7 @@ struct ContentView: View {
             sectionMenu
         }
         .blendedToolbarItemBackground()
-
-        // No spacers between these: without one they share a single glass
-        // container, with the profile picture at the very edge of the bar.
-        if showsFetchToolbarButton {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    openEmailFetchSheet()
-                } label: {
-                    emailFetchToolbarLabel
-                }
-                .fontDesign(appFontDesign)
-            }
-        }
-
+        
         ToolbarItem(placement: .topBarTrailing) {
             Button {
                 HapticFeedback.tap()
@@ -86,6 +73,21 @@ struct ContentView: View {
                 Image(systemName: "tablecells")
             }
             .fontDesign(appFontDesign)
+        }
+        
+        if showsFetchToolbarButton {
+            // inside the condition: with no mail button to separate, the spacer
+            // would only strand the board button away from the profile
+            ToolbarSpacer(.fixed, placement: .topBarTrailing)
+
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    openEmailFetchSheet()
+                } label: {
+                    emailFetchToolbarLabel
+                }
+                .fontDesign(appFontDesign)
+            }
         }
 
         ToolbarItem(placement: .topBarTrailing) {
