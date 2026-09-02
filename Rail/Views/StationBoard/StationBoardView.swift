@@ -143,6 +143,7 @@ struct StationBoardView: View {
         }
         .pickerStyle(.segmented)
         .padding(.horizontal, 16)
+        .padding(.top, 16)
         .padding(.bottom, 12)
     }
 
@@ -151,6 +152,7 @@ struct StationBoardView: View {
         if station == nil {
             boardPlaceholder(
                 "Choose a station",
+                systemImage: "arrow.up",
                 description: "Search for a station to see the trains due there."
             )
         } else if isLoadingBoard {
@@ -160,6 +162,7 @@ struct StationBoardView: View {
         } else if board.isEmpty {
             boardPlaceholder(
                 "No trains",
+                systemImage: "clock.badge.xmark",
                 description: "Nothing is due here over the next couple of hours."
             )
         } else {
@@ -176,8 +179,12 @@ struct StationBoardView: View {
         }
     }
 
-    private func boardPlaceholder(_ title: LocalizedStringKey, description: LocalizedStringKey) -> some View {
-        ContentUnavailableView(title, systemImage: "arrow.up", description: Text(description))
+    private func boardPlaceholder(
+        _ title: LocalizedStringKey,
+        systemImage: String,
+        description: LocalizedStringKey
+    ) -> some View {
+        ContentUnavailableView(title, systemImage: systemImage, description: Text(description))
             .foregroundStyle(Color.secondary)
             .fontDesign(appFontDesign)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
