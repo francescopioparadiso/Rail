@@ -98,17 +98,22 @@ struct DetailsView: View {
         summary.lastNoIssues
     }
 
+    /// Where the journey begins, which is not always where the train does: a
+    /// favourite saved from mid-route boards at one of the intermediate stops.
+    /// The rows key off these to decide whether a stop shows a departure time, an
+    /// arrival time or both, and which of the two delays it reports — so they have
+    /// to follow the selection rather than the ends of the timetable.
     private var firstIndex: Int {
-        stops.startIndex
+        stops.firstIndex(where: { $0.is_selected }) ?? stops.startIndex
     }
     private var lastIndex: Int {
-        stops.indices.last ?? 0
+        stops.lastIndex(where: { $0.is_selected }) ?? (stops.indices.last ?? 0)
     }
     private var firstIndexNoIssues: Int {
-        stops.firstIndex(where: { $0.status != 3 }) ?? (stops.indices.first ?? 0)
+        stops.firstIndex(where: { $0.is_selected && $0.status != 3 }) ?? firstIndex
     }
     private var lastIndexNoIssues: Int {
-        stops.lastIndex(where: { $0.status != 3 }) ?? (stops.indices.last ?? 0)
+        stops.lastIndex(where: { $0.is_selected && $0.status != 3 }) ?? lastIndex
     }
 
     private var normalizedIdentifier: String {
@@ -451,293 +456,7 @@ struct DetailsView: View {
                 .padding(.top, 24)
             }
             
-            // stops list
-            let displayedStops = filteredStops
-            VStack(alignment: .leading, spacing: 8) {
-                HStack {
-                    Text("\(displayedStops.count) stops")
-                        .font(.footnote)
-                        .fontDesign(appFontDesign)
-                        .foregroundStyle(.secondary)
-                    
-                    Spacer()
-                    
-                    if (stops.filter{ $0.is_selected }).count != stops.count {
-                        Text("Show all stops")
-                            .font(.footnote)
-                            .fontDesign(appFontDesign)
-                            .foregroundStyle(Color.secondary)
-                        
-                        Toggle("", isOn: $showAllStops)
-                            .labelsHidden()
-                            .tint(Color.accentColor)
-                    }
-                }
-                
-                Divider()
-                
-                if !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && displayedStops.isEmpty {
-                    ContentUnavailableView.search(text: searchText)
-                        .foregroundStyle(Color.secondary)
-                        .fontDesign(appFontDesign)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 24)
-                } else {
-                LazyVStack {
-                    ForEach(displayedStops.indices, id: \.self) { index in
-                        let stop = displayedStops[index]
-                        let routeIndex = stops.firstIndex { $0 === stop } ?? index
-                        
-                        HStack(spacing: 8) {
-                            /// stop status
-                            let stopStatusEmoji: (String, Color) = {
-                                if Date() < firstStopNoIssues.dep_time_id {
-                                    return ("circle.dashed", Color.blue)
-                                    
-                                } else if stop.status == 3 || train.issue == "Treno cancellato" {
-                                    // stop cancelled
-                                    return ("xmark.circle.fill", Color.red)
-                                    
-                                } else if stop.status == 2 {
-                                    // stop unscheduled
-                                    if firstStop.dep_time_id < Date() {
-                                        if stop.is_completed {
-                                            return ("checkmark.circle.fill", Color.orange)
-                                        } else {
-                                            return ("circle.dashed", Color.orange)
-                                        }
-                                    } else {
-                                        return ("circle.dashed", Color.orange)
-                                    }
-                                    
-                                } else if stop.status == 0 || stop.status == 1 {
-                                    // stop regular but not done or regular
-                                    if firstStop.dep_time_id < Date() {
-                                        if stop.is_completed {
-                                            return ("checkmark.circle.fill", Color.blue)
-                                        } else {
-                                            return ("circle.dashed", Color.blue)
-                                        }
-                                    } else {
-                                        return ("circle.dashed", Color.blue)
-                                    }
-                                }
-                                
-                                return ("questionmark.circle.fill", Color.gray)
-                            }()
-                            
-                            Image(systemName: stopStatusEmoji.0)
-                                .font(Date() >= firstStopNoIssues.dep_time_id || Calendar.current.isDateInToday(firstStopNoIssues.dep_time_id) ? .system(size: 40) : .largeTitle)
-                                .foregroundStyle(stopStatusEmoji.1)
-                            
-                            /// stop info
-                            HStack {
-                                VStack(alignment: .leading, spacing: 4) {
-                                    if (Date() >= firstStopNoIssues.dep_time_id || Calendar.current.isDateInToday(firstStopNoIssues.dep_time_id)) && !stop.weather.isEmpty {
-                                        Text(stop.weather)
-                                            .font(.caption)
-                                            .fontDesign(appFontDesign)
-                                            .strikethrough((stop.status == 3 || train.issue == "Treno cancellato") && Date() >= firstStopNoIssues.ref_time)
-                                            .foregroundStyle(
-                                                Date() < firstStopNoIssues.dep_time_id
-                                                ? Color.primary
-                                                : (
-                                                    stop.status == 3 || train.issue == "Treno cancellato"
-                                                    ? Color.red
-                                                    : (stop.status == 2 ? Color.orange : Color.primary)
-                                                )
-                                            )
-                                    }
-                                    
-                                    Text(stop.name)
-                                        .lineLimit(1)
-                                        .truncationMode(.tail)
-                                        .minimumScaleFactor(0.5)
-                                        .font(.caption)
-                                        .fontDesign(appFontDesign)
-                                        .strikethrough((stop.status == 3 || train.issue == "Treno cancellato") && Date() >= firstStopNoIssues.ref_time)
-                                        .foregroundStyle(
-                                            Date() < firstStopNoIssues.dep_time_id
-                                            ? Color.primary
-                                            : (
-                                                stop.status == 3 || train.issue == "Treno cancellato"
-                                                ? Color.red
-                                                : (stop.status == 2 ? Color.orange : Color.primary)
-                                            )
-                                        )
-                                    
-                                    if stop.status == 3 || train.issue == "Treno cancellato" {
-                                        HStack(spacing: 2) {
-                                            Image(systemName: routeIndex == firstIndex ? "arrow.up.right.circle.fill" : "arrow.down.right.circle.fill")
-                                            Text(routeIndex == firstIndex ? stop.dep_time_id.formatted(.dateTime.hour().minute()) : stop.arr_time_id.formatted(.dateTime.hour().minute()))
-                                                .monospacedDigit()
-                                        }
-                                        .font(.caption2)
-                                        .fontDesign(appFontDesign)
-                                        .foregroundStyle(Date() >= firstStopNoIssues.dep_time_id ? Color.red : Color.primary)
-                                        .strikethrough(Date() >= firstStopNoIssues.dep_time_id)
-                                    } else {
-                                        HStack(spacing: 8) {
-                                            if routeIndex != firstIndex && routeIndex != firstIndexNoIssues {
-                                                HStack(spacing: 2) {
-                                                    Image(systemName: "arrow.down.right.circle.fill")
-                                                    Text(Date() >= firstStopNoIssues.dep_time_id || Calendar.current.isDateInToday(firstStopNoIssues.dep_time_id) ? stop.arr_time_eff.formatted(.dateTime.hour().minute()) : stop.arr_time_id.formatted(.dateTime.hour().minute()))
-                                                        .monospacedDigit()
-                                                }
-                                            }
-                                            
-                                            if routeIndex != lastIndex && routeIndex != lastIndexNoIssues {
-                                                HStack(spacing: 2) {
-                                                    Image(systemName: "arrow.up.right.circle.fill")
-                                                    Text(Date() >= firstStopNoIssues.dep_time_id || Calendar.current.isDateInToday(firstStopNoIssues.dep_time_id) ? stop.dep_time_eff.formatted(.dateTime.hour().minute()) : stop.dep_time_id.formatted(.dateTime.hour().minute()))
-                                                        .monospacedDigit()
-                                                }
-                                            }
-                                        }
-                                        .font(.caption2)
-                                        .fontDesign(appFontDesign)
-                                        .foregroundStyle(Date() < (firstStopNoIssues.dep_time_id) ? Color.primary : stop.status == 2 ? Color.orange : Color.primary)
-                                    }
-                                }
-                                
-                                Spacer()
-                                
-                                if stop.status != 3 && train.issue != "Treno cancellato" {
-                                    // MARK: - Delay
-                                    if Date() > firstStop.dep_time_id || Calendar.current.isDate(firstStop.dep_time_id, inSameDayAs: Date()) {
-                                        
-                                        if stop.is_completed && (!stop.is_in_station || Date() >= stop.arr_time_eff) {
-                                            let delayType = {
-                                                if routeIndex == firstIndex {
-                                                    return stop.dep_delay
-                                                } else {
-                                                    return stop.arr_delay
-                                                }
-                                            }()
-                                            
-                                            ZStack {
-                                                let delayString = {
-                                                    if delayType >= 60 && delayType % 60 == 0 {
-                                                        return "\(delayType / 60)h"
-                                                    } else if delayType >= 60 && delayType % 60 != 0 {
-                                                        return "\(delayType / 60)h \(delayType % 60)m"
-                                                    } else {
-                                                        return "\(delayType)m"
-                                                    }
-                                                }()
-                                                
-                                                Text(delayString)
-                                                    .font(.footnote)
-                                                    .fontDesign(appFontDesign)
-                                                    .foregroundStyle(delayType > 0 ? Color.red : Color.green)
-                                                    .padding(.vertical, 8).padding(.horizontal)
-                                            }
-                                            .background(delayType > 0 ? Color.red.opacity(0.2) : Color.green.opacity(0.2))
-                                            .cornerRadius(16)
-                                        } else if stop.is_completed {
-                                            ZStack {
-                                                Text("At the station")
-                                                    .font(.footnote)
-                                                    .fontDesign(appFontDesign)
-                                                    .foregroundStyle(Color.blue)
-                                                    .padding(.vertical, 8).padding(.horizontal)
-                                            }
-                                            .background(Color.blue.opacity(0.2))
-                                            .cornerRadius(16)
-                                        } else {
-                                            let time = routeIndex == firstIndex ? stop.dep_time_eff : stop.arr_time_eff
-                                            let hours = abs(Calendar.current.dateComponents([.hour, .minute], from: Date(), to: time).hour ?? 0)
-                                            let minutes = abs(Calendar.current.dateComponents([.hour, .minute], from: Date(), to: time).minute ?? 0)
-                                            
-                                            let timeString: String = {
-                                                if hours == 0 && minutes == 0 {
-                                                    return String(localized: "At the station")
-                                                } else if hours > 0 {
-                                                    return "\(hours)h \(minutes % 60)m"
-                                                } else {
-                                                    return "\(minutes)m"
-                                                }
-                                            }()
-                                            
-                                            ZStack {
-                                                Text(timeString)
-                                                    .font(.footnote)
-                                                    .fontDesign(appFontDesign)
-                                                    .foregroundStyle(Color.blue)
-                                                    .padding(.vertical, 8).padding(.horizontal)
-                                            }
-                                            .background(Color.blue.opacity(0.2))
-                                            .cornerRadius(16)
-                                            
-                                        }
-                                    }
-                                    
-                                    // MARK: - Platform
-                                    if Date() > firstStop.dep_time_id || Calendar.current.isDate(firstStop.dep_time_id, inSameDayAs: Date()) {
-                                        HStack(spacing: 4) {
-                                            Image(systemName: routeIndex == firstIndex ? "arrow.up.right" : "arrow.down.right")
-                                                .padding(.vertical, 8).padding(.leading)
-                                            Text(stop.platform)
-                                                .padding(.vertical, 8).padding(.trailing)
-                                        }
-                                        .frame(minWidth: 64)
-                                        .font(.footnote)
-                                        .fontDesign(appFontDesign)
-                                        .fontWeight(.medium)
-                                        .background(Color.yellow.opacity(0.5))
-                                        .cornerRadius(16)
-                                        
-                                    }
-                                }
-                            }
-                        }
-                        .padding(.horizontal, 4).padding(.vertical, 8)
-                    }
-                    .listRowInsets(EdgeInsets())
-                    .listRowSeparator(.hidden)
-                    .listRowBackground(Color.clear)
-                }
-                .scrollIndicators(.hidden)
-                .listStyle(.plain)
-                }
-                
-                // status legend
-                HStack (spacing: 8) {
-                    HStack (spacing: 2) {
-                        Image(systemName: "circle.fill")
-                        Text("Scheduled")
-                    }
-                    .foregroundStyle(Color.blue)
-                    
-                    HStack (spacing: 2) {
-                        Image(systemName: "circle.fill")
-                        Text("Not scheduled")
-                    }
-                    .foregroundStyle(Color.orange)
-                    
-                    HStack (spacing: 2) {
-                        Image(systemName: "circle.fill")
-                        Text("Cancelled")
-                    }
-                    .foregroundStyle(Color.red)
-                }
-                .font(.system(size: 10))
-                .fontDesign(appFontDesign)
-                .fontWeight(.medium)
-                .frame(maxWidth: .infinity)
-                .padding(.top, 32)
-                
-                // a future journey has nothing live to report yet
-                if showsLastUpdate {
-                    Text("Last update: \(train.last_update_time.formatted(date: .abbreviated, time: .shortened))")
-                        .font(.system(size: 10))
-                        .fontDesign(appFontDesign)
-                        .foregroundStyle(Color.secondary)
-                        .frame(maxWidth: .infinity)
-                        .padding(8)
-                }
-            }
-            .padding()
+            stopsSection
         }
         .refreshable {
             await updateTrainDetails(fetchWeather: true)
@@ -866,12 +585,23 @@ struct DetailsView: View {
             }
         }
         .task(id: train.id) {
+            advanceJourneyLocally()
             refreshDerivedState()
             guard !Task.isCancelled else { return }
             await Task.yield()
             try? await Task.sleep(nanoseconds: 300_000_000)
             guard !Task.isCancelled else { return }
             await updateTrainDetails(fetchWeather: false)
+        }
+        .task(id: train.id) {
+            // The stop list has to keep moving while the screen is open, whether or
+            // not there is a connection. This only reads the clock — the API refresh
+            // stays where it was, on appear and on pull-to-refresh.
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(30))
+                guard !Task.isCancelled else { break }
+                advanceJourneyLocally()
+            }
         }
         .onChange(of: stops.count) { _, _ in
             stopSummary = StopSummary.calculate(in: stops)
@@ -893,7 +623,288 @@ struct DetailsView: View {
         }
     }
 
+    /// The trailing chip on a stop row: how late the train was, that it is standing
+    /// there now, or how long until it arrives.
+    ///
+    /// `isBoardingStop` is the journey's own first stop rather than the train's, so a
+    /// favourite joined mid-route reports its departure delay instead of an arrival
+    /// it never had.
+    @ViewBuilder
+    private func stopStatusChip(for stop: Stop, isBoardingStop: Bool) -> some View {
+        if stop.is_completed && (!stop.is_in_station || Date() >= stop.arr_time_eff) {
+            let delay = isBoardingStop ? stop.dep_delay : stop.arr_delay
+            chip(text: durationLabel(minutes: delay),
+                 color: delay > 0 ? .red : .green)
+        } else if stop.is_completed {
+            chip(text: String(localized: "At the station"), color: .blue)
+        } else {
+            let time = isBoardingStop ? stop.dep_time_eff : stop.arr_time_eff
+            let parts = Calendar.current.dateComponents([.hour, .minute], from: Date(), to: time)
+            let hours = abs(parts.hour ?? 0)
+            let minutes = abs(parts.minute ?? 0)
+            let label = hours == 0 && minutes == 0
+                ? String(localized: "At the station")
+                : (hours > 0 ? "\(hours)h \(minutes % 60)m" : "\(minutes)m")
+            chip(text: label, color: .blue)
+        }
+    }
+
+    private func chip(text: String, color: Color) -> some View {
+        Text(text)
+            .font(.footnote)
+            .fontDesign(appFontDesign)
+            .foregroundStyle(color)
+            .padding(.vertical, 8)
+            .padding(.horizontal)
+            .background(color.opacity(0.2))
+            .cornerRadius(16)
+    }
+
+    /// "5m", "1h", "1h 20m" — used for the delay carried by a stop.
+    private func durationLabel(minutes: Int) -> String {
+        guard minutes >= 60 else { return "\(minutes)m" }
+        let hours = minutes / 60
+        let remainder = minutes % 60
+        return remainder == 0 ? "\(hours)h" : "\(hours)h \(remainder)m"
+    }
+
+    // MARK: - Subviews
+
+    /// The route: every stop with its times, delay chip and platform.
+    @ViewBuilder
+    private var stopsSection: some View {
+        let displayedStops = filteredStops
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("\(displayedStops.count) stops")
+                    .font(.footnote)
+                    .fontDesign(appFontDesign)
+                    .foregroundStyle(.secondary)
+            
+                Spacer()
+            
+                if (stops.filter{ $0.is_selected }).count != stops.count {
+                    Text("Show all stops")
+                        .font(.footnote)
+                        .fontDesign(appFontDesign)
+                        .foregroundStyle(Color.secondary)
+                
+                    Toggle("", isOn: $showAllStops)
+                        .labelsHidden()
+                        .tint(Color.accentColor)
+                }
+            }
+        
+            Divider()
+        
+            if !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && displayedStops.isEmpty {
+                ContentUnavailableView.search(text: searchText)
+                    .foregroundStyle(Color.secondary)
+                    .fontDesign(appFontDesign)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 24)
+            } else {
+            LazyVStack {
+                ForEach(displayedStops.indices, id: \.self) { index in
+                    let stop = displayedStops[index]
+                    let routeIndex = stops.firstIndex { $0 === stop } ?? index
+                
+                    HStack(spacing: 8) {
+                        /// stop status
+                        let stopStatusEmoji: (String, Color) = {
+                            if Date() < firstStopNoIssues.dep_time_id {
+                                return ("circle.dashed", Color.blue)
+                            
+                            } else if stop.status == 3 || train.issue == "Treno cancellato" {
+                                // stop cancelled
+                                return ("xmark.circle.fill", Color.red)
+                            
+                            } else if stop.status == 2 {
+                                // stop unscheduled
+                                if firstStop.dep_time_id < Date() {
+                                    if stop.is_completed {
+                                        return ("checkmark.circle.fill", Color.orange)
+                                    } else {
+                                        return ("circle.dashed", Color.orange)
+                                    }
+                                } else {
+                                    return ("circle.dashed", Color.orange)
+                                }
+                            
+                            } else if stop.status == 0 || stop.status == 1 {
+                                // stop regular but not done or regular
+                                if firstStop.dep_time_id < Date() {
+                                    if stop.is_completed {
+                                        return ("checkmark.circle.fill", Color.blue)
+                                    } else {
+                                        return ("circle.dashed", Color.blue)
+                                    }
+                                } else {
+                                    return ("circle.dashed", Color.blue)
+                                }
+                            }
+                        
+                            return ("questionmark.circle.fill", Color.gray)
+                        }()
+                    
+                        Image(systemName: stopStatusEmoji.0)
+                            .font(Date() >= firstStopNoIssues.dep_time_id || Calendar.current.isDateInToday(firstStopNoIssues.dep_time_id) ? .system(size: 40) : .largeTitle)
+                            .foregroundStyle(stopStatusEmoji.1)
+                    
+                        /// stop info
+                        HStack {
+                            VStack(alignment: .leading, spacing: 4) {
+                                if (Date() >= firstStopNoIssues.dep_time_id || Calendar.current.isDateInToday(firstStopNoIssues.dep_time_id)) && !stop.weather.isEmpty {
+                                    Text(stop.weather)
+                                        .font(.caption)
+                                        .fontDesign(appFontDesign)
+                                        .strikethrough((stop.status == 3 || train.issue == "Treno cancellato") && Date() >= firstStopNoIssues.ref_time)
+                                        .foregroundStyle(
+                                            Date() < firstStopNoIssues.dep_time_id
+                                            ? Color.primary
+                                            : (
+                                                stop.status == 3 || train.issue == "Treno cancellato"
+                                                ? Color.red
+                                                : (stop.status == 2 ? Color.orange : Color.primary)
+                                            )
+                                        )
+                                }
+                            
+                                Text(stop.name)
+                                    .lineLimit(1)
+                                    .truncationMode(.tail)
+                                    .minimumScaleFactor(0.5)
+                                    .font(.caption)
+                                    .fontDesign(appFontDesign)
+                                    .strikethrough((stop.status == 3 || train.issue == "Treno cancellato") && Date() >= firstStopNoIssues.ref_time)
+                                    .foregroundStyle(
+                                        Date() < firstStopNoIssues.dep_time_id
+                                        ? Color.primary
+                                        : (
+                                            stop.status == 3 || train.issue == "Treno cancellato"
+                                            ? Color.red
+                                            : (stop.status == 2 ? Color.orange : Color.primary)
+                                        )
+                                    )
+                            
+                                if stop.status == 3 || train.issue == "Treno cancellato" {
+                                    HStack(spacing: 2) {
+                                        Image(systemName: routeIndex == firstIndex ? "arrow.up.right.circle.fill" : "arrow.down.right.circle.fill")
+                                        Text(routeIndex == firstIndex ? stop.dep_time_id.formatted(.dateTime.hour().minute()) : stop.arr_time_id.formatted(.dateTime.hour().minute()))
+                                            .monospacedDigit()
+                                    }
+                                    .font(.caption2)
+                                    .fontDesign(appFontDesign)
+                                    .foregroundStyle(Date() >= firstStopNoIssues.dep_time_id ? Color.red : Color.primary)
+                                    .strikethrough(Date() >= firstStopNoIssues.dep_time_id)
+                                } else {
+                                    HStack(spacing: 8) {
+                                        if routeIndex != firstIndex && routeIndex != firstIndexNoIssues {
+                                            HStack(spacing: 2) {
+                                                Image(systemName: "arrow.down.right.circle.fill")
+                                                Text(Date() >= firstStopNoIssues.dep_time_id || Calendar.current.isDateInToday(firstStopNoIssues.dep_time_id) ? stop.arr_time_eff.formatted(.dateTime.hour().minute()) : stop.arr_time_id.formatted(.dateTime.hour().minute()))
+                                                    .monospacedDigit()
+                                            }
+                                        }
+                                    
+                                        if routeIndex != lastIndex && routeIndex != lastIndexNoIssues {
+                                            HStack(spacing: 2) {
+                                                Image(systemName: "arrow.up.right.circle.fill")
+                                                Text(Date() >= firstStopNoIssues.dep_time_id || Calendar.current.isDateInToday(firstStopNoIssues.dep_time_id) ? stop.dep_time_eff.formatted(.dateTime.hour().minute()) : stop.dep_time_id.formatted(.dateTime.hour().minute()))
+                                                    .monospacedDigit()
+                                            }
+                                        }
+                                    }
+                                    .font(.caption2)
+                                    .fontDesign(appFontDesign)
+                                    .foregroundStyle(Date() < (firstStopNoIssues.dep_time_id) ? Color.primary : stop.status == 2 ? Color.orange : Color.primary)
+                                }
+                            }
+                        
+                            Spacer()
+                        
+                            if stop.status != 3 && train.issue != "Treno cancellato" {
+                                if Date() > firstStop.dep_time_id || Calendar.current.isDate(firstStop.dep_time_id, inSameDayAs: Date()) {
+                                    stopStatusChip(for: stop, isBoardingStop: routeIndex == firstIndex)
+                                }
+                            
+                                // MARK: - Platform
+                                if Date() > firstStop.dep_time_id || Calendar.current.isDate(firstStop.dep_time_id, inSameDayAs: Date()) {
+                                    HStack(spacing: 4) {
+                                        Image(systemName: routeIndex == firstIndex ? "arrow.up.right" : "arrow.down.right")
+                                            .padding(.vertical, 8).padding(.leading)
+                                        Text(stop.platform)
+                                            .padding(.vertical, 8).padding(.trailing)
+                                    }
+                                    .frame(minWidth: 64)
+                                    .font(.footnote)
+                                    .fontDesign(appFontDesign)
+                                    .fontWeight(.medium)
+                                    .background(Color.yellow.opacity(0.5))
+                                    .cornerRadius(16)
+                                
+                                }
+                            }
+                        }
+                    }
+                    .padding(.horizontal, 4).padding(.vertical, 8)
+                }
+                .listRowInsets(EdgeInsets())
+                .listRowSeparator(.hidden)
+                .listRowBackground(Color.clear)
+            }
+            .scrollIndicators(.hidden)
+            .listStyle(.plain)
+            }
+        
+            // status legend
+            HStack (spacing: 8) {
+                HStack (spacing: 2) {
+                    Image(systemName: "circle.fill")
+                    Text("Scheduled")
+                }
+                .foregroundStyle(Color.blue)
+            
+                HStack (spacing: 2) {
+                    Image(systemName: "circle.fill")
+                    Text("Not scheduled")
+                }
+                .foregroundStyle(Color.orange)
+            
+                HStack (spacing: 2) {
+                    Image(systemName: "circle.fill")
+                    Text("Cancelled")
+                }
+                .foregroundStyle(Color.red)
+            }
+            .font(.system(size: 10))
+            .fontDesign(appFontDesign)
+            .fontWeight(.medium)
+            .frame(maxWidth: .infinity)
+            .padding(.top, 32)
+        
+            // a future journey has nothing live to report yet
+            if showsLastUpdate {
+                Text("Last update: \(train.last_update_time.formatted(date: .abbreviated, time: .shortened))")
+                    .font(.system(size: 10))
+                    .fontDesign(appFontDesign)
+                    .foregroundStyle(Color.secondary)
+                    .frame(maxWidth: .infinity)
+                    .padding(8)
+            }
+        }
+        .padding()
+    }
+
     // MARK: - Actions
+
+    /// Applies whatever the clock alone implies about the journey's progress.
+    @MainActor
+    private func advanceJourneyLocally() {
+        guard TrainProgress.advance(train: train, stops: stops) else { return }
+        try? modelContext.save()
+        refreshDerivedState()
+    }
 
     @MainActor
     private func refreshDerivedState() {

@@ -48,22 +48,9 @@ struct ContentView: View {
 
     // MARK: - Computed
 
-    private var fetchEmailsDownloaded: Int {
-        ticketSyncProgresses.values.map(\.emailsDownloaded).reduce(0, +)
-    }
-
     private var fetchEmailsFound: Int {
         let found = ticketSyncProgresses.values.map(\.emailsFound).reduce(0, +)
         return found > 0 ? found : fetchedTicketsCount
-    }
-
-    /// Upcoming email tickets that have not been added to the app yet.
-    private var newTrainsCount: Int {
-        guard let profile = profiles.primary else { return 0 }
-        let imported = Set(trains.compactMap(\.sourceEmailTicketID))
-        return EmailTicketSyncService.tickets(from: profile)
-            .filter { $0.ticket.isImportEligible && !imported.contains($0.ticket.id) }
-            .count
     }
 
     private var showsFetchToolbarButton: Bool {
@@ -73,27 +60,25 @@ struct ContentView: View {
     @ToolbarContentBuilder
     private var mainToolbar: some ToolbarContent {
         ToolbarItem(placement: .topBarLeading) {
-            ProfileToolbarButton(profileSheet: $profileSheet)
-                .padding(.trailing, 2)
-        }
-        .blendedToolbarItemBackground()
-
-        ToolbarItem(placement: .topBarLeading) {
             sectionMenu
         }
         .blendedToolbarItemBackground()
 
+        // No spacer between these two: without one they share a single glass
+        // container, with the profile picture at the very edge of the bar.
         if showsFetchToolbarButton {
-            ToolbarItem(placement: .primaryAction) {
+            ToolbarItem(placement: .topBarTrailing) {
                 Button {
                     openEmailFetchSheet()
                 } label: {
                     emailFetchToolbarLabel
                 }
                 .fontDesign(appFontDesign)
-                .buttonStyle(.glassProminent)
-                .tint(isFetchingEmailTickets ? Color.clear : Color.blue.opacity(0.15))
             }
+        }
+
+        ToolbarItem(placement: .topBarTrailing) {
+            ProfileToolbarButton(profileSheet: $profileSheet)
         }
 
         ToolbarItem(placement: .bottomBar) {
@@ -145,21 +130,6 @@ struct ContentView: View {
             return String(localized: "Finishing up…")
         }
         return String(localized: "Fetching \(fetchGlobalPercentage)%")
-    }
-
-    /// The toolbar shows the percentage alone — the spinning glyph beside it already
-    /// says a fetch is running, so the word would only repeat it.
-    private var fetchToolbarProgressTitle: String {
-        if ticketSyncProgresses.isEmpty {
-            return String(localized: "Connecting…")
-        }
-        if ticketSyncProgresses.values.allSatisfy({ $0.stage == .searching }) {
-            return String(localized: "Searching…")
-        }
-        if ticketSyncProgresses.values.allSatisfy({ $0.stage == .finished }) {
-            return String(localized: "Finishing up…")
-        }
-        return "\(fetchGlobalPercentage)%"
     }
 
     private var fetchGlobalPercentage: Int {
@@ -289,38 +259,17 @@ struct ContentView: View {
         }
     }
 
-    @ViewBuilder
     private var emailFetchToolbarLabel: some View {
-        let isFetching = isFetchingEmailTickets
-        let color = isFetching ? Color.primary : Color.blue
-        
-        let text: String = {
-            if isFetching {
-                return fetchToolbarProgressTitle
+        Group {
+            if isFetchingEmailTickets {
+                Image(systemName: "progress.indicator")
+                    .symbolEffect(.rotate.byLayer, options: .repeat(.continuous))
             } else {
-                return "\(newTrainsCount)"
+                Image(systemName: "envelope")
             }
-        }()
-
-        HStack(spacing: 8) {
-            Group {
-                if isFetching {
-                    Image(systemName: "progress.indicator")
-                        .symbolEffect(.rotate.byLayer, options: .repeat(.continuous))
-                } else {
-                    Image(systemName: "envelope.badge")
-                }
-            }
-            .contentTransition(.symbolEffect(.replace.downUp.wholeSymbol, options: .nonRepeating))
-            .foregroundStyle(color)
-            
-            Text(text)
-                .foregroundStyle(color)
-                .contentTransition(.numericText(value: Double(isFetching ? fetchEmailsDownloaded : newTrainsCount)))
-                .animation(.snappy, value: text)
         }
-        .font(.callout).fontWeight(.medium).fontDesign(appFontDesign)
-        .animation(.snappy, value: isFetching)
+        .contentTransition(.symbolEffect(.replace.downUp.wholeSymbol, options: .nonRepeating))
+        .foregroundStyle(isFetchingEmailTickets ? Color.primary : Color.blue)
     }
 
     private var emailImportSheetContent: some View {

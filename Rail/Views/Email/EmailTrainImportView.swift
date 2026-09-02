@@ -33,6 +33,8 @@ struct EmailTrainImportView: View {
     @State private var preparationTotal = 0
     @State private var syncTask: Task<Void, Never>?
     @State private var searchText = ""
+    /// Mailboxes whose tickets are shown. Empty means every account.
+    @State private var selectedAccounts: Set<String> = []
 
     // MARK: - Computed
 
@@ -51,10 +53,22 @@ struct EmailTrainImportView: View {
         return min(100, Int((Double(totalProcessed) / Double(totalFound)) * 100))
     }
 
+    /// The mailboxes these tickets came from, in profile order.
+    private var availableAccounts: [String] {
+        let present = Set(preloadedTickets.map(\.accountEmail))
+        return (profiles.primary?.emails.map(\.email) ?? []).filter(present.contains)
+    }
+
+    private var isFiltering: Bool { !selectedAccounts.isEmpty }
+
     private var filteredTickets: [PreloadedEmailTicketItem] {
+        var items = preloadedTickets
+        if !selectedAccounts.isEmpty {
+            items = items.filter { selectedAccounts.contains($0.accountEmail) }
+        }
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard !query.isEmpty else { return preloadedTickets }
-        return preloadedTickets.filter { matches($0.ticket, query: query) }
+        guard !query.isEmpty else { return items }
+        return items.filter { matches($0.ticket, query: query) }
     }
 
     private var groupedTicketSections: [(title: String, items: [PreloadedEmailTicketItem])] {
@@ -180,12 +194,24 @@ struct EmailTrainImportView: View {
                             }
                         }
 
-                        if !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                            && groupedTicketSections.isEmpty {
-                            Section {
-                                ContentUnavailableView.search(text: searchText)
+                        if groupedTicketSections.isEmpty {
+                            let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+                            if !query.isEmpty {
+                                Section {
+                                    ContentUnavailableView.search(text: searchText)
+                                        .foregroundStyle(Color.secondary)
+                                        .listRowBackground(Color.clear)
+                                }
+                            } else if isFiltering {
+                                Section {
+                                    ContentUnavailableView(
+                                        "No tickets",
+                                        systemImage: "line.3.horizontal.decrease.circle",
+                                        description: Text("No tickets from the selected mailbox.")
+                                    )
                                     .foregroundStyle(Color.secondary)
                                     .listRowBackground(Color.clear)
+                                }
                             }
                         }
 
@@ -247,6 +273,12 @@ struct EmailTrainImportView: View {
                     .disabled(isWorking)
                 }
 
+                if availableAccounts.count > 1 {
+                    ToolbarItem(placement: .bottomBar) {
+                        accountFilterMenu
+                    }
+                }
+
                 DefaultToolbarItem(kind: .search, placement: .bottomBar)
             }
             .searchable(text: $searchText, prompt: "Search")
@@ -269,6 +301,51 @@ struct EmailTrainImportView: View {
     }
 
     // MARK: - Subviews
+
+    /// Narrows the list to one mailbox, for people importing from more than one.
+    private var accountFilterMenu: some View {
+        Menu {
+            if isFiltering {
+                ControlGroup {
+                    Button(role: .destructive) {
+                        HapticFeedback.select()
+                        withAnimation(.snappy) { selectedAccounts = [] }
+                    } label: {
+                        Label("Clear filter", systemImage: "trash")
+                    }
+                }
+            }
+
+            Section("Email") {
+                ForEach(availableAccounts, id: \.self) { account in
+                    Button {
+                        HapticFeedback.select()
+                        withAnimation(.snappy) {
+                            // tapping the selected one clears it
+                            if selectedAccounts.contains(account) {
+                                selectedAccounts.remove(account)
+                            } else {
+                                selectedAccounts.insert(account)
+                            }
+                        }
+                    } label: {
+                        Label {
+                            Text(account)
+                        } icon: {
+                            if selectedAccounts.contains(account) { Image(systemName: "checkmark") }
+                        }
+                        .foregroundStyle(selectedAccounts.contains(account) ? Color.blue : Color.primary)
+                    }
+                }
+            }
+        } label: {
+            Image(systemName: isFiltering ? "line.3.horizontal.decrease.circle.fill" : "line.horizontal.3.decrease")
+                .font(isFiltering ? .title2 : .headline)
+                .padding(.horizontal, isFiltering ? -2 : 0)
+                .foregroundStyle(isFiltering ? .blue : .primary)
+                .fontDesign(appFontDesign)
+        }
+    }
 
     private var progressView: some View {
         EmailSyncProgressView(
@@ -382,6 +459,17 @@ struct EmailTrainImportView: View {
     }
 
     @MainActor
+    /// Drops any filter whose mailbox no longer has tickets, so a rescan can't
+    /// leave the list mysteriously empty.
+    private func pruneAccountFilter() {
+        guard !selectedAccounts.isEmpty else { return }
+        let present = Set(preloadedTickets.map(\.accountEmail))
+        let surviving = selectedAccounts.intersection(present)
+        if surviving != selectedAccounts {
+            withAnimation(.snappy) { selectedAccounts = surviving }
+        }
+    }
+
     private func loadTicketsFromProfile() {
         guard let profile = profiles.primary else {
             preloadedTickets = []
@@ -409,6 +497,7 @@ struct EmailTrainImportView: View {
             )
         }
         preparedTrains = [:]
+        pruneAccountFilter()
     }
 
     @MainActor

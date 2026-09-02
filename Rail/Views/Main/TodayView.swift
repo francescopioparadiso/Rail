@@ -165,7 +165,13 @@ struct TodayView: View {
         let calendarSettings = profiles.primary?.calendarSettings
         let allSeats = seats
 
-        var didChange = false
+        // Move the journey on from the times already stored before asking the
+        // network for anything: with no connection this is the only thing that
+        // keeps the list live, and a successful refresh overwrites it below.
+        var didChange = trainsToUpdate.reduce(false) { changed, train in
+            TrainProgress.advance(train: train, stops: currentStopsByTrain[train.id] ?? [])
+                || changed
+        }
         await withTaskGroup(of: Bool.self) { group in
             for train in trainsToUpdate {
                 let trainStops = currentStopsByTrain[train.id] ?? []
