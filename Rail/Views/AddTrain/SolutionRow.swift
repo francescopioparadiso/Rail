@@ -231,4 +231,3 @@ struct SolutionRow: View {
         return segment.isBus ? .blue : .primary
     }
 }
-

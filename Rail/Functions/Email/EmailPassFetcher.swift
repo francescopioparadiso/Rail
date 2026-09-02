@@ -32,16 +32,7 @@ actor EmailPassFetcher {
         self.session = IMAPSession(account: account)
     }
 
-    
-    
-    
-
-    
-
-    /// Connects and opens INBOX to confirm email + app password work for fetching.
-    
-
-    
+    // MARK: - Methods
 
     /// Search webmaster@trenitalia.it emails for Abbonamento PDFs and parse pass details.
     /// Mirrors Sketch/Scripts/pass_fetcher.py (Gmail All Mail + TEXT Abbonamento).
