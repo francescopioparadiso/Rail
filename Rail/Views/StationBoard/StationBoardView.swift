@@ -177,7 +177,7 @@ struct StationBoardView: View {
     }
 
     private func boardPlaceholder(_ title: LocalizedStringKey, description: LocalizedStringKey) -> some View {
-        ContentUnavailableView(title, systemImage: "tram", description: Text(description))
+        ContentUnavailableView(title, systemImage: "arrow.up", description: Text(description))
             .foregroundStyle(Color.secondary)
             .fontDesign(appFontDesign)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
