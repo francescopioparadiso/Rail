@@ -87,6 +87,7 @@ struct ContentView: View {
                     emailFetchToolbarLabel
                 }
                 .fontDesign(appFontDesign)
+                .padding(.trailing, -8)
             }
         }
 
@@ -116,6 +117,7 @@ struct ContentView: View {
             } label: {
                 Label("Favorites", systemImage: "heart")
             }
+            .padding(.trailing, -8)
         }
 
         ToolbarItem(placement: .bottomBar) {

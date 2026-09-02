@@ -50,7 +50,11 @@ enum StationBoardAPI {
     /// board endpoints take. The lefrecce autocomplete used to search journeys
     /// returns its own numeric ids, which the timetable does not accept.
     static func stations(matching query: String) async -> [StationSuggestion] {
-        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        // The endpoint answers 404 on a slash, encoded or not, and "Bologna C.Le/Av"
+        // is a real station. It matches on a prefix, so the part before the slash
+        // finds it anyway.
+        let trimmed = (query.split(separator: "/").first.map(String.init) ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmed.count >= 2,
               let encoded = trimmed.uppercased().addingPercentEncoding(withAllowedCharacters: .urlPathAllowed),
               let url = URL(string: "http://www.viaggiatreno.it/infomobilita/resteasy/viaggiatreno/autocompletaStazione/\(encoded)")
@@ -74,6 +78,21 @@ enum StationBoardAPI {
         }
     }
 
+    /// The station a journey's stop is calling at.
+    ///
+    /// A stop carries the name the timetable prints, which is not always a name the
+    /// autocomplete will answer to. When the whole name finds nothing the search
+    /// falls back to its first word, and only a candidate that contains the name —
+    /// or is contained by it — is accepted: guessing wider risks opening the wrong
+    /// station's board, where an empty search field the user can type into does not.
+    static func station(named name: String) async -> StationSuggestion? {
+        if let match = best(for: name, among: await stations(matching: name)) { return match }
+
+        guard let lead = name.split(separator: " ").first,
+              lead.count >= 2, String(lead) != name else { return nil }
+        return best(for: name, among: await stations(matching: String(lead)))
+    }
+
     /// Everything due at `code` around `date`, in the order it will actually
     /// call — a train running late takes its delayed place in the queue.
     static func board(_ kind: StationBoardKind, at code: String, on date: Date = Date()) async -> [BoardTrain] {
@@ -95,6 +114,22 @@ enum StationBoardAPI {
     }
 
     // MARK: - Helpers
+
+    private static func best(for name: String, among candidates: [StationSuggestion]) -> StationSuggestion? {
+        if let exact = candidates.first(where: { $0.name.caseInsensitiveCompare(name) == .orderedSame }) {
+            return exact
+        }
+
+        let target = comparable(name)
+        return candidates
+            .filter { comparable($0.name).hasPrefix(target) || target.hasPrefix(comparable($0.name)) }
+            .min { $0.name.count < $1.name.count }
+    }
+
+    /// Letters and digits only, so punctuation and spacing can't decide a match.
+    private static func comparable(_ value: String) -> String {
+        value.lowercased().filter { $0.isLetter || $0.isNumber }
+    }
 
     /// The endpoint wants a JavaScript `Date.toString()`, e.g.
     /// "Wed Sep 02 2026 18:54:00 UTC+0000". Anything else comes back empty.

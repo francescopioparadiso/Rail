@@ -36,6 +36,7 @@ struct DetailsView: View {
     @State private var routeDistanceKm: Int?
     @State private var isFavorite: Bool = false
     @State private var isRefreshing = false
+    @State private var boardStation: String?
     @State private var stopSummary: StopSummary
 
     init(
@@ -510,6 +511,9 @@ struct DetailsView: View {
             DefaultToolbarItem(kind: .search, placement: .bottomBar)
         }
         .searchable(text: $searchText, prompt: "Search stops")
+        .sheet(item: $boardStation) { name in
+            StationBoardView(initialStation: name)
+        }
         .sheet(isPresented: $seatsSheet) {
             SeatsView(train: train, seats: seats, initialSeatID: pendingSeatID)
                 .presentationDetents([.large])
@@ -653,6 +657,7 @@ struct DetailsView: View {
                 Image(systemName: isFavorite ? "heart.fill" : "heart")
             }
             .tint(isFavorite ? Color.red : Color.primary)
+            .padding(.trailing, -8)
         }
 
         ToolbarItem(placement: .topBarTrailing) {
@@ -815,22 +820,35 @@ struct DetailsView: View {
                                         )
                                 }
                             
-                                Text(stop.name)
-                                    .lineLimit(1)
-                                    .truncationMode(.tail)
-                                    .minimumScaleFactor(0.5)
-                                    .font(.caption)
-                                    .fontDesign(appFontDesign)
-                                    .strikethrough((stop.status == 3 || train.issue == "Treno cancellato") && Date() >= firstStopNoIssues.ref_time)
-                                    .foregroundStyle(
-                                        Date() < firstStopNoIssues.dep_time_id
-                                        ? Color.primary
-                                        : (
-                                            stop.status == 3 || train.issue == "Treno cancellato"
-                                            ? Color.red
-                                            : (stop.status == 2 ? Color.orange : Color.primary)
-                                        )
+                                // the name opens that station's own board, so a
+                                // stop on the way is one tap from what else calls there
+                                HStack(spacing: 3) {
+                                    Text(stop.name)
+                                        .lineLimit(1)
+                                        .truncationMode(.tail)
+                                        .minimumScaleFactor(0.5)
+
+                                    Image(systemName: "chevron.right")
+                                        .font(.caption2)
+                                        .foregroundStyle(.tertiary)
+                                }
+                                .font(.caption).fontWeight(.semibold)
+                                .fontDesign(appFontDesign)
+                                .strikethrough((stop.status == 3 || train.issue == "Treno cancellato") && Date() >= firstStopNoIssues.ref_time)
+                                .foregroundStyle(
+                                    Date() < firstStopNoIssues.dep_time_id
+                                    ? Color.primary
+                                    : (
+                                        stop.status == 3 || train.issue == "Treno cancellato"
+                                        ? Color.red
+                                        : (stop.status == 2 ? Color.orange : Color.primary)
                                     )
+                                )
+                                .contentShape(Rectangle())
+                                .onTapGesture {
+                                    HapticFeedback.tap()
+                                    boardStation = stop.name
+                                }
                             
                                 if stop.status == 3 || train.issue == "Treno cancellato" {
                                     HStack(spacing: 2) {
