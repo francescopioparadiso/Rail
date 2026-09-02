@@ -332,7 +332,11 @@ struct EmailTrainImportView: View {
                         }
                     } label: {
                         Label {
+                            // long addresses lose their middle, keeping the name and
+                            // the domain — the two halves that tell accounts apart
                             Text(account)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
                         } icon: {
                             if selectedAccounts.contains(account) { Image(systemName: "checkmark") }
                         }

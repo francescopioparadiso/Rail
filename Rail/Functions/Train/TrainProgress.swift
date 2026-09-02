@@ -25,6 +25,11 @@ enum TrainProgress {
         // A cancelled train isn't going anywhere; leave its stops as the API left them.
         guard train.issue != "Treno cancellato" else { return false }
 
+        // Nothing can have been reached before the train pulls out of its origin.
+        // Without this a journey later today would have its first stop completed
+        // the moment the screen opened, showing a delay for a train yet to run.
+        guard hasDeparted(stops: stops, now: now) else { return false }
+
         var changed = false
         for stop in stops {
             // Skip cancelled stops: the train passes them without calling.
@@ -60,8 +65,22 @@ enum TrainProgress {
         usable(stop.dep_time_eff) ?? usable(stop.dep_time_id)
     }
 
-    /// Feeds use the distant past and future as "no value"; neither is a real time.
+    /// True once the train has left the first stop on its route.
+    private static func hasDeparted(stops: [Stop], now: Date) -> Bool {
+        guard let origin = stops.min(by: { $0.ref_time < $1.ref_time }) else { return false }
+        guard let departure = departureMoment(of: origin) else { return false }
+        return now >= departure
+    }
+
+    /// Feeds use several values to mean "no time here".
+    ///
+    /// A train does not arrive at its own origin, so Trenitalia sends no arrival for
+    /// it and the parser turns the missing field into the Unix epoch. Treating that
+    /// as a real time made every origin look long since reached, so anything at or
+    /// before the epoch is rejected alongside the distant past and future.
     private static func usable(_ date: Date) -> Date? {
-        date == .distantPast || date == .distantFuture ? nil : date
+        guard date != .distantPast, date != .distantFuture,
+              date.timeIntervalSince1970 > 0 else { return nil }
+        return date
     }
 }
