@@ -752,8 +752,40 @@ struct DetailsView: View {
             
             ToolbarSpacer(.flexible)
             
-            // favorite button
-            ToolbarItem {
+            // add seat button
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    HapticFeedback.confirm()
+                    seatsSheet = true
+                } label: {
+                    HStack {
+                        Image(systemName: "figure.seated.seatbelt")
+                            .fontWeight(.semibold)
+
+                        let textString = {
+                            if let firstUser = seats.first {
+                                let carriage = firstUser.carriage
+                                let number = firstUser.number
+                                if !carriage.isEmpty && !number.isEmpty {
+                                    return "\(carriage)-\(number)"
+                                } else {
+                                    return "\(firstUser.name)"
+                                }
+                            }
+                            return String(localized: "Add")
+                        }()
+
+                        Text(textString)
+                    }
+                    .fontDesign(appFontDesign)
+                    .foregroundStyle(Color.primary)
+                }
+            }
+
+            ToolbarSpacer(.fixed, placement: .topBarTrailing)
+
+            // favorite button, paired with share
+            ToolbarItem(placement: .topBarTrailing) {
                 Button {
                     HapticFeedback.confirm()
                     
@@ -802,40 +834,6 @@ struct DetailsView: View {
                 }
                 .tint(isFavorite ? Color.red : Color.primary)
             }
-
-            ToolbarSpacer(.flexible)
-
-            // add seat button
-            ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    HapticFeedback.confirm()
-                    seatsSheet = true
-                } label: {
-                    HStack {
-                        Image(systemName: "figure.seated.seatbelt")
-                            .fontWeight(.semibold)
-
-                        let textString = {
-                            if let firstUser = seats.first {
-                                let carriage = firstUser.carriage
-                                let number = firstUser.number
-                                if !carriage.isEmpty && !number.isEmpty {
-                                    return "\(carriage)-\(number)"
-                                } else {
-                                    return "\(firstUser.name)"
-                                }
-                            }
-                            return String(localized: "Add")
-                        }()
-
-                        Text(textString)
-                    }
-                    .fontDesign(appFontDesign)
-                    .foregroundStyle(Color.primary)
-                }
-            }
-
-            ToolbarSpacer(.fixed, placement: .topBarTrailing)
 
             ToolbarItem(placement: .topBarTrailing) {
                 if let shareURL = TrainSharing.url(train: train, stops: stops, seats: seats) {

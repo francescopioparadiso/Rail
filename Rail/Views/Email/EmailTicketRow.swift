@@ -52,9 +52,9 @@ struct EmailTicketRow: View {
 
     var body: some View {
         HStack(alignment: .center, spacing: 12) {
-            // matches the row height set by the stations line and the times line,
-            // rather than imposing a taller fixed size of its own
-            DepartureCalendarBadge(date: displayDate, fillsHeight: true)
+            // the padding here is what sets the row height: the badge stands taller
+            // than the stations and times lines beside it
+            DepartureCalendarBadge(date: displayDate, fillsHeight: true, verticalPadding: 18)
 
             if !ticket.departureStation.isEmpty {
                 HStack {

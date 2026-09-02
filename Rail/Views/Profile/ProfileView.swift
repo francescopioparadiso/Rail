@@ -16,6 +16,8 @@ struct ProfileView: View {
     @State private var formattedDistance = "—"
     @State private var formattedTrains = "—"
     @State private var formattedCancelled = "—"
+    @State private var formattedPasses = "—"
+    @State private var formattedPassSpend = "—"
 
     // MARK: - Computed
 
@@ -103,93 +105,112 @@ struct ProfileView: View {
 
         Form {
             Section {
-                VStack(spacing: 24) {
-                    VStack(spacing: 8) {
-                        Button {
-                            showImagePicker = true
-                        } label: {
-                            if let profileImage {
-                                Image(uiImage: profileImage)
-                                    .resizable()
-                                    .scaledToFill()
-                                    .frame(width: 160, height: 160)
-                                    .clipShape(Circle())
-                                    .shadow(color: profileAccentColor.opacity(0.35), radius: 12, y: 4)
-                            } else {
-                                Circle()
-                                    .fill(Color(UIColor.secondarySystemGroupedBackground))
-                                    .frame(width: 160, height: 160)
-                                    .shadow(color: .black.opacity(0.15), radius: 10, y: 4)
-                                    .overlay(
-                                        Image(systemName: "camera.fill")
-                                            .resizable()
-                                            .scaledToFit()
-                                            .frame(width: 60, height: 60)
-                                            .foregroundColor(.gray)
-                                    )
-                            }
-                        }
-                        .background {
-                            GeometryReader { geo in
-                                Color.clear.preference(
-                                    key: ProfilePhotoFrameKey.self,
-                                    value: geo.frame(in: .named("profileRoot"))
+                VStack(spacing: 8) {
+                    Button {
+                        showImagePicker = true
+                    } label: {
+                        if let profileImage {
+                            Image(uiImage: profileImage)
+                                .resizable()
+                                .scaledToFill()
+                                .frame(width: 160, height: 160)
+                                .clipShape(Circle())
+                                .shadow(color: profileAccentColor.opacity(0.35), radius: 12, y: 4)
+                        } else {
+                            Circle()
+                                .fill(Color(UIColor.secondarySystemGroupedBackground))
+                                .frame(width: 160, height: 160)
+                                .shadow(color: .black.opacity(0.15), radius: 10, y: 4)
+                                .overlay(
+                                    Image(systemName: "camera.fill")
+                                        .resizable()
+                                        .scaledToFit()
+                                        .frame(width: 60, height: 60)
+                                        .foregroundColor(.gray)
                                 )
-                            }
                         }
-                        .sheet(isPresented: $showImagePicker) {
-                            ImagePicker(imageData: Binding(
-                                get: { profile.photo },
-                                set: { profile.photo = $0 }
-                            ))
+                    }
+                    .background {
+                        GeometryReader { geo in
+                            Color.clear.preference(
+                                key: ProfilePhotoFrameKey.self,
+                                value: geo.frame(in: .named("profileRoot"))
+                            )
                         }
-
-                        TextField("Name", text: $profile.name)
-                            .font(.largeTitle)
-                            .fontWeight(.bold)
-                            .multilineTextAlignment(.center)
-                            .foregroundColor(.primary)
-                            .textFieldStyle(.plain)
-                            .padding(.top, 4)
+                    }
+                    .sheet(isPresented: $showImagePicker) {
+                        ImagePicker(imageData: Binding(
+                            get: { profile.photo },
+                            set: { profile.photo = $0 }
+                        ))
                     }
 
-                    VStack(spacing: 16) {
-                        HStack(spacing: 16) {
-                            statCard(
-                                title: "Trains",
-                                value: formattedTrains,
-                                systemImage: "train.side.front.car",
-                                color: .blue
-                            )
-
-                            statCard(
-                                title: "Distance",
-                                value: formattedDistance,
-                                systemImage: "map",
-                                color: .blue
-                            )
-                        }
-                        .padding(.horizontal, -16)
-
-                        HStack(spacing: 16) {
-                            statCard(
-                                title: "Cancelled",
-                                value: formattedCancelled,
-                                systemImage: "xmark.circle.fill",
-                                color: .red
-                            )
-
-                            statCard(
-                                title: "Delay",
-                                value: formattedDelay,
-                                systemImage: "clock.badge.exclamationmark",
-                                color: .red
-                            )
-                        }
-                        .padding(.horizontal, -16)
-                    }
-                    .padding(.top, 24)
+                    TextField("Name", text: $profile.name)
+                        .font(.largeTitle)
+                        .fontWeight(.bold)
+                        .multilineTextAlignment(.center)
+                        .foregroundColor(.primary)
+                        .textFieldStyle(.plain)
+                        .padding(.top, 4)
                 }
+            }
+            .listRowBackground(Color.clear)
+
+            Section(header: Text("Trains")) {
+                VStack(spacing: 16) {
+                    HStack(spacing: 16) {
+                        statCard(
+                            title: "Trains",
+                            value: formattedTrains,
+                            systemImage: "train.side.front.car",
+                            color: .blue
+                        )
+
+                        statCard(
+                            title: "Distance",
+                            value: formattedDistance,
+                            systemImage: "map",
+                            color: .blue
+                        )
+                    }
+
+                    HStack(spacing: 16) {
+                        statCard(
+                            title: "Cancelled",
+                            value: formattedCancelled,
+                            systemImage: "xmark.circle.fill",
+                            color: .red
+                        )
+
+                        statCard(
+                            title: "Delay",
+                            value: formattedDelay,
+                            systemImage: "clock.badge.exclamationmark",
+                            color: .red
+                        )
+                    }
+                }
+                .padding(.horizontal, -16)
+            }
+            .listRowBackground(Color.clear)
+
+            Section(header: Text("Passes")) {
+                HStack(spacing: 16) {
+                    statCard(
+                        title: "Passes",
+                        value: formattedPasses,
+                        systemImage: "ticket",
+                        color: .green
+                    )
+
+                    statCard(
+                        title: "Spent",
+                        value: formattedPassSpend,
+                        systemImage: "eurosign.circle",
+                        color: .green
+                    )
+                }
+                .padding(.horizontal, -16)
             }
             .listRowBackground(Color.clear)
 
@@ -268,13 +289,29 @@ struct ProfileView: View {
                 }
             }
 
-            return (pastTrainsCount, cancelledTrainsCount, totalDelay, totalDistance)
+            let passes = (try? context.fetch(FetchDescriptor<Pass>())) ?? []
+            // Passes without a recorded price simply don't add to the total.
+            let passSpend = passes.compactMap(\.priceValue).reduce(0, +)
+
+            return (pastTrainsCount, cancelledTrainsCount, totalDelay, totalDistance,
+                    passes.count, passSpend)
         }.value
 
         formattedTrains = "\(stats.0)"
         formattedCancelled = "\(stats.1)"
         formattedDelay = formatDelay(stats.2)
         formattedDistance = formatDistance(stats.3)
+        formattedPasses = "\(stats.4)"
+        formattedPassSpend = formatCurrency(stats.5)
+    }
+
+    private func formatCurrency(_ amount: Double) -> String {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .currency
+        formatter.currencyCode = "EUR"
+        formatter.maximumFractionDigits = amount < 1000 ? 2 : 0
+        return formatter.string(from: NSNumber(value: amount))
+            ?? String(format: "%.2f \u{20AC}", amount)
     }
 
     private func formatDelay(_ delay: Int) -> String {

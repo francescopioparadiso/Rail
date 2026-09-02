@@ -36,4 +36,43 @@ final class Pass {
         self.image = image
         self.pdf = pdf
     }
+
+    // MARK: - Computed
+
+    /// `price` as a number, or nil when it holds no amount.
+    ///
+    /// The stored text arrives in two shapes: the PDF parser writes `"62.00 €"`
+    /// while the form's placeholder invites `"50,00 €"`, and either may carry a
+    /// thousands separator. Whichever separator comes last is the decimal one.
+    var priceValue: Double? {
+        let digits = price.filter { $0.isNumber || $0 == "," || $0 == "." }
+        guard !digits.isEmpty else { return nil }
+
+        let lastComma = digits.lastIndex(of: ",")
+        let lastDot = digits.lastIndex(of: ".")
+
+        let normalized: String
+        switch (lastComma, lastDot) {
+        case let (comma?, dot?):
+            // both present: the later one is the decimal point, the other groups
+            let decimal = comma > dot ? "," : "."
+            let grouping = comma > dot ? "." : ","
+            normalized = digits
+                .replacingOccurrences(of: grouping, with: "")
+                .replacingOccurrences(of: decimal, with: ".")
+        case let (comma?, nil):
+            // a lone comma separates decimals only when two digits follow it
+            let decimals = digits.distance(from: digits.index(after: comma), to: digits.endIndex)
+            normalized = decimals == 2
+                ? digits.replacingOccurrences(of: ",", with: ".")
+                : digits.replacingOccurrences(of: ",", with: "")
+        case let (nil, dot?):
+            let decimals = digits.distance(from: digits.index(after: dot), to: digits.endIndex)
+            normalized = decimals == 2 ? digits : digits.replacingOccurrences(of: ".", with: "")
+        case (nil, nil):
+            normalized = digits
+        }
+
+        return Double(normalized)
+    }
 }

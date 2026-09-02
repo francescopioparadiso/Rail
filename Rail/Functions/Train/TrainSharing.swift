@@ -14,9 +14,12 @@ import SwiftData
 /// A six-stop journey with one passenger lands around 210 characters, against
 /// roughly 330 for the JSON encoding this replaces.
 ///
-/// Seat QR *images* are still never included — they are kilobytes each. The
-/// text inside each passenger's code travels instead, and the image is redrawn
-/// on the other side.
+/// Passenger codes travel as their text plus which symbology they were drawn
+/// in, and the image is redrawn on the other side — a few dozen characters
+/// instead of the several kilobytes the PNG would cost. When a code cannot be
+/// read back at all (a photographed ticket, a damaged code) a shrunken copy of
+/// the image itself is carried instead, so the passenger still arrives with
+/// something scannable.
 enum TrainSharing {
     static let scheme = "rail"
     /// Short on purpose: every character here is a character of link.
@@ -43,12 +46,40 @@ enum TrainSharing {
             var name: String
             var carriage: String
             var number: String
-            /// The text inside the passenger's QR, not the image — the code is a
-            /// few dozen characters where the PNG would be kilobytes.
+            /// The text inside the passenger's code, not the image — a few dozen
+            /// characters where the PNG would be kilobytes.
             var qr: String?
+            /// Which symbology to redraw `qr` in. Trenitalia prints Aztec, Italo QR;
+            /// rebuilding one as the other yields a code no gate will accept.
+            var symbology: QRCodePayload.Symbology = .qr
+            /// Only set when `qr` could not be read: a shrunken copy of the original.
+            var image: Data?
 
             enum CodingKeys: String, CodingKey {
                 case name = "n", carriage = "c", number = "s", qr = "q"
+                case symbology = "y", image = "i"
+            }
+
+            init(name: String, carriage: String, number: String,
+                 qr: String?, symbology: QRCodePayload.Symbology = .qr, image: Data? = nil) {
+                self.name = name
+                self.carriage = carriage
+                self.number = number
+                self.qr = qr
+                self.symbology = symbology
+                self.image = image
+            }
+
+            /// Written by hand so links from before these two fields existed still decode.
+            init(from decoder: Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                name = try container.decode(String.self, forKey: .name)
+                carriage = try container.decode(String.self, forKey: .carriage)
+                number = try container.decode(String.self, forKey: .number)
+                qr = try container.decodeIfPresent(String.self, forKey: .qr)
+                symbology = try container.decodeIfPresent(
+                    QRCodePayload.Symbology.self, forKey: .symbology) ?? .qr
+                image = try container.decodeIfPresent(Data.self, forKey: .image)
             }
         }
 
@@ -79,11 +110,17 @@ enum TrainSharing {
                 .sorted { $0.ref_time < $1.ref_time }
                 .map { Payload.Stop(name: $0.name, platform: $0.platform, time: $0.ref_time, selected: $0.is_selected) },
             seats: seats.map { seat in
-                Payload.Seat(
+                let decoded = seat.image.flatMap { QRCodePayload.read(from: $0) }
+                return Payload.Seat(
                     name: seat.name,
                     carriage: seat.carriage,
                     number: seat.number,
-                    qr: seat.image.flatMap { QRCodePayload.decode(from: $0) }
+                    qr: decoded?.text,
+                    symbology: decoded?.symbology ?? .qr,
+                    // Unreadable code: send the picture rather than nothing at all.
+                    image: decoded == nil
+                        ? seat.image.flatMap { QRCodePayload.compressedForSharing($0) }
+                        : nil
                 )
             }
         )
@@ -120,14 +157,20 @@ enum TrainSharing {
         else { return nil }
 
         switch url.host()?.lowercased() {
-        case host where marker & versionMask == version:
+        case host where isPacked(marker):
             return decode(raw)
         case legacyHost:
             return decodeLegacy(raw)
         default:
             // be forgiving about the host and let the payload identify itself
-            return marker & versionMask == version ? decode(raw) : decodeLegacy(raw)
+            return isPacked(marker) ? decode(raw) : decodeLegacy(raw)
         }
+    }
+
+    /// True for any packed version we still read, current or older.
+    private static func isPacked(_ marker: UInt8) -> Bool {
+        let carried = marker & versionMask
+        return carried == version || carried == versionWithoutSymbology
     }
 
     /// Inserts a shared journey, or returns the existing one when it's already saved.
@@ -163,11 +206,15 @@ enum TrainSharing {
         }
 
         for seat in payload.seats {
+            // Redraw from the text when we have it, so the code is crisp; otherwise
+            // fall back to the copy of the image the link carried.
+            let code = seat.qr
+                .flatMap { QRCodePayload.image(from: $0, symbology: seat.symbology) }
+                ?? seat.image
             context.insert(Seat(
                 id: UUID(), trainID: trainID,
                 name: seat.name, carriage: seat.carriage, number: seat.number,
-                // rebuild the passenger's code from the shared payload
-                image: seat.qr.flatMap { QRCodePayload.image(from: $0) }
+                image: code
             ))
         }
 
@@ -178,7 +225,9 @@ enum TrainSharing {
 
     // MARK: Wire format
 
-    private static let version: UInt8 = 0x02
+    private static let version: UInt8 = 0x03
+    /// Links written before passenger codes carried their symbology.
+    private static let versionWithoutSymbology: UInt8 = 0x02
     private static let versionMask: UInt8 = 0x7F
     private static let deflatedFlag: UInt8 = 0x80
 
@@ -222,6 +271,8 @@ enum TrainSharing {
             writer.string(seat.carriage)
             writer.string(seat.number)
             writer.string(seat.qr ?? "")
+            writer.byte(UInt8(seat.symbology.rawValue))
+            writer.blob(seat.image ?? Data())
         }
 
         return writer.data
@@ -229,6 +280,7 @@ enum TrainSharing {
 
     private static func decode(_ raw: Data) -> Payload? {
         guard let marker = raw.first else { return nil }
+        let carriesSymbology = (marker & versionMask) >= version
         var body = raw.dropFirst()
         if marker & deflatedFlag != 0 {
             guard let inflated = try? (Data(body) as NSData).decompressed(using: .zlib) as Data else { return nil }
@@ -268,9 +320,20 @@ enum TrainSharing {
                   let number = reader.string(),
                   let qr = reader.string()
             else { return nil }
+
+            var symbology = QRCodePayload.Symbology.qr
+            var image: Data?
+            if carriesSymbology {
+                guard let raw = reader.byte(), let read = reader.blob() else { return nil }
+                symbology = QRCodePayload.Symbology(rawValue: Int(raw)) ?? .qr
+                image = read.isEmpty ? nil : read
+            }
+
             seats.append(Payload.Seat(
                 name: name, carriage: carriage, number: number,
-                qr: qr.isEmpty ? nil : qr
+                qr: qr.isEmpty ? nil : qr,
+                symbology: symbology,
+                image: image
             ))
         }
 
@@ -387,6 +450,12 @@ enum TrainSharing {
             data.append(contentsOf: bytes)
         }
 
+        /// Length-prefixed raw bytes, for the rare shared ticket image.
+        mutating func blob(_ value: Data) {
+            varint(value.count)
+            data.append(value)
+        }
+
         /// A known value goes out as its index; anything else as `0` plus the text.
         mutating func table(_ value: String, in table: [String]) {
             if let index = table.firstIndex(of: value) {
@@ -441,6 +510,14 @@ enum TrainSharing {
             else { return nil }
             defer { index = end }
             return String(decoding: data[index..<end], as: UTF8.self)
+        }
+
+        mutating func blob() -> Data? {
+            guard let count = varint(), count >= 0,
+                  let end = data.index(index, offsetBy: count, limitedBy: data.endIndex)
+            else { return nil }
+            defer { index = end }
+            return Data(data[index..<end])
         }
 
         mutating func table(_ table: [String]) -> String? {
