@@ -1,7 +1,12 @@
 import Foundation
 
+/// Year heading for a list section grouped by year, as the two pass lists are.
+nonisolated func yearSectionTitle(for date: Date) -> String {
+    String(Calendar.current.component(.year, from: date))
+}
+
 /// Month heading for a list section: "Marzo" within the current year, "Marzo 2024"
-/// otherwise. Used by the past-trains, passes and both email-import lists.
+/// otherwise. Used by the past-trains list and the email ticket import.
 nonisolated func monthSectionTitle(for date: Date) -> String {
     let calendar = Calendar.current
     let formatter = DateFormatter()
@@ -19,15 +24,15 @@ func timeToDate(timeString: String) -> Date? {
     timeFormatter.dateFormat = "HH:mm"
     timeFormatter.locale = Locale(identifier: "it_IT_POSIX")
     timeFormatter.timeZone = TimeZone(secondsFromGMT: 3600) // Interpret time string in GMT
-    
+
     let time = timeFormatter.date(from: timeString.trimmingCharacters(in: .whitespaces))
-    
+
     let calendar = Calendar.current
     let now = Date()
-    
+
     let hour = calendar.component(.hour, from: time!)
     let minute = calendar.component(.minute, from: time!)
-    
+
     if let todayWithTime = calendar.date(bySettingHour: hour, minute: minute, second: 0, of: now) {
         return todayWithTime
     } else {

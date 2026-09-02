@@ -269,7 +269,7 @@ struct ContentView: View {
             }
         }
         .contentTransition(.symbolEffect(.replace.downUp.wholeSymbol, options: .nonRepeating))
-        .foregroundStyle(isFetchingEmailTickets ? Color.primary : Color.blue)
+        .foregroundStyle(Color.primary)
     }
 
     private var emailImportSheetContent: some View {
@@ -358,7 +358,6 @@ struct ContentView: View {
         }
         .menuStyle(.borderlessButton)
         .buttonStyle(.plain)
-        .padding(.leading, -24)
     }
 
     private func sectionMenuLabel(_ title: String) -> some View {
@@ -553,6 +552,7 @@ private struct ProfileToolbarButton: View {
         }
         .onAppear { refreshImage() }
         .onChange(of: profiles.primary?.photo) { _, _ in refreshImage() }
+        .padding(.trailing, -4).padding(.leading, -8)
     }
 
     // MARK: - Actions

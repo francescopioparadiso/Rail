@@ -279,6 +279,8 @@ struct EmailTrainImportView: View {
                     }
                 }
 
+                ToolbarSpacer(.fixed, placement: .bottomBar)
+
                 DefaultToolbarItem(kind: .search, placement: .bottomBar)
             }
             .searchable(text: $searchText, prompt: "Search")

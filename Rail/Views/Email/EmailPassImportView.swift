@@ -56,7 +56,7 @@ struct EmailPassImportView: View {
     private var groupedPassSections: [(title: String, items: [PreloadedEmailPassItem])] {
         let calendar = Calendar.current
         let grouped = Dictionary(grouping: filteredPasses) { item -> Date in
-            let comps = calendar.dateComponents([.year, .month], from: item.pass.startDate)
+            let comps = calendar.dateComponents([.year], from: item.pass.startDate)
             return calendar.date(from: comps) ?? item.pass.startDate
         }
 
@@ -68,7 +68,7 @@ struct EmailPassImportView: View {
                 }
                 return lhs.pass.endDate > rhs.pass.endDate
             }
-            return (monthSectionTitle(for: key), items)
+            return (yearSectionTitle(for: key), items)
         }
     }
 
@@ -287,8 +287,12 @@ struct EmailPassImportView: View {
                 }
 
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(dateHeadline(for: item.pass))
-                        .font(.headline)
+                    Text(PassValidityPeriod.text(
+                        name: item.pass.name,
+                        start: item.pass.startDate,
+                        end: item.pass.endDate
+                    ))
+                    .font(.headline)
                     Text(item.pass.name)
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
@@ -403,53 +407,6 @@ struct EmailPassImportView: View {
         preloadedPasses = EmailPassSyncService.passes(from: profile).map { account, pass in
             PreloadedEmailPassItem(id: pass.id, pass: pass, accountEmail: account.email)
         }
-    }
-
-    /// Monthly → "May 2026"; Weekly → "13-20 Feb 2026"
-    private func dateHeadline(for pass: EmailPassContent) -> String {
-        let calendar = Calendar.current
-        let start = calendar.startOfDay(for: pass.startDate)
-        let end = calendar.startOfDay(for: pass.endDate)
-        let days = (calendar.dateComponents([.day], from: start, to: end).day ?? 0) + 1
-        let isWeekly = days <= 14
-            || pass.name.caseInsensitiveCompare(String(localized: "Weekly")) == .orderedSame
-
-        if isWeekly {
-            return weeklyDateHeadline(start: start, end: end)
-        }
-        return monthlyDateHeadline(for: start)
-    }
-
-    private func monthlyDateHeadline(for date: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.locale = .current
-        formatter.setLocalizedDateFormatFromTemplate("MMMMyyyy")
-        return formatter.string(from: date)
-    }
-
-    private func weeklyDateHeadline(start: Date, end: Date) -> String {
-        let calendar = Calendar.current
-        let startDay = calendar.component(.day, from: start)
-        let endDay = calendar.component(.day, from: end)
-
-        let monthFormatter = DateFormatter()
-        monthFormatter.locale = .current
-        monthFormatter.setLocalizedDateFormatFromTemplate("MMM")
-
-        let yearFormatter = DateFormatter()
-        yearFormatter.locale = .current
-        yearFormatter.setLocalizedDateFormatFromTemplate("yyyy")
-
-        let sameMonth = calendar.isDate(start, equalTo: end, toGranularity: .month)
-        let sameYear = calendar.isDate(start, equalTo: end, toGranularity: .year)
-
-        if sameMonth && sameYear {
-            return "\(startDay)-\(endDay) \(monthFormatter.string(from: start)) \(yearFormatter.string(from: start))"
-        }
-        if sameYear {
-            return "\(startDay) \(monthFormatter.string(from: start))–\(endDay) \(monthFormatter.string(from: end)) \(yearFormatter.string(from: start))"
-        }
-        return "\(startDay) \(monthFormatter.string(from: start)) \(yearFormatter.string(from: start))–\(endDay) \(monthFormatter.string(from: end)) \(yearFormatter.string(from: end))"
     }
 
     private func addPass(_ item: PreloadedEmailPassItem) {

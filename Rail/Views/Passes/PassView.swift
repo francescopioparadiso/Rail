@@ -126,11 +126,11 @@ struct PassView: View {
     private var groupedPassSections: [(title: String, passes: [Pass])] {
         let calendar = Calendar.current
         let grouped = Dictionary(grouping: filteredPasses) { pass -> Date in
-            let comps = calendar.dateComponents([.year, .month], from: pass.start_date)
+            let comps = calendar.dateComponents([.year], from: pass.start_date)
             return calendar.date(from: comps) ?? pass.start_date
         }
         return grouped.keys.sorted(by: >).map { key in
-            (monthSectionTitle(for: key), (grouped[key] ?? []).sorted { $0.start_date > $1.start_date })
+            (yearSectionTitle(for: key), (grouped[key] ?? []).sorted { $0.start_date > $1.start_date })
         }
     }
 
@@ -559,6 +559,15 @@ struct PassView: View {
                     .lineLimit(1)
                     .truncationMode(.tail)
 
+                Text(PassValidityPeriod.text(
+                    name: pass.name,
+                    start: pass.start_date,
+                    end: pass.expiry_date
+                ))
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+
                 Text(timeRemaining)
                     .font(.subheadline)
                     .foregroundStyle(statusColor)
@@ -638,7 +647,7 @@ struct PassView: View {
             }
         }
         .contentTransition(.symbolEffect(.replace.downUp.wholeSymbol, options: .nonRepeating))
-        .foregroundStyle(isFetching ? Color.primary : Color.blue)
+        .foregroundStyle(Color.primary)
         .font(.callout).fontWeight(.medium).fontDesign(appFontDesign)
         .animation(.snappy, value: isFetching)
     }

@@ -2592,6 +2592,50 @@
           }
         }
       }
+    },
+    "Clear filter" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rimuovi filtro"
+          }
+        }
+      }
+    },
+    "No tickets" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nessun biglietto"
+          }
+        }
+      }
+    },
+    "No tickets from the selected mailbox." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nessun biglietto dalla casella selezionata."
+          }
+        }
+      }
+    },
+    "Spent" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Speso"
+          }
+        }
+      }
     }
   },
   "version" : "1.1"

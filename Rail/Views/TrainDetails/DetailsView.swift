@@ -60,6 +60,17 @@ struct DetailsView: View {
         showAllStops ? stops : stops.filter { $0.is_selected }
     }
 
+    /// Weather is only fetched for a journey running today. A forecast for next
+    /// week would be wrong by the time the train ran, and once the day is over the
+    /// reading taken on the day is the one worth keeping — so it is written to the
+    /// stops and never overwritten with an empty value, and a journey opened a year
+    /// later still shows the weather it actually had.
+    private var journeyIsToday: Bool {
+        guard let departure = stops.sorted(by: { $0.ref_time < $1.ref_time }).first?.ref_time
+        else { return false }
+        return Calendar.current.isDateInToday(departure)
+    }
+
     /// True when the journey is today or already past.
     private var showsLastUpdate: Bool {
         let calendar = Calendar.current
@@ -99,21 +110,32 @@ struct DetailsView: View {
     }
 
     /// Where the journey begins, which is not always where the train does: a
-    /// favourite saved from mid-route boards at one of the intermediate stops.
-    /// The rows key off these to decide whether a stop shows a departure time, an
-    /// arrival time or both, and which of the two delays it reports — so they have
-    /// to follow the selection rather than the ends of the timetable.
+    /// favourite saved from mid-route boards at one of the intermediate stops, and
+    /// the rows key off these to decide whether a stop shows a departure time, an
+    /// arrival time or both, and which of the two delays it reports.
+    ///
+    /// Showing the whole timetable changes the answer. Among every stop the train
+    /// calls at, the one you board is an ordinary intermediate stop again — the
+    /// train arrives there and leaves — so it goes back to showing both times.
     private var firstIndex: Int {
-        stops.firstIndex(where: { $0.is_selected }) ?? stops.startIndex
+        showAllStops
+        ? stops.startIndex
+        : stops.firstIndex(where: { $0.is_selected }) ?? stops.startIndex
     }
     private var lastIndex: Int {
-        stops.lastIndex(where: { $0.is_selected }) ?? (stops.indices.last ?? 0)
+        showAllStops
+        ? (stops.indices.last ?? 0)
+        : stops.lastIndex(where: { $0.is_selected }) ?? (stops.indices.last ?? 0)
     }
     private var firstIndexNoIssues: Int {
-        stops.firstIndex(where: { $0.is_selected && $0.status != 3 }) ?? firstIndex
+        showAllStops
+        ? stops.firstIndex(where: { $0.status != 3 }) ?? firstIndex
+        : stops.firstIndex(where: { $0.is_selected && $0.status != 3 }) ?? firstIndex
     }
     private var lastIndexNoIssues: Int {
-        stops.lastIndex(where: { $0.is_selected && $0.status != 3 }) ?? lastIndex
+        showAllStops
+        ? stops.lastIndex(where: { $0.status != 3 }) ?? lastIndex
+        : stops.lastIndex(where: { $0.is_selected && $0.status != 3 }) ?? lastIndex
     }
 
     private var normalizedIdentifier: String {
@@ -459,7 +481,7 @@ struct DetailsView: View {
             stopsSection
         }
         .refreshable {
-            await updateTrainDetails(fetchWeather: true)
+            await updateTrainDetails(isManual: true)
         }
         .toolbar {
             // speed button
@@ -591,14 +613,16 @@ struct DetailsView: View {
             await Task.yield()
             try? await Task.sleep(nanoseconds: 300_000_000)
             guard !Task.isCancelled else { return }
-            await updateTrainDetails(fetchWeather: false)
+            await updateTrainDetails()
         }
         .task(id: train.id) {
-            // The stop list has to keep moving while the screen is open, whether or
-            // not there is a connection. This only reads the clock — the API refresh
-            // stays where it was, on appear and on pull-to-refresh.
+            // The stop list keeps moving while the screen is open. Ask the API first
+            // and let real data win; when the call comes back empty — no signal, or
+            // nothing new — the clock carries the journey on from what is stored.
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(30))
+                guard !Task.isCancelled else { break }
+                await updateTrainDetails()
                 guard !Task.isCancelled else { break }
                 advanceJourneyLocally()
             }
@@ -934,7 +958,7 @@ struct DetailsView: View {
     }
 
     @MainActor
-    private func updateTrainDetails(fetchWeather: Bool = false) async {
+    private func updateTrainDetails(isManual: Bool = false) async {
         guard !isRefreshing else { return }
 
         let firstStop_refTime = stops
@@ -943,9 +967,11 @@ struct DetailsView: View {
 
         guard Calendar.current.isDateInToday(firstStop_refTime) else { return }
 
-        if !fetchWeather, Date().timeIntervalSince(train.last_update_time) < 25 {
+        if !isManual, Date().timeIntervalSince(train.last_update_time) < 25 {
             return
         }
+
+        let fetchWeather = journeyIsToday
 
         isRefreshing = true
         defer { isRefreshing = false }
@@ -1023,7 +1049,7 @@ struct DetailsView: View {
         }
         
         try? modelContext.save()
-        if fetchWeather {
+        if isManual {
             WidgetCenter.shared.reloadAllTimelines()
         }
     }
