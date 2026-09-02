@@ -72,9 +72,7 @@ struct BoardTrainDetailView: View {
         let from = kind == .departures ? (boarded ?? origin) : origin
         let to = kind == .departures ? terminus : (boarded ?? terminus)
 
-        let schema = Schema([Train.self, Stop.self, Seat.self, Favorite.self, UserProfile.self])
-        let configuration = ModelConfiguration(isStoredInMemoryOnly: true)
-        guard let container = try? ModelContainer(for: schema, configurations: configuration) else { return nil }
+        guard let container = PreviewJourneyStore.container else { return nil }
 
         let journey = PreparedFavoriteTrain(info: info, fromStation: from, toStation: to)
         let (train, _) = FavoriteTrainService.insert(journey, into: container.mainContext)
@@ -100,7 +98,24 @@ struct BoardTrainDetailView: View {
     }
 }
 
-/// A journey held in a store of its own.
+/// The store every previewed journey lives in, made once and shared.
+///
+/// One store per journey was the obvious thing to write and it crashes: Core Data
+/// hands out a connection for the first in-memory container and throws
+/// "No eligible connection available" on the second, taking the app with it the
+/// moment a second train is opened from a board. Nothing here needed more than one
+/// store anyway — a journey is told apart by its own id, not by the store it sits
+/// in. Journeys accumulate in memory for the session and go when the app does.
+@MainActor
+enum PreviewJourneyStore {
+    static let container: ModelContainer? = {
+        let schema = Schema([Train.self, Stop.self, Seat.self, Favorite.self, UserProfile.self])
+        let configuration = ModelConfiguration(isStoredInMemoryOnly: true)
+        return try? ModelContainer(for: schema, configurations: configuration)
+    }()
+}
+
+/// A journey staged in that store, ready for the details screen.
 private struct StagedJourney {
     let container: ModelContainer
     let train: Train
