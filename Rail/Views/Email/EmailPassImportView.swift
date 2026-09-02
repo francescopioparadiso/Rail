@@ -9,6 +9,8 @@ struct PreloadedEmailPassItem: Identifiable {
 }
 
 struct EmailPassImportView: View {
+    // MARK: - Properties
+
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
     @Query private var profiles: [UserProfile]
@@ -27,6 +29,78 @@ struct EmailPassImportView: View {
     @State private var syncTask: Task<Void, Never>?
     @State private var searchText = ""
     @State private var showSaveAllConfirmation = false
+
+    // MARK: - Computed
+
+    private var isSyncFinished: Bool {
+        syncProgress?.stage == .finished
+    }
+
+    private var globalPercentage: Int {
+        let totalFound = accountProgresses.reduce(0) { $0 + $1.found }
+        let totalProcessed = accountProgresses.reduce(0) { $0 + $1.processed }
+        guard totalFound > 0 else { return 0 }
+        return min(100, Int((Double(totalProcessed) / Double(totalFound)) * 100))
+    }
+
+    private var linkedAccounts: [Emails] {
+        profiles.primary?.emails ?? []
+    }
+
+    private var filteredPasses: [PreloadedEmailPassItem] {
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !query.isEmpty else { return preloadedPasses }
+        return preloadedPasses.filter { matches($0.pass, query: query) }
+    }
+
+    private var groupedPassSections: [(title: String, items: [PreloadedEmailPassItem])] {
+        let calendar = Calendar.current
+        let grouped = Dictionary(grouping: filteredPasses) { item -> Date in
+            let comps = calendar.dateComponents([.year, .month], from: item.pass.startDate)
+            return calendar.date(from: comps) ?? item.pass.startDate
+        }
+
+        let sortedKeys = grouped.keys.sorted(by: >)
+        return sortedKeys.map { key in
+            let items = (grouped[key] ?? []).sorted { lhs, rhs in
+                if lhs.pass.startDate != rhs.pass.startDate {
+                    return lhs.pass.startDate > rhs.pass.startDate
+                }
+                return lhs.pass.endDate > rhs.pass.endDate
+            }
+            return (monthSectionTitle(for: key), items)
+        }
+    }
+
+    private var progressLabel: String {
+        guard let progress = syncProgress else {
+            return String(localized: "Connecting…")
+        }
+        switch progress.stage {
+        case .searching:
+            return String(localized: "Searching…")
+        case .downloading:
+            return String(localized: "Fetching \(globalPercentage)%")
+        case .finished:
+            return String(localized: "Scan complete")
+        }
+    }
+
+    private var progressSublabel: String {
+        guard let progress = syncProgress else {
+            return String(localized: "This can take a moment on the first scan.")
+        }
+        switch progress.stage {
+        case .searching:
+            return ""
+        case .downloading:
+            return ""
+        case .finished:
+            return ""
+        }
+    }
+
+    // MARK: - Body
 
     var body: some View {
         Group {
@@ -174,64 +248,8 @@ struct EmailPassImportView: View {
         .onDisappear { syncTask?.cancel() }
     }
 
-    private var isSyncFinished: Bool {
-        syncProgress?.stage == .finished
-    }
+    // MARK: - Subviews
 
-    private var globalPercentage: Int {
-        let totalFound = accountProgresses.reduce(0) { $0 + $1.found }
-        let totalProcessed = accountProgresses.reduce(0) { $0 + $1.processed }
-        guard totalFound > 0 else { return 0 }
-        return min(100, Int((Double(totalProcessed) / Double(totalFound)) * 100))
-    }
-
-    private var linkedAccounts: [Emails] {
-        profiles.primary?.emails ?? []
-    }
-
-    private var filteredPasses: [PreloadedEmailPassItem] {
-        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard !query.isEmpty else { return preloadedPasses }
-        return preloadedPasses.filter { matches($0.pass, query: query) }
-    }
-
-    private var groupedPassSections: [(title: String, items: [PreloadedEmailPassItem])] {
-        let calendar = Calendar.current
-        let grouped = Dictionary(grouping: filteredPasses) { item -> Date in
-            let comps = calendar.dateComponents([.year, .month], from: item.pass.startDate)
-            return calendar.date(from: comps) ?? item.pass.startDate
-        }
-
-        let sortedKeys = grouped.keys.sorted(by: >)
-        return sortedKeys.map { key in
-            let items = (grouped[key] ?? []).sorted { lhs, rhs in
-                if lhs.pass.startDate != rhs.pass.startDate {
-                    return lhs.pass.startDate > rhs.pass.startDate
-                }
-                return lhs.pass.endDate > rhs.pass.endDate
-            }
-            return (monthSectionTitle(for: key), items)
-        }
-    }
-
-    private func matches(_ pass: EmailPassContent, query: String) -> Bool {
-        if pass.name.lowercased().contains(query) { return true }
-
-        let dates = [
-            pass.startDate.formatted(.dateTime.day().month().year()),
-            pass.startDate.formatted(date: .abbreviated, time: .omitted),
-            pass.startDate.formatted(date: .numeric, time: .omitted),
-            pass.endDate.formatted(.dateTime.day().month().year()),
-            pass.endDate.formatted(date: .abbreviated, time: .omitted),
-            pass.endDate.formatted(date: .long, time: .omitted),
-            pass.endDate.formatted(date: .numeric, time: .omitted),
-            pass.endDate.formatted(.dateTime.month(.wide)),
-            pass.endDate.formatted(.dateTime.year())
-        ]
-        return dates.contains { $0.lowercased().contains(query) }
-    }
-
-    @ViewBuilder
     private var progressView: some View {
         EmailSyncProgressView(
             isFetching: !isSyncFinished,
@@ -248,32 +266,68 @@ struct EmailPassImportView: View {
         }
     }
 
-    private var progressLabel: String {
-        guard let progress = syncProgress else {
-            return String(localized: "Connecting…")
+    @ViewBuilder
+    private func passRow(_ item: PreloadedEmailPassItem) -> some View {
+        let isAdded = isAlreadyAdded(item.pass)
+        let canAdd = !isAdded && !item.pass.qrcode.isEmpty
+
+        Button {
+            addPass(item)
+        } label: {
+            HStack(alignment: .center, spacing: 12) {
+                if let image = UIImage(data: item.pass.qrcode) {
+                    Image(uiImage: image)
+                        .resizable()
+                        .interpolation(.none)
+                        .scaledToFit()
+                        .frame(width: 44, height: 44)
+                        .padding(4)
+                        .background(Color.white)
+                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                }
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(dateHeadline(for: item.pass))
+                        .font(.headline)
+                    Text(item.pass.name)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer()
+
+                if !item.pass.price.isEmpty {
+                    Text(item.pass.price)
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .padding(.vertical, 4)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
         }
-        switch progress.stage {
-        case .searching:
-            return String(localized: "Searching…")
-        case .downloading:
-            return String(localized: "Fetching \(globalPercentage)%")
-        case .finished:
-            return String(localized: "Scan complete")
-        }
+        .buttonStyle(.plain)
+        .disabled(!canAdd)
+        .fontDesign(appFontDesign)
     }
 
-    private var progressSublabel: String {
-        guard let progress = syncProgress else {
-            return String(localized: "This can take a moment on the first scan.")
-        }
-        switch progress.stage {
-        case .searching:
-            return ""
-        case .downloading:
-            return ""
-        case .finished:
-            return ""
-        }
+    // MARK: - Actions
+
+    private func matches(_ pass: EmailPassContent, query: String) -> Bool {
+        if pass.name.lowercased().contains(query) { return true }
+
+        let dates = [
+            pass.startDate.formatted(.dateTime.day().month().year()),
+            pass.startDate.formatted(date: .abbreviated, time: .omitted),
+            pass.startDate.formatted(date: .numeric, time: .omitted),
+            pass.endDate.formatted(.dateTime.day().month().year()),
+            pass.endDate.formatted(date: .abbreviated, time: .omitted),
+            pass.endDate.formatted(date: .long, time: .omitted),
+            pass.endDate.formatted(date: .numeric, time: .omitted),
+            pass.endDate.formatted(.dateTime.month(.wide)),
+            pass.endDate.formatted(.dateTime.year())
+        ]
+        return dates.contains { $0.lowercased().contains(query) }
     }
 
     private func beginScan(reloadAll: Bool) {
@@ -349,51 +403,6 @@ struct EmailPassImportView: View {
         preloadedPasses = EmailPassSyncService.passes(from: profile).map { account, pass in
             PreloadedEmailPassItem(id: pass.id, pass: pass, accountEmail: account.email)
         }
-    }
-
-    @ViewBuilder
-    private func passRow(_ item: PreloadedEmailPassItem) -> some View {
-        let isAdded = isAlreadyAdded(item.pass)
-        let canAdd = !isAdded && !item.pass.qrcode.isEmpty
-
-        Button {
-            addPass(item)
-        } label: {
-            HStack(alignment: .center, spacing: 12) {
-                if let image = UIImage(data: item.pass.qrcode) {
-                    Image(uiImage: image)
-                        .resizable()
-                        .interpolation(.none)
-                        .scaledToFit()
-                        .frame(width: 44, height: 44)
-                        .padding(4)
-                        .background(Color.white)
-                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                }
-
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(dateHeadline(for: item.pass))
-                        .font(.headline)
-                    Text(item.pass.name)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                }
-
-                Spacer()
-
-                if !item.pass.price.isEmpty {
-                    Text(item.pass.price)
-                        .font(.subheadline.weight(.medium))
-                        .foregroundStyle(.secondary)
-                }
-            }
-            .padding(.vertical, 4)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .disabled(!canAdd)
-        .fontDesign(appFontDesign)
     }
 
     /// Monthly → "May 2026"; Weekly → "13-20 Feb 2026"
@@ -490,7 +499,11 @@ struct EmailPassImportView: View {
 }
 
 private struct EmailPassImportPreview: View {
+    // MARK: - Properties
+
     let container: ModelContainer
+
+    // MARK: - Body
 
     var body: some View {
         NavigationStack {

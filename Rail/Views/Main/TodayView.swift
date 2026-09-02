@@ -4,15 +4,17 @@ import WidgetKit
 import StoreKit
 
 struct TodayView: View {
+    // MARK: - Properties
+
     @Environment(\.requestReview) var requestReview
-    
+
     @Binding var ticketTrainID: UUID?
     @Binding var ticketSeatID: UUID?
     @Binding var showTicketView: Bool
     @Binding var searchText: String
     @Binding var navigationPath: [Train]
     var isActive: Bool = true
-    
+
     @Environment(\.modelContext) private var modelContext
     @Query private var trains: [Train]
     @Query private var stops: [Stop]
@@ -28,9 +30,13 @@ struct TodayView: View {
 
     private static let minUpdateInterval: TimeInterval = 25
 
+    // MARK: - Computed
+
     private var filteredRowItems: [TrainRowItem] {
         rowItems.filter { TrainListBuilder.matches($0, searchText: searchText) }
     }
+
+    // MARK: - Body
 
     var body: some View {
         Group {
@@ -117,6 +123,8 @@ struct TodayView: View {
         }
     }
 
+    // MARK: - Actions
+
     private func scheduleRefreshRowItems() {
         refreshTask?.cancel()
         refreshTask = Task { @MainActor in
@@ -131,7 +139,7 @@ struct TodayView: View {
         stopsByTrain = Dictionary(grouping: stops, by: \.id)
         rowItems = TrainListBuilder.todayItems(trains: trains, stops: stops, now: listNow)
     }
-    
+
     private func deleteTodayTrains(at offsets: IndexSet) {
         let items = offsets.map { filteredRowItems[$0] }
         for item in items {

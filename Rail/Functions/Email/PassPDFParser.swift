@@ -14,6 +14,8 @@ struct ParsedPassPDF: Sendable {
 
 /// Pure parsing, safe to run off the main actor during mailbox sync.
 nonisolated enum PassPDFParser {
+    // MARK: - Properties
+
     private static let datePatterns: [NSRegularExpression] = {
         let patterns: [(String, NSRegularExpression.Options)] = [
             // Classic single-line: Validità: dal 01/05/2017 al 31/05/2017
@@ -48,6 +50,20 @@ nonisolated enum PassPDFParser {
         pattern: #"\b(settimanale|quindicinale|mensile|trimestrale|semestrale|annuale)\b"#,
         options: .caseInsensitive
     )
+
+    /// Tried in order, most specific first. The gap is `[^0-9]` rather than a
+    /// list of allowed characters so a euro sign, colon, parenthesis, currency
+    /// word or non-breaking space between the label and the amount can't break
+    /// the match — the previous character class silently failed on any of those.
+    private static let pricePatterns: [NSRegularExpression] = [
+        #"importo\s+totale[^0-9]{0,30}([0-9]{1,5}[.,][0-9]{2})"#,
+        #"totale[^0-9]{0,30}([0-9]{1,5}[.,][0-9]{2})"#,
+        #"(?:importo|prezzo|amount|price)[^0-9]{0,30}([0-9]{1,5}[.,][0-9]{2})"#,
+        #"€\s*([0-9]{1,5}[.,][0-9]{2})"#,
+        #"([0-9]{1,5}[.,][0-9]{2})\s*€"#,
+    ].compactMap { try? NSRegularExpression(pattern: $0, options: .caseInsensitive) }
+
+    // MARK: - Methods
 
     /// Fast parse used during mailbox sync (no Vision — mirrors Python).
     static func parse(pdfData: Data) -> ParsedPassPDF? {
@@ -200,18 +216,6 @@ nonisolated enum PassPDFParser {
         if start <= end { return (start, end) }
         return (end, start)
     }
-
-    /// Tried in order, most specific first. The gap is `[^0-9]` rather than a
-    /// list of allowed characters so a euro sign, colon, parenthesis, currency
-    /// word or non-breaking space between the label and the amount can't break
-    /// the match — the previous character class silently failed on any of those.
-    private static let pricePatterns: [NSRegularExpression] = [
-        #"importo\s+totale[^0-9]{0,30}([0-9]{1,5}[.,][0-9]{2})"#,
-        #"totale[^0-9]{0,30}([0-9]{1,5}[.,][0-9]{2})"#,
-        #"(?:importo|prezzo|amount|price)[^0-9]{0,30}([0-9]{1,5}[.,][0-9]{2})"#,
-        #"€\s*([0-9]{1,5}[.,][0-9]{2})"#,
-        #"([0-9]{1,5}[.,][0-9]{2})\s*€"#,
-    ].compactMap { try? NSRegularExpression(pattern: $0, options: .caseInsensitive) }
 
     private static func parsePrice(in text: String) -> String {
         // collapse every kind of space, including the non-breaking ones PDFKit emits

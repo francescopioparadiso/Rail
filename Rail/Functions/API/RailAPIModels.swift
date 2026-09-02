@@ -47,6 +47,8 @@ struct SolutionSegment: Hashable {
 
 // a full journey from departure to arrival; more than one segment means a connection.
 struct Solution: Hashable, Identifiable {
+    // MARK: - Properties
+
     let id = UUID()
     let segments: [SolutionSegment]
     /// nil when the fare is unavailable or the API asks us to hide it.
@@ -58,6 +60,8 @@ struct Solution: Hashable, Identifiable {
         self.price = price
         self.currency = currency
     }
+
+    // MARK: - Computed
 
     var departureTime: Date { segments.first?.departureTime ?? .distantPast }
     var arrivalTime: Date { segments.last?.arrivalTime ?? .distantPast }

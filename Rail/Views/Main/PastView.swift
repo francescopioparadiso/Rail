@@ -3,15 +3,17 @@ import SwiftData
 import StoreKit
 
 struct PastView: View {
+    // MARK: - Properties
+
     @Environment(\.requestReview) var requestReview
-    
+
     @Binding var ticketTrainID: UUID?
     @Binding var ticketSeatID: UUID?
     @Binding var showTicketView: Bool
     @Binding var searchText: String
     @Binding var navigationPath: [Train]
     var isActive: Bool = true
-    
+
     @Environment(\.modelContext) private var modelContext
     @Query private var trains: [Train]
     @Query private var stops: [Stop]
@@ -21,9 +23,29 @@ struct PastView: View {
     @State private var stopsByTrain: [UUID: [Stop]] = [:]
     @State private var refreshTask: Task<Void, Never>?
 
+    // MARK: - Computed
+
     private var filteredRowItems: [TrainRowItem] {
         rowItems.filter { TrainListBuilder.matches($0, searchText: searchText) }
     }
+
+    /// Past journeys grouped by the month they ran in, newest first — the same
+    /// grouping the email ticket list uses.
+    private var groupedRowSections: [(title: String, items: [TrainRowItem])] {
+        let calendar = Calendar.current
+        let grouped = Dictionary(grouping: filteredRowItems) { item -> Date in
+            let date = item.summary.lastNoIssues.arr_time_eff
+            return calendar.date(from: calendar.dateComponents([.year, .month], from: date)) ?? date
+        }
+        return grouped.keys.sorted(by: >).map { key in
+            let items = (grouped[key] ?? []).sorted {
+                $0.summary.lastNoIssues.arr_time_eff > $1.summary.lastNoIssues.arr_time_eff
+            }
+            return (monthSectionTitle(for: key), items)
+        }
+    }
+
+    // MARK: - Body
 
     var body: some View {
         Group {
@@ -109,6 +131,8 @@ struct PastView: View {
         }
     }
 
+    // MARK: - Actions
+
     private func scheduleRefreshRowItems() {
         refreshTask?.cancel()
         refreshTask = Task { @MainActor in
@@ -117,26 +141,10 @@ struct PastView: View {
             refreshRowItems()
         }
     }
-    
+
     private func refreshRowItems() {
         stopsByTrain = Dictionary(grouping: stops, by: \.id)
         rowItems = TrainListBuilder.pastItems(trains: trains, stops: stops)
-    }
-    
-    /// Past journeys grouped by the month they ran in, newest first — the same
-    /// grouping the email ticket list uses.
-    private var groupedRowSections: [(title: String, items: [TrainRowItem])] {
-        let calendar = Calendar.current
-        let grouped = Dictionary(grouping: filteredRowItems) { item -> Date in
-            let date = item.summary.lastNoIssues.arr_time_eff
-            return calendar.date(from: calendar.dateComponents([.year, .month], from: date)) ?? date
-        }
-        return grouped.keys.sorted(by: >).map { key in
-            let items = (grouped[key] ?? []).sorted {
-                $0.summary.lastNoIssues.arr_time_eff > $1.summary.lastNoIssues.arr_time_eff
-            }
-            return (monthSectionTitle(for: key), items)
-        }
     }
 
     private func deletePastTrains(at offsets: IndexSet, in sectionItems: [TrainRowItem]) {

@@ -23,12 +23,16 @@ struct SolutionPriceRank {
 /// One journey in the Choose Train list: collapsed it shows the whole trip,
 /// expanded it breaks out every leg with the connection time between them.
 struct SolutionRow: View {
+    // MARK: - Properties
+
     let solution: Solution
     let isExpanded: Bool
     let priceRank: SolutionPriceRank?
     let onToggleExpanded: () -> Void
 
     private static let chipHeight: CGFloat = 30
+
+    // MARK: - Computed
 
     private var canExpand: Bool { solution.segments.count > 1 }
 
@@ -37,6 +41,15 @@ struct SolutionRow: View {
     private var leadDestination: SolutionSegment? {
         isExpanded ? solution.segments.first : solution.segments.last
     }
+
+    private var changesText: String {
+        String.localizedStringWithFormat(
+            NSLocalizedString("%lld changes", comment: "Number of changes on a journey"),
+            solution.changeCount
+        )
+    }
+
+    // MARK: - Body
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -59,10 +72,10 @@ struct SolutionRow: View {
             if isExpanded {
                 ForEach(Array(solution.segments.enumerated()).dropFirst(), id: \.offset) { index, segment in
                     VStack(alignment: .leading, spacing: 12) {
-                        connectionDivider(
-                            from: solution.segments[index - 1].arrivalTime,
-                            to: segment.departureTime
-                        )
+                        ConnectionDivider(minutes: minutesBetween(
+                            solution.segments[index - 1].arrivalTime,
+                            segment.departureTime
+                        ))
                         VStack(alignment: .leading, spacing: 8) {
                             segmentHeader(segment, extraCount: 0, showsChevron: false, isLead: false)
                             route(
@@ -83,6 +96,8 @@ struct SolutionRow: View {
         .fontDesign(appFontDesign)
         .padding(.vertical, 4)
     }
+
+    // MARK: - Subviews
 
     private func segmentHeader(_ segment: SolutionSegment, extraCount: Int, showsChevron: Bool, isLead: Bool) -> some View {
         HStack(spacing: 8) {
@@ -138,16 +153,6 @@ struct SolutionRow: View {
         }
     }
 
-    private func segmentLabel(_ segment: SolutionSegment) -> String {
-        if segment.isUntracked { return NSLocalizedString("Transfer", comment: "An urban transfer leg with no train number") }
-        return segment.number.isEmpty ? NSLocalizedString("Bus", comment: "") : segment.number
-    }
-
-    private func segmentTint(_ segment: SolutionSegment) -> Color {
-        if segment.isUntracked { return .secondary }
-        return segment.isBus ? .blue : .primary
-    }
-
     private func route(origin: String, destination: String, departure: Date, arrival: Date, isLead: Bool) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
@@ -166,10 +171,6 @@ struct SolutionRow: View {
         }
         .font(.subheadline)
         .foregroundStyle(.secondary)
-    }
-
-    private func connectionDivider(from: Date, to: Date) -> some View {
-        ConnectionDivider(minutes: max(0, Int(to.timeIntervalSince(from)) / 60))
     }
 
     private var chips: some View {
@@ -214,11 +215,20 @@ struct SolutionRow: View {
         .background(Color(.tertiarySystemFill), in: Capsule())
     }
 
-    private var changesText: String {
-        String.localizedStringWithFormat(
-            NSLocalizedString("%lld changes", comment: "Number of changes on a journey"),
-            solution.changeCount
-        )
+    // MARK: - Actions
+
+    private func minutesBetween(_ start: Date, _ end: Date) -> Int {
+        max(0, Int(end.timeIntervalSince(start)) / 60)
+    }
+
+    private func segmentLabel(_ segment: SolutionSegment) -> String {
+        if segment.isUntracked { return NSLocalizedString("Transfer", comment: "An urban transfer leg with no train number") }
+        return segment.number.isEmpty ? NSLocalizedString("Bus", comment: "") : segment.number
+    }
+
+    private func segmentTint(_ segment: SolutionSegment) -> Color {
+        if segment.isUntracked { return .secondary }
+        return segment.isBus ? .blue : .primary
     }
 }
 

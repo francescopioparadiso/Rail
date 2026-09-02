@@ -2,29 +2,35 @@ import SwiftUI
 import SwiftData
 
 struct AddEmailSheetView: View {
+    // MARK: - Properties
+
     @Bindable var profile: UserProfile
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
     @Environment(\.openURL) private var openURL
-    
+
     @State private var email = ""
     @State private var appPassword = ""
     @State private var isPasswordVisible = false
     @State private var customIMAPServer = ""
     @State private var customIMAPPort = ""
     @FocusState private var isEmailFocused: Bool
-    
+
+    // MARK: - Computed
+
     private var provider: EmailProvider {
         EmailProvider.inferred(from: email)
     }
-    
+
     private var showsCustomIMAPSettings: Bool {
         guard provider == .other else { return false }
         let trimmed = email.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let domain = trimmed.split(separator: "@").last else { return false }
         return domain.contains(".")
     }
-    
+
+    // MARK: - Body
+
     var body: some View {
         NavigationStack {
             Form {
@@ -131,7 +137,9 @@ struct AddEmailSheetView: View {
         }
         .presentationDetents([.medium, .large])
     }
-    
+
+    // MARK: - Actions
+
     private func saveEmail() {
         let trimmedEmail = email.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedPassword = appPassword.trimmingCharacters(in: .whitespacesAndNewlines)

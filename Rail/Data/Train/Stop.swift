@@ -3,12 +3,14 @@ import Foundation
 
 @Model
 final class Stop {
+    // MARK: - Properties
+
     var id: UUID = UUID()
 
     var name: String = ""
     var platform: String = ""
     var weather: String = ""
-    
+
     var is_selected: Bool = false
     var status: Int = 0
     var is_completed: Bool = false
@@ -22,7 +24,7 @@ final class Stop {
     var dep_time_eff: Date = Date()
     var arr_time_eff: Date = Date()
     var ref_time: Date = Date()
-    
+
     init(id: UUID,
          name: String,
          platform: String,
@@ -55,7 +57,9 @@ final class Stop {
         self.arr_time_eff = arr_time_eff
         self.ref_time = ref_time
     }
-    
+
+    // MARK: - Methods
+
     static func placeholder() -> Stop {
         Stop(
             id: UUID(),

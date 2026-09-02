@@ -1,8 +1,12 @@
 import SwiftUI
 
 struct EmailTicketRow: View {
+    // MARK: - Properties
+
     let ticket: EmailContent
     var isLoading: Bool = false
+
+    // MARK: - Computed
 
     private var displayDate: Date {
         ticket.departureDate ?? ticket.date
@@ -43,6 +47,8 @@ struct EmailTicketRow: View {
         guard !price.isEmpty, price != "Unknown" else { return nil }
         return price
     }
+
+    // MARK: - Body
 
     var body: some View {
         HStack(alignment: .center, spacing: 12) {
@@ -87,6 +93,8 @@ struct EmailTicketRow: View {
         }
         .padding(.vertical, 4)
     }
+
+    // MARK: - Actions
 
     /// Lowercases the whole string, then capitalizes only its first character — i.e. only
     /// the first word gets a capital letter, unlike `.capitalized` which title-cases every word.

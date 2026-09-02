@@ -5,24 +5,28 @@ import SwiftUI
 
 @Observable
 class SpeedManager: NSObject, CLLocationManagerDelegate {
+    // MARK: - Properties
+
     var displayedSpeed: Int = 0
     var permissionStatus: CLAuthorizationStatus = .notDetermined
-    
+
     private let locationManager = CLLocationManager()
     private var speedReadings: [Double] = []
     private var updateTimer: Timer?
-    
+
     override init() {
         super.init()
         locationManager.delegate = self
         locationManager.desiredAccuracy = kCLLocationAccuracyBestForNavigation
         locationManager.distanceFilter = kCLDistanceFilterNone
     }
-    
+
+    // MARK: - Methods
+
     func requestPermission() {
         locationManager.requestWhenInUseAuthorization()
     }
-    
+
     func startMonitoring() {
         locationManager.startUpdatingLocation()
         
@@ -31,7 +35,7 @@ class SpeedManager: NSObject, CLLocationManagerDelegate {
             self?.updateDisplayedSpeed()
         }
     }
-    
+
     func stopMonitoring() {
         locationManager.stopUpdatingLocation()
         updateTimer?.invalidate()
@@ -39,7 +43,7 @@ class SpeedManager: NSObject, CLLocationManagerDelegate {
         speedReadings.removeAll()
         displayedSpeed = 0
     }
-    
+
     private func updateDisplayedSpeed() {
         guard !speedReadings.isEmpty else {
             Task { @MainActor in
@@ -63,7 +67,7 @@ class SpeedManager: NSObject, CLLocationManagerDelegate {
         
         speedReadings.removeAll()
     }
-    
+
     func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
         guard let location = locations.last else { return }
         
@@ -74,7 +78,7 @@ class SpeedManager: NSObject, CLLocationManagerDelegate {
             speedReadings.append(0)
         }
     }
-    
+
     func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
         self.permissionStatus = manager.authorizationStatus
     }

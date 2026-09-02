@@ -3,6 +3,8 @@ import SwiftData
 import EventKit
 
 struct CalendarSettingsView: View {
+    // MARK: - Properties
+
     @Bindable var profile: UserProfile
     @Environment(\.modelContext) private var modelContext
     @Query private var trains: [Train]
@@ -12,6 +14,8 @@ struct CalendarSettingsView: View {
     @State private var availableCalendars: [EKCalendar] = []
     @State private var isAuthorized: Bool = CalendarManager.shared.isAuthorized
     @State private var showPermissionAlert: Bool = false
+
+    // MARK: - Body
 
     var body: some View {
         Form {
@@ -90,6 +94,8 @@ struct CalendarSettingsView: View {
             Text("Rail needs access to your calendar to add train journeys as events. Please enable it in Settings.")
         }
     }
+
+    // MARK: - Actions
 
     private func calendarBinding<Value>(_ keyPath: WritableKeyPath<CalendarSettings, Value>) -> Binding<Value> {
         Binding(

@@ -1,7 +1,11 @@
 import SwiftUI
 
 struct SpeedGaugeView: View {
+    // MARK: - Properties
+
     @State private var speedManager = SpeedManager()
+
+    // MARK: - Body
 
     var body: some View {
         Button {} label: {

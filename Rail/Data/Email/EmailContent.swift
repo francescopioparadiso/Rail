@@ -1,6 +1,16 @@
 import Foundation
 
 struct EmailContent: Codable, Identifiable, Sendable {
+    // MARK: - Types
+
+    private enum CodingKeys: String, CodingKey {
+        case id, imapUID, date, link, departureDate, arrivalDate
+        case trainNumber, departureStation, arrivalStation, price
+        case passengers, detailsFetchedAt, detailsError
+    }
+
+    // MARK: - Properties
+
     var id: UUID = UUID()
     var imapUID: String
     var date: Date
@@ -14,12 +24,6 @@ struct EmailContent: Codable, Identifiable, Sendable {
     var passengers: [EmailContentPassenger] = []
     var detailsFetchedAt: Date?
     var detailsError: String?
-
-    private enum CodingKeys: String, CodingKey {
-        case id, imapUID, date, link, departureDate, arrivalDate
-        case trainNumber, departureStation, arrivalStation, price
-        case passengers, detailsFetchedAt, detailsError
-    }
 
     nonisolated init(
         id: UUID = UUID(),
@@ -68,22 +72,7 @@ struct EmailContent: Codable, Identifiable, Sendable {
         detailsError = try container.decodeIfPresent(String.self, forKey: .detailsError)
     }
 
-    nonisolated func encode(to encoder: Encoder) throws {
-        var container = encoder.container(keyedBy: CodingKeys.self)
-        try container.encode(id, forKey: .id)
-        try container.encode(imapUID, forKey: .imapUID)
-        try container.encode(date, forKey: .date)
-        try container.encode(link, forKey: .link)
-        try container.encodeIfPresent(departureDate, forKey: .departureDate)
-        try container.encodeIfPresent(arrivalDate, forKey: .arrivalDate)
-        try container.encode(trainNumber, forKey: .trainNumber)
-        try container.encode(departureStation, forKey: .departureStation)
-        try container.encode(arrivalStation, forKey: .arrivalStation)
-        try container.encode(price, forKey: .price)
-        try container.encode(passengers, forKey: .passengers)
-        try container.encodeIfPresent(detailsFetchedAt, forKey: .detailsFetchedAt)
-        try container.encodeIfPresent(detailsError, forKey: .detailsError)
-    }
+    // MARK: - Computed
 
     var hasLoadedDetails: Bool {
         detailsFetchedAt != nil || !passengers.isEmpty
@@ -107,16 +96,6 @@ struct EmailContent: Codable, Identifiable, Sendable {
             && CheckInLink.extractID(from: link) != nil
     }
 
-    nonisolated static func isUpcomingDeparture(_ departureDate: Date, now: Date = Date()) -> Bool {
-        isDepartureOnOrAfterToday(departureDate, now: now)
-    }
-
-    nonisolated static func isDepartureOnOrAfterToday(_ departureDate: Date, now: Date = Date()) -> Bool {
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = TimeZone(identifier: "Europe/Rome") ?? .current
-        return calendar.startOfDay(for: departureDate) >= calendar.startOfDay(for: now)
-    }
-
     /// Preview-only stubs that must never appear in a real mailbox sync.
     nonisolated var isSampleTicket: Bool {
         let sampleIDs = [
@@ -128,6 +107,35 @@ struct EmailContent: Codable, Identifiable, Sendable {
             return true
         }
         return ["1001", "1002", "1003"].contains(imapUID)
+    }
+
+    // MARK: - Methods
+
+    nonisolated func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(imapUID, forKey: .imapUID)
+        try container.encode(date, forKey: .date)
+        try container.encode(link, forKey: .link)
+        try container.encodeIfPresent(departureDate, forKey: .departureDate)
+        try container.encodeIfPresent(arrivalDate, forKey: .arrivalDate)
+        try container.encode(trainNumber, forKey: .trainNumber)
+        try container.encode(departureStation, forKey: .departureStation)
+        try container.encode(arrivalStation, forKey: .arrivalStation)
+        try container.encode(price, forKey: .price)
+        try container.encode(passengers, forKey: .passengers)
+        try container.encodeIfPresent(detailsFetchedAt, forKey: .detailsFetchedAt)
+        try container.encodeIfPresent(detailsError, forKey: .detailsError)
+    }
+
+    nonisolated static func isUpcomingDeparture(_ departureDate: Date, now: Date = Date()) -> Bool {
+        isDepartureOnOrAfterToday(departureDate, now: now)
+    }
+
+    nonisolated static func isDepartureOnOrAfterToday(_ departureDate: Date, now: Date = Date()) -> Bool {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "Europe/Rome") ?? .current
+        return calendar.startOfDay(for: departureDate) >= calendar.startOfDay(for: now)
     }
 }
 

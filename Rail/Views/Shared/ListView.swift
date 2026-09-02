@@ -2,11 +2,15 @@ import SwiftUI
 import SwiftData
 
 struct ListView: View {
+    // MARK: - Properties
+
     let train: Train
     let stops: [Stop]
     let summary: StopSummary
     var now: Date = Date()
-    
+
+    // MARK: - Body
+
     var body: some View {
         if now < summary.lastNoIssues.arr_time_eff {
             VStack(spacing: 8) {
@@ -302,8 +306,9 @@ struct ListView: View {
         }
     }
 
+    // MARK: - Subviews
+
     // full-width status bar, with the platform kept alongside it in its own yellow chip
-    @ViewBuilder
     private func statusBar(
         text: String,
         tint: Color,

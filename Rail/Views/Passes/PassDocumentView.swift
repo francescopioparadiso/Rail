@@ -3,10 +3,14 @@ import PDFKit
 
 /// Reads a stored pass PDF without leaving the app.
 struct PassDocumentView: View {
+    // MARK: - Properties
+
     let data: Data
     let filename: String
 
     @Environment(\.dismiss) private var dismiss
+
+    // MARK: - Body
 
     var body: some View {
         NavigationStack {

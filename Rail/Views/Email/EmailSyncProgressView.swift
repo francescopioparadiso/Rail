@@ -8,12 +8,16 @@ struct AccountSyncProgress: Identifiable, Equatable {
 }
 
 struct EmailSyncProgressView: View {
+    // MARK: - Properties
+
     let isFetching: Bool
     let progressTitle: String
     let globalPercentage: Double
     let accountProgresses: [AccountSyncProgress]
     let progressSublabel: String?
     let onRestart: () -> Void
+
+    // MARK: - Body
 
     var body: some View {
         VStack {

@@ -1,6 +1,19 @@
 import Foundation
 
 struct Emails: Codable, Identifiable, Sendable {
+    // MARK: - Types
+
+    private enum CodingKeys: String, CodingKey {
+        case id, provider, email, appPassword
+        case customIMAPServer, customIMAPPort
+        case content, passes
+        case lastSyncedUID, lastSyncedPassUID, imapUIDValidity, passImapUIDValidity
+        case pendingFailedUIDs, pendingFailedPassUIDs
+        case syncGenerator, passSyncGenerator
+    }
+
+    // MARK: - Properties
+
     /// Bump when ticket email parsing changes to force one full mailbox rescan.
     static let currentSyncGenerator = 9
     /// Bump when pass email parsing changes to force one full mailbox rescan.
@@ -25,50 +38,6 @@ struct Emails: Codable, Identifiable, Sendable {
     var pendingFailedPassUIDs: [UInt64]?
     var syncGenerator: Int?
     var passSyncGenerator: Int?
-
-    var needsFullMailboxScan: Bool {
-        lastSyncedUID == nil || (syncGenerator ?? 0) < Self.currentSyncGenerator
-    }
-
-    var needsFullPassMailboxScan: Bool {
-        lastSyncedPassUID == nil || (passSyncGenerator ?? 0) < Self.currentPassSyncGenerator
-    }
-
-    nonisolated var imapServer: String {
-        if provider == .other {
-            return customIMAPServer?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        }
-        return provider.server
-    }
-
-    nonisolated var imapPort: Int {
-        if provider == .other {
-            return customIMAPPort ?? provider.port
-        }
-        return provider.port
-    }
-
-    /// Enough fields filled to attempt an IMAP login.
-    nonisolated var hasConfiguredCredentials: Bool {
-        let trimmedEmail = email.trimmingCharacters(in: .whitespacesAndNewlines)
-        let trimmedPassword = appPassword.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedEmail.isEmpty, !trimmedPassword.isEmpty, trimmedEmail.contains("@") else {
-            return false
-        }
-        if provider == .other {
-            return !imapServer.isEmpty
-        }
-        return true
-    }
-
-    private enum CodingKeys: String, CodingKey {
-        case id, provider, email, appPassword
-        case customIMAPServer, customIMAPPort
-        case content, passes
-        case lastSyncedUID, lastSyncedPassUID, imapUIDValidity, passImapUIDValidity
-        case pendingFailedUIDs, pendingFailedPassUIDs
-        case syncGenerator, passSyncGenerator
-    }
 
     nonisolated init(
         id: UUID = UUID(),
@@ -125,6 +94,45 @@ struct Emails: Codable, Identifiable, Sendable {
         syncGenerator = try container.decodeIfPresent(Int.self, forKey: .syncGenerator)
         passSyncGenerator = try container.decodeIfPresent(Int.self, forKey: .passSyncGenerator)
     }
+
+    // MARK: - Computed
+
+    var needsFullMailboxScan: Bool {
+        lastSyncedUID == nil || (syncGenerator ?? 0) < Self.currentSyncGenerator
+    }
+
+    var needsFullPassMailboxScan: Bool {
+        lastSyncedPassUID == nil || (passSyncGenerator ?? 0) < Self.currentPassSyncGenerator
+    }
+
+    nonisolated var imapServer: String {
+        if provider == .other {
+            return customIMAPServer?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        }
+        return provider.server
+    }
+
+    nonisolated var imapPort: Int {
+        if provider == .other {
+            return customIMAPPort ?? provider.port
+        }
+        return provider.port
+    }
+
+    /// Enough fields filled to attempt an IMAP login.
+    nonisolated var hasConfiguredCredentials: Bool {
+        let trimmedEmail = email.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedPassword = appPassword.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedEmail.isEmpty, !trimmedPassword.isEmpty, trimmedEmail.contains("@") else {
+            return false
+        }
+        if provider == .other {
+            return !imapServer.isEmpty
+        }
+        return true
+    }
+
+    // MARK: - Methods
 
     nonisolated func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)

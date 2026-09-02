@@ -1,6 +1,8 @@
 import Foundation
 
 struct EmailPassContent: Codable, Identifiable, Sendable {
+    // MARK: - Properties
+
     var id: UUID = UUID()
     var imapUID: String
     var date: Date
@@ -11,6 +13,8 @@ struct EmailPassContent: Codable, Identifiable, Sendable {
     var qrcode: Data
     /// Staged source PDF, resolved through `PassPDFStore` at import time.
     var pdfFilename: String?
+
+    // MARK: - Computed
 
     nonisolated var isImportEligible: Bool {
         var calendar = Calendar(identifier: .gregorian)

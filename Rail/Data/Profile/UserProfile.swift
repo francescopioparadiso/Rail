@@ -4,6 +4,8 @@ import CoreData
 
 @Model
 final class UserProfile {
+    // MARK: - Properties
+
     var id: UUID = UUID()
     var name: String = ""
     @Attribute(.externalStorage) var photo: Data?
@@ -23,6 +25,8 @@ final class UserProfile {
         self.calendarSettings = calendarSettings
         self.emails = emails
     }
+
+    // MARK: - Methods
 
     /// Prefers the richest profile so a blank local stub never hides CloudKit data.
     static func primary(from profiles: [UserProfile]) -> UserProfile? {

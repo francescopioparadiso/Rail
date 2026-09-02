@@ -4,7 +4,7 @@ import Foundation
 @Model
 final class Train {
     var id: UUID = UUID()
-    
+
     var logo: String = ""
     var number: String = ""
     var identifier: String = ""
@@ -34,11 +34,15 @@ final class Train {
 }
 
 struct StopSummary {
+    // MARK: - Properties
+
     let first: Stop
     let last: Stop
     let firstNoIssues: Stop
     let lastNoIssues: Stop
-    
+
+    // MARK: - Methods
+
     static func calculate(for trainID: UUID, in allStops: [Stop]) -> StopSummary {
         calculate(in: allStops.filter { $0.id == trainID })
     }

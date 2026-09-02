@@ -150,8 +150,12 @@ struct TrainProvider: TimelineProvider {
 
 // MARK: - Train Widget View
 struct TrainWidgetEntryView: View {
+    // MARK: - Properties
+
     var entry: TrainProvider.Entry
     @Environment(\.widgetFamily) var family
+
+    // MARK: - Body
 
     var body: some View {
         Group {
@@ -218,7 +222,9 @@ struct TrainWidgetEntryView: View {
         .containerBackground(.ultraThinMaterial, for: .widget)
         .widgetURL(URL(string: "railapp://view-train?trainID=\(entry.data?.trainID.uuidString ?? "")"))
     }
-    
+
+    // MARK: - Subviews
+
     @ViewBuilder
     private func timeView(eff: Date, id: Date, delay: Int, isCancelled: Bool, isArrival: Bool = false, firstDepId: Date = .distantPast) -> some View {
         let now = Date()
@@ -241,7 +247,7 @@ struct TrainWidgetEntryView: View {
             .foregroundStyle(color)
             .monospacedDigit()
     }
-    
+
     @ViewBuilder
     private func bottomBar(data: TrainWidgetData) -> some View {
         if data.isCancelled {

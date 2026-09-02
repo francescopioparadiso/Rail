@@ -2,9 +2,13 @@ import SwiftUI
 
 /// One saved journey, laid out like the Choose Train solution rows.
 struct FavoriteTrainCard: View {
+    // MARK: - Properties
+
     let favorite: Favorite
     let isLoading: Bool
     let isUnavailable: Bool
+
+    // MARK: - Body
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {

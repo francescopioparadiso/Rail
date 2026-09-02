@@ -139,8 +139,12 @@ struct TicketProvider: TimelineProvider {
 
 // MARK: - Ticket Widget View
 struct TicketWidgetEntryView: View {
+    // MARK: - Properties
+
     var entry: TicketProvider.Entry
     @Environment(\.widgetFamily) var family
+
+    // MARK: - Body
 
     var body: some View {
         Group {
@@ -235,6 +239,8 @@ struct TicketWidgetEntryView: View {
         .containerBackground(.ultraThinMaterial, for: .widget)
         .widgetURL(ticketWidgetURL(for: entry))
     }
+
+    // MARK: - Actions
 
     private func ticketWidgetURL(for entry: TicketEntry) -> URL? {
         guard let trainID = entry.trainID else { return nil }

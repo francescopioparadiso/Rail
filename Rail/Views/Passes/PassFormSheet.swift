@@ -4,6 +4,8 @@ import PhotosUI
 import WidgetKit
 
 struct PassFormSheet: View {
+    // MARK: - Properties
+
     @Environment(\.dismiss) private var dismiss
     @State private var previewedDocument: PassDocumentPreview?
     @Environment(\.modelContext) private var modelContext
@@ -39,6 +41,8 @@ struct PassFormSheet: View {
         }
     }
 
+    // MARK: - Computed
+
     private var isFormEditable: Bool {
         passToEdit == nil || isEditing
     }
@@ -46,6 +50,8 @@ struct PassFormSheet: View {
     private var canSave: Bool {
         isFormEditable && !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && qrImageData != nil && !isProcessingImage
     }
+
+    // MARK: - Body
 
     var body: some View {
         NavigationStack {
@@ -216,7 +222,8 @@ struct PassFormSheet: View {
         }
     }
 
-    @ViewBuilder
+    // MARK: - Subviews
+
     private var qrCodePreview: some View {
         Group {
             if isProcessingImage {
@@ -252,6 +259,8 @@ struct PassFormSheet: View {
         }
         .frame(maxWidth: .infinity)
     }
+
+    // MARK: - Actions
 
     private func savePass() {
         HapticFeedback.impactHeavy()

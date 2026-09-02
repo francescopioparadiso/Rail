@@ -2,12 +2,16 @@ import SwiftUI
 import SwiftData
 
 struct EmailSettingsView: View {
+    // MARK: - Properties
+
     @Bindable var profile: UserProfile
     @Environment(\.modelContext) private var modelContext
     @Environment(\.openURL) private var openURL
 
     @State private var searchText = ""
     @State private var showAddEmailSheet = false
+
+    // MARK: - Computed
 
     private var filteredAccounts: [Emails] {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
@@ -17,6 +21,8 @@ struct EmailSettingsView: View {
                 || $0.provider.rawValue.lowercased().contains(query)
         }
     }
+
+    // MARK: - Body
 
     var body: some View {
         Group {
@@ -79,11 +85,13 @@ struct EmailSettingsView: View {
         }
     }
 
+    // MARK: - Actions
+
     private func deleteAccounts(at offsets: IndexSet) {
         profile.emails.remove(atOffsets: offsets)
         try? modelContext.save()
     }
-    
+
     private func pruneEmptyAccounts() {
         let trimmed = profile.emails.filter {
             !($0.email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty

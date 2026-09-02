@@ -3,6 +3,8 @@ import SwiftData
 import PhotosUI
 
 struct ProfileView: View {
+    // MARK: - Properties
+
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
     @Query private var profiles: [UserProfile]
@@ -15,7 +17,11 @@ struct ProfileView: View {
     @State private var formattedTrains = "—"
     @State private var formattedCancelled = "—"
 
+    // MARK: - Computed
+
     private var profile: UserProfile? { profiles.primary }
+
+    // MARK: - Body
 
     var body: some View {
         NavigationStack {
@@ -88,6 +94,8 @@ struct ProfileView: View {
             await loadStats()
         }
     }
+
+    // MARK: - Subviews
 
     @ViewBuilder
     private func profileForm(for profile: UserProfile) -> some View {
@@ -204,7 +212,6 @@ struct ProfileView: View {
         .scrollContentBackground(.hidden)
     }
 
-    @ViewBuilder
     private func statCard(title: String, value: String, systemImage: String, color: Color) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
@@ -230,6 +237,8 @@ struct ProfileView: View {
         }
         .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
     }
+
+    // MARK: - Actions
 
     @MainActor
     private func loadStats() async {
@@ -296,6 +305,8 @@ private struct ProfilePhotoFrameKey: PreferenceKey {
 }
 
 private struct ProfileBlueprintPattern: View {
+    // MARK: - Properties
+
     private let cellSize: CGFloat = 56
     private let iconSize: CGFloat = 24
 
@@ -319,6 +330,8 @@ private struct ProfileBlueprintPattern: View {
         "fuelpump",
         "road.lanes"
     ]
+
+    // MARK: - Body
 
     var body: some View {
         GeometryReader { geo in

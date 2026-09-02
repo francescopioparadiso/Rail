@@ -9,6 +9,8 @@ struct PreloadedEmailTicketItem: Identifiable {
 }
 
 struct EmailTrainImportView: View {
+    // MARK: - Properties
+
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
     @Query private var profiles: [UserProfile]
@@ -31,6 +33,90 @@ struct EmailTrainImportView: View {
     @State private var preparationTotal = 0
     @State private var syncTask: Task<Void, Never>?
     @State private var searchText = ""
+
+    // MARK: - Computed
+
+    private var linkedAccounts: [Emails] {
+        profiles.primary?.emails ?? []
+    }
+
+    private var isSyncFinished: Bool {
+        syncProgress?.stage == .finished && !isPreparing
+    }
+
+    private var globalPercentage: Int {
+        let totalFound = accountProgresses.reduce(0) { $0 + $1.found }
+        let totalProcessed = accountProgresses.reduce(0) { $0 + $1.processed }
+        guard totalFound > 0 else { return 0 }
+        return min(100, Int((Double(totalProcessed) / Double(totalFound)) * 100))
+    }
+
+    private var filteredTickets: [PreloadedEmailTicketItem] {
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !query.isEmpty else { return preloadedTickets }
+        return preloadedTickets.filter { matches($0.ticket, query: query) }
+    }
+
+    private var groupedTicketSections: [(title: String, items: [PreloadedEmailTicketItem])] {
+        let calendar = Calendar.current
+        let grouped = Dictionary(grouping: filteredTickets) { item -> Date in
+            let date = item.ticket.departureDate ?? item.ticket.date
+            let comps = calendar.dateComponents([.year, .month], from: date)
+            return calendar.date(from: comps) ?? date
+        }
+
+        let sortedKeys = grouped.keys.sorted(by: >)
+        return sortedKeys.map { key in
+            let items = (grouped[key] ?? []).sorted { lhs, rhs in
+                let lhsDate = lhs.ticket.departureDate ?? lhs.ticket.date
+                let rhsDate = rhs.ticket.departureDate ?? rhs.ticket.date
+                return lhsDate > rhsDate
+            }
+            return (monthSectionTitle(for: key), items)
+        }
+    }
+
+    private var progressLabel: String {
+        if isPreparing {
+            return String(localized: "Preparing trains…")
+        }
+        guard let progress = syncProgress else {
+            return String(localized: "Connecting…")
+        }
+        switch progress.stage {
+        case .searching:
+            return String(localized: "Searching…")
+        case .downloading:
+            return String(localized: "Fetching \(globalPercentage)%")
+        case .fetchingDetails:
+            return String(localized: "Details \(progress.detailsCompleted) of \(progress.detailsTotal)")
+        case .finished:
+            return totalNewTickets == 0
+                ? String(localized: "No new tickets")
+                : "\(totalNewTickets) new"
+        }
+    }
+
+    private var progressSublabel: String {
+        if isPreparing {
+            return String(
+                localized: "Prepared \(preparedCount) of \(preparationTotal) trains"
+            )
+        }
+        guard let progress = syncProgress else {
+            return String(localized: "This can take a moment on the first scan.")
+        }
+        switch progress.stage {
+        case .searching:
+            return ""
+        case .downloading, .fetchingDetails:
+            return ""
+        case .finished:
+            return ""
+        }
+    }
+
+    // MARK: - Body
 
     var body: some View {
         NavigationStack {
@@ -182,58 +268,8 @@ struct EmailTrainImportView: View {
         .onDisappear { syncTask?.cancel() }
     }
 
-    private var linkedAccounts: [Emails] {
-        profiles.primary?.emails ?? []
-    }
+    // MARK: - Subviews
 
-    private var isSyncFinished: Bool {
-        syncProgress?.stage == .finished && !isPreparing
-    }
-
-    private var globalPercentage: Int {
-        let totalFound = accountProgresses.reduce(0) { $0 + $1.found }
-        let totalProcessed = accountProgresses.reduce(0) { $0 + $1.processed }
-        guard totalFound > 0 else { return 0 }
-        return min(100, Int((Double(totalProcessed) / Double(totalFound)) * 100))
-    }
-
-    private var filteredTickets: [PreloadedEmailTicketItem] {
-        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard !query.isEmpty else { return preloadedTickets }
-        return preloadedTickets.filter { matches($0.ticket, query: query) }
-    }
-
-    /// Matches train number, either station, and the departure date or time.
-    private func matches(_ ticket: EmailContent, query: String) -> Bool {
-        var haystack = [ticket.trainNumber, ticket.departureStation, ticket.arrivalStation, ticket.price]
-        if let departure = ticket.departureDate {
-            haystack.append(departure.formatted(.dateTime.day().month().year()))
-            haystack.append(departure.formatted(date: .abbreviated, time: .omitted))
-            haystack.append(departure.formatted(.dateTime.hour().minute()))
-        }
-        return haystack.contains { $0.lowercased().contains(query) }
-    }
-
-    private var groupedTicketSections: [(title: String, items: [PreloadedEmailTicketItem])] {
-        let calendar = Calendar.current
-        let grouped = Dictionary(grouping: filteredTickets) { item -> Date in
-            let date = item.ticket.departureDate ?? item.ticket.date
-            let comps = calendar.dateComponents([.year, .month], from: date)
-            return calendar.date(from: comps) ?? date
-        }
-
-        let sortedKeys = grouped.keys.sorted(by: >)
-        return sortedKeys.map { key in
-            let items = (grouped[key] ?? []).sorted { lhs, rhs in
-                let lhsDate = lhs.ticket.departureDate ?? lhs.ticket.date
-                let rhsDate = rhs.ticket.departureDate ?? rhs.ticket.date
-                return lhsDate > rhsDate
-            }
-            return (monthSectionTitle(for: key), items)
-        }
-    }
-
-    @ViewBuilder
     private var progressView: some View {
         EmailSyncProgressView(
             isFetching: !isSyncFinished,
@@ -250,44 +286,17 @@ struct EmailTrainImportView: View {
         }
     }
 
-    private var progressLabel: String {
-        if isPreparing {
-            return String(localized: "Preparing trains…")
-        }
-        guard let progress = syncProgress else {
-            return String(localized: "Connecting…")
-        }
-        switch progress.stage {
-        case .searching:
-            return String(localized: "Searching…")
-        case .downloading:
-            return String(localized: "Fetching \(globalPercentage)%")
-        case .fetchingDetails:
-            return String(localized: "Details \(progress.detailsCompleted) of \(progress.detailsTotal)")
-        case .finished:
-            return totalNewTickets == 0
-                ? String(localized: "No new tickets")
-                : "\(totalNewTickets) new"
-        }
-    }
+    // MARK: - Actions
 
-    private var progressSublabel: String {
-        if isPreparing {
-            return String(
-                localized: "Prepared \(preparedCount) of \(preparationTotal) trains"
-            )
+    /// Matches train number, either station, and the departure date or time.
+    private func matches(_ ticket: EmailContent, query: String) -> Bool {
+        var haystack = [ticket.trainNumber, ticket.departureStation, ticket.arrivalStation, ticket.price]
+        if let departure = ticket.departureDate {
+            haystack.append(departure.formatted(.dateTime.day().month().year()))
+            haystack.append(departure.formatted(date: .abbreviated, time: .omitted))
+            haystack.append(departure.formatted(.dateTime.hour().minute()))
         }
-        guard let progress = syncProgress else {
-            return String(localized: "This can take a moment on the first scan.")
-        }
-        switch progress.stage {
-        case .searching:
-            return ""
-        case .downloading, .fetchingDetails:
-            return ""
-        case .finished:
-            return ""
-        }
+        return haystack.contains { $0.lowercased().contains(query) }
     }
 
     private func beginScan(reloadAll: Bool) {
@@ -491,7 +500,11 @@ struct EmailTrainImportView: View {
 }
 
 private struct EmailTrainImportPreview: View {
+    // MARK: - Properties
+
     let container: ModelContainer
+
+    // MARK: - Body
 
     var body: some View {
         EmailTrainImportView()

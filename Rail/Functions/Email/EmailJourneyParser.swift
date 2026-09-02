@@ -1,6 +1,8 @@
 import Foundation
 
 enum EmailJourneyParser {
+    // MARK: - Types
+
     struct ParsedJourney {
         let departureDate: Date
         let arrivalDate: Date?
@@ -9,6 +11,8 @@ enum EmailJourneyParser {
         let arrivalStation: String
         let price: String
     }
+
+    // MARK: - Methods
 
     nonisolated static func parse(from body: String) -> ParsedJourney? {
         let text = normalize(body)

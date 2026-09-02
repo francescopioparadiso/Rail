@@ -4,7 +4,11 @@ import SwiftUI
 ///
 /// Shared by the Choose Train solution rows and the Today/Past journey lists.
 struct ConnectionDivider: View {
+    // MARK: - Properties
+
     let minutes: Int
+
+    // MARK: - Body
 
     var body: some View {
         HStack(spacing: 8) {
@@ -18,6 +22,8 @@ struct ConnectionDivider: View {
             line
         }
     }
+
+    // MARK: - Subviews
 
     private var line: some View {
         DashedLine()

@@ -11,17 +11,19 @@ extension String: @retroactive Identifiable {
 }
 
 struct DetailsView: View {
+    // MARK: - Properties
+
     @Environment(\.colorScheme) var colorScheme
     @Environment(\.requestReview) var requestReview
     @Environment(\.modelContext) private var modelContext
     @Query private var profiles: [UserProfile]
-    
+
     let train: Train
     @Query private var stops: [Stop]
     @Query private var seats: [Seat]
     @Binding var showTicketInitially: Bool
     @Binding var ticketSeatID: UUID?
-    
+
     @State private var seatsSheet: Bool = false
     @State private var pendingSeatID: UUID?
     @State private var showAllStops: Bool = false
@@ -30,7 +32,7 @@ struct DetailsView: View {
     @State private var isFavorite: Bool = false
     @State private var isRefreshing = false
     @State private var stopSummary: StopSummary
-    
+
     init(
         train: Train,
         showTicketInitially: Binding<Bool>,
@@ -49,6 +51,8 @@ struct DetailsView: View {
         self._ticketSeatID = ticketSeatID
         self._stopSummary = State(initialValue: StopSummary.calculate(in: []))
     }
+
+    // MARK: - Computed
 
     private var summary: StopSummary { stopSummary }
 
@@ -72,7 +76,7 @@ struct DetailsView: View {
     private var showSpeed: Bool {
         return Date() <= summary.last.arr_time_eff || Calendar.current.isDateInToday(summary.last.arr_time_eff)
     }
-    
+
     private var firstStop: Stop {
         showAllStops ?
         stops.first ?? Stop.placeholder() :
@@ -93,7 +97,7 @@ struct DetailsView: View {
         stops.last(where: { $0.status != 3 }) ?? stops.last ?? Stop.placeholder() :
         summary.lastNoIssues
     }
-    
+
     private var firstIndex: Int {
         stops.startIndex
     }
@@ -106,7 +110,15 @@ struct DetailsView: View {
     private var lastIndexNoIssues: Int {
         stops.lastIndex(where: { $0.status != 3 }) ?? (stops.indices.last ?? 0)
     }
-    
+
+    private var normalizedIdentifier: String {
+        train.identifier.contains("/") ?
+            String(train.identifier.split(separator: "/").dropLast().joined(separator: "/")) :
+            train.identifier
+    }
+
+    // MARK: - Body
+
     var body: some View {
         ScrollView(.vertical, showsIndicators: false) {
             // train logo and number
@@ -882,18 +894,14 @@ struct DetailsView: View {
             }
         }
     }
-    
+
+    // MARK: - Actions
+
     @MainActor
     private func refreshDerivedState() {
         stopSummary = StopSummary.calculate(in: stops)
         isFavorite = computeIsFavorite()
         routeDistanceKm = distanceBetweenStations(from: summary.first.name, to: summary.last.name)
-    }
-
-    private var normalizedIdentifier: String {
-        train.identifier.contains("/") ?
-            String(train.identifier.split(separator: "/").dropLast().joined(separator: "/")) :
-            train.identifier
     }
 
     private func matchingFavorites() -> [Favorite] {

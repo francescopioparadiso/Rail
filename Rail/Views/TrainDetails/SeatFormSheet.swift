@@ -4,6 +4,16 @@ import PhotosUI
 import WidgetKit
 
 struct SeatFormSheet: View {
+    // MARK: - Types
+
+    private enum FocusField: Hashable {
+        case name
+        case carriage
+        case number
+    }
+
+    // MARK: - Properties
+
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
 
@@ -12,12 +22,6 @@ struct SeatFormSheet: View {
     let namePlaceholder: String
     let isFirstSeatForTrain: Bool
     let accountName: String
-
-    private enum FocusField: Hashable {
-        case name
-        case carriage
-        case number
-    }
 
     @FocusState private var focusedField: FocusField?
     @State private var name: String
@@ -62,6 +66,8 @@ struct SeatFormSheet: View {
         }
     }
 
+    // MARK: - Computed
+
     private var isFormEditable: Bool {
         seatToEdit == nil || isEditing
     }
@@ -79,6 +85,24 @@ struct SeatFormSheet: View {
         let hasSeatDetails = !formattedCarriage.isEmpty && !formattedNumber.isEmpty
         return hasSeatDetails || qrImageData != nil
     }
+
+    private var formattedCarriage: String {
+        let clean = carriage.filter { $0.isNumber }
+        return String(clean.prefix(2))
+    }
+
+    private var formattedNumber: String {
+        let clean = number.filter { $0.isLetter || $0.isNumber }
+        return String(clean.prefix(3)).uppercased()
+    }
+
+    private var formattedName: String {
+        let clean = name.filter { $0.isLetter || $0.isNumber }
+        guard let first = clean.first else { return "" }
+        return String(first).uppercased() + clean.dropFirst().lowercased()
+    }
+
+    // MARK: - Body
 
     var body: some View {
         NavigationStack {
@@ -231,7 +255,8 @@ struct SeatFormSheet: View {
         .background(appBackgroundColor)
     }
 
-    @ViewBuilder
+    // MARK: - Subviews
+
     private var qrCodePreview: some View {
         Group {
             if isProcessingImage {
@@ -270,21 +295,7 @@ struct SeatFormSheet: View {
         .frame(maxWidth: .infinity)
     }
 
-    private var formattedCarriage: String {
-        let clean = carriage.filter { $0.isNumber }
-        return String(clean.prefix(2))
-    }
-
-    private var formattedNumber: String {
-        let clean = number.filter { $0.isLetter || $0.isNumber }
-        return String(clean.prefix(3)).uppercased()
-    }
-
-    private var formattedName: String {
-        let clean = name.filter { $0.isLetter || $0.isNumber }
-        guard let first = clean.first else { return "" }
-        return String(first).uppercased() + clean.dropFirst().lowercased()
-    }
+    // MARK: - Actions
 
     private func saveSeat() {
         HapticFeedback.impactHeavy()

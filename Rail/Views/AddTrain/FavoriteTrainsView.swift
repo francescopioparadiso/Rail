@@ -8,6 +8,8 @@ enum PreloadState: Equatable {
 }
 
 struct FavoriteTrainsView: View {
+    // MARK: - Properties
+
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \Favorite.index) private var favorites: [Favorite]
@@ -19,6 +21,8 @@ struct FavoriteTrainsView: View {
 
     @State private var searchText = ""
 
+    // MARK: - Computed
+
     private var filteredFavorites: [Favorite] {
         favorites.filter { matches($0, searchText: searchText) }
     }
@@ -26,6 +30,8 @@ struct FavoriteTrainsView: View {
     private var isSearching: Bool {
         !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
+
+    // MARK: - Body
 
     var body: some View {
         NavigationStack {
@@ -71,6 +77,8 @@ struct FavoriteTrainsView: View {
         .background(appBackgroundColor.ignoresSafeArea())
     }
 
+    // MARK: - Subviews
+
     @ViewBuilder
     private func favoriteRow(_ favorite: Favorite) -> some View {
         let state = preloadStates[favorite.id] ?? .loading
@@ -95,6 +103,8 @@ struct FavoriteTrainsView: View {
             }
         }
     }
+
+    // MARK: - Actions
 
     private func addFavorite(_ favoriteID: UUID) {
         guard preloadStates[favoriteID] == .ready,

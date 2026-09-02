@@ -60,11 +60,15 @@ actor EmailTrainFetcher {
 
     // MARK: - Properties
 
+    // MARK: - Properties
+
     private let session: IMAPSession
 
     init(account: Emails) {
         self.session = IMAPSession(account: account)
     }
+
+    // MARK: - Methods
 
     private func fetchCommand(for uid: String) -> String {
         // Fetch the full message, exactly like the Python script's `(BODY.PEEK[])` — no

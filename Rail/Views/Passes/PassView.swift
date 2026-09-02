@@ -4,48 +4,7 @@ import PhotosUI
 import WidgetKit
 
 struct PassView: View {
-    @Environment(\.dismiss) private var dismiss
-
-    @Environment(\.modelContext) private var modelContext
-    @Query private var passes: [Pass]
-    @Query private var profiles: [UserProfile]
-
-    var openPrincipalPassQR: Bool = false
-
-    @State private var displayedPasses: [Pass] = []
-    /// Two-finger swipe on the list drives this; a non-empty set swaps the
-    /// bottom bar over to the delete and share actions.
-    @State private var selectedPassIDs: Set<PersistentIdentifier> = []
-    @State private var editMode: EditMode = .inactive
-    @State private var confirmingDelete = false
-    @State private var knownPassIDs: Set<PersistentIdentifier> = []
-    @State private var selectedYears: Set<Int> = []
-    @State private var archive: PassArchiveFile?
-    @State private var archiveError: String?
-    @State private var searchText = ""
-    @State private var passFilter: PassFilter = .all
-    @State private var passFormPresentation: PassFormPresentation? = nil
-    @State private var emailImportSheet = false
-    @State private var fetchSheetDetent: PresentationDetent = .medium
-    @State private var passSyncProgresses: [String: EmailPassSyncProgress] = [:]
-    @State private var isFetchingEmailPasses = false
-    @State private var showFetchResultCard = false
-    @State private var fetchedPassesCount = 0
-    @State private var emailFetchTask: Task<Void, Never>?
-    @State private var hasStartedAutoFetch = false
-    @State private var fetchingAccountEmails: [String] = []
-
-    private var fetchEmailsDownloaded: Int {
-        passSyncProgresses.values.map(\.emailsDownloaded).reduce(0, +)
-    }
-
-    private var fetchEmailsFound: Int {
-        passSyncProgresses.isEmpty ? fetchedPassesCount : passSyncProgresses.values.map(\.emailsFound).reduce(0, +)
-    }
-
-    private var showsFetchToolbarButton: Bool {
-        isFetchingEmailPasses || showFetchResultCard
-    }
+    // MARK: - Types
 
     private enum PassFilter: CaseIterable {
         case all
@@ -112,9 +71,146 @@ struct PassView: View {
         }
     }
 
+    // MARK: - Properties
+
+    @Environment(\.dismiss) private var dismiss
+
+    @Environment(\.modelContext) private var modelContext
+    @Query private var passes: [Pass]
+    @Query private var profiles: [UserProfile]
+
+    var openPrincipalPassQR: Bool = false
+
+    @State private var displayedPasses: [Pass] = []
+    /// Two-finger swipe on the list drives this; a non-empty set swaps the
+    /// bottom bar over to the delete and share actions.
+    @State private var selectedPassIDs: Set<PersistentIdentifier> = []
+    @State private var editMode: EditMode = .inactive
+    @State private var confirmingDelete = false
+    @State private var knownPassIDs: Set<PersistentIdentifier> = []
+    @State private var selectedYears: Set<Int> = []
+    @State private var archive: PassArchiveFile?
+    @State private var archiveError: String?
+    @State private var searchText = ""
+    @State private var passFilter: PassFilter = .all
+    @State private var passFormPresentation: PassFormPresentation? = nil
+    @State private var emailImportSheet = false
+    @State private var fetchSheetDetent: PresentationDetent = .medium
+    @State private var passSyncProgresses: [String: EmailPassSyncProgress] = [:]
+    @State private var isFetchingEmailPasses = false
+    @State private var showFetchResultCard = false
+    @State private var fetchedPassesCount = 0
+    @State private var emailFetchTask: Task<Void, Never>?
+    @State private var hasStartedAutoFetch = false
+    @State private var fetchingAccountEmails: [String] = []
+
+    // MARK: - Computed
+
+    private var fetchEmailsDownloaded: Int {
+        passSyncProgresses.values.map(\.emailsDownloaded).reduce(0, +)
+    }
+
+    private var fetchEmailsFound: Int {
+        passSyncProgresses.isEmpty ? fetchedPassesCount : passSyncProgresses.values.map(\.emailsFound).reduce(0, +)
+    }
+
+    private var showsFetchToolbarButton: Bool {
+        isFetchingEmailPasses || showFetchResultCard
+    }
+
     private var filteredPasses: [Pass] {
         displayedPasses.filter { matches($0, searchText: searchText) }
     }
+
+    /// Passes grouped by the month they start in, newest first.
+    private var groupedPassSections: [(title: String, passes: [Pass])] {
+        let calendar = Calendar.current
+        let grouped = Dictionary(grouping: filteredPasses) { pass -> Date in
+            let comps = calendar.dateComponents([.year, .month], from: pass.start_date)
+            return calendar.date(from: comps) ?? pass.start_date
+        }
+        return grouped.keys.sorted(by: >).map { key in
+            (monthSectionTitle(for: key), (grouped[key] ?? []).sorted { $0.start_date > $1.start_date })
+        }
+    }
+
+    private var isFiltering: Bool { passFilter != .all || !selectedYears.isEmpty }
+
+    /// Years covered by the saved passes, newest first.
+    private var availableYears: [Int] {
+        let calendar = Calendar.current
+        return Set(passes.map { calendar.component(.year, from: $0.start_date) }).sorted(by: >)
+    }
+
+    private var isSelecting: Bool { editMode.isEditing }
+
+    /// Only what's on screen: a filter or a search narrows what "all" means.
+    private var selectablePassIDs: Set<PersistentIdentifier> {
+        Set(filteredPasses.map(\.persistentModelID))
+    }
+
+    private var allPassesSelected: Bool {
+        let selectable = selectablePassIDs
+        return !selectable.isEmpty && selectable.isSubset(of: selectedPassIDs)
+    }
+
+    private var selectionActionTitle: LocalizedStringKey {
+        guard isSelecting else { return "Select" }
+        return allPassesSelected ? "Deselect All" : "Select All"
+    }
+
+    private var selectedPasses: [Pass] {
+        filteredPasses.filter { selectedPassIDs.contains($0.persistentModelID) }
+    }
+
+    private var fetchProgressValue: Double {
+        if passSyncProgresses.isEmpty {
+            return -2.0
+        }
+        if passSyncProgresses.values.allSatisfy({ $0.stage == .searching }) {
+            return -1.0
+        }
+        if passSyncProgresses.values.allSatisfy({ $0.stage == .finished }) {
+            return Double(fetchEmailsFound + 1)
+        }
+        return Double(fetchEmailsDownloaded)
+    }
+
+    private var fetchProgressTitle: String {
+        if passSyncProgresses.isEmpty {
+            return String(localized: "Connecting…")
+        }
+        if passSyncProgresses.values.allSatisfy({ $0.stage == .searching }) {
+            return String(localized: "Searching…")
+        }
+        if passSyncProgresses.values.allSatisfy({ $0.stage == .finished }) {
+            return String(localized: "Finishing up…")
+        }
+        let totalFound = fetchEmailsFound
+        let downloaded = fetchEmailsDownloaded
+        let percentage = totalFound > 0 ? Double(downloaded) / Double(totalFound) : 0.0
+        return String(localized: "Fetching \(Int(percentage * 100))%")
+    }
+
+    private var fetchProgressSublabel: String? {
+        if passSyncProgresses.isEmpty {
+            return String(localized: "This can take a moment on the first scan.")
+        }
+        return nil
+    }
+
+    private var computedAccountProgresses: [AccountSyncProgress] {
+        fetchingAccountEmails.map { email in
+            let progress = passSyncProgresses[email]
+            return AccountSyncProgress(
+                email: email,
+                found: progress?.emailsFound ?? 0,
+                processed: progress?.emailsDownloaded ?? 0
+            )
+        }
+    }
+
+    // MARK: - Body
 
     var body: some View {
         NavigationStack {
@@ -429,81 +525,7 @@ struct PassView: View {
         }
     }
 
-    /// Drops the status filter when a pass arrives that it would hide — adding an
-    /// expired pass while "Active" is on would otherwise look like nothing happened.
-    private func revealNewPassesIfHidden() {
-        let current = Set(passes.map(\.persistentModelID))
-        let added = current.subtracting(knownPassIDs)
-        knownPassIDs = current
-
-        if passFilter != .all,
-           added.contains(where: { id in
-               guard let pass = passes.first(where: { $0.persistentModelID == id }) else { return false }
-               return !matchesStatusFilter(pass)
-           }) {
-            withAnimation(.snappy) { passFilter = .all }
-        }
-        refreshDisplayedPasses()
-    }
-
-    private func matchesStatusFilter(_ pass: Pass) -> Bool {
-        let startOfToday = Calendar.current.startOfDay(for: Date())
-        switch passFilter {
-        case .all: return true
-        case .active: return pass.expiry_date >= startOfToday
-        case .expired: return pass.expiry_date < startOfToday
-        }
-    }
-
-    private func refreshDisplayedPasses() {
-        let all = passes.sorted {
-            if $0.start_date != $1.start_date {
-                return $0.start_date > $1.start_date
-            }
-            return $0.expiry_date > $1.expiry_date
-        }
-        let startOfToday = Calendar.current.startOfDay(for: Date())
-
-        let byYear = selectedYears.isEmpty ? all : all.filter {
-            selectedYears.contains(Calendar.current.component(.year, from: $0.start_date))
-        }
-
-        displayedPasses = switch passFilter {
-        case .all:
-            byYear
-        case .active:
-            byYear.filter { $0.expiry_date >= startOfToday }
-        case .expired:
-            byYear.filter { $0.expiry_date < startOfToday }
-        }
-    }
-
-    private func matches(_ pass: Pass, searchText: String) -> Bool {
-        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard !query.isEmpty else { return true }
-
-        if pass.name.lowercased().contains(query) {
-            return true
-        }
-
-        let expiryDate = pass.expiry_date
-        let startDate = pass.start_date
-        let searchableDates = [
-            startDate.formatted(.dateTime.day().month().year()),
-            startDate.formatted(date: .abbreviated, time: .omitted),
-            startDate.formatted(date: .numeric, time: .omitted),
-            expiryDate.formatted(.dateTime.day().month().year()),
-            expiryDate.formatted(date: .abbreviated, time: .omitted),
-            expiryDate.formatted(date: .long, time: .omitted),
-            expiryDate.formatted(date: .numeric, time: .omitted),
-            expiryDate.formatted(.dateTime.year()),
-            expiryDate.formatted(.dateTime.month(.wide)),
-            expiryDate.formatted(.dateTime.month(.abbreviated)),
-            expiryDate.formatted(.dateTime.day()),
-        ]
-
-        return searchableDates.contains { $0.lowercased().contains(query) }
-    }
+    // MARK: - Subviews
 
     @ViewBuilder
     private func passRow(pass: Pass) -> some View {
@@ -601,48 +623,109 @@ struct PassView: View {
         }
     }
 
-    /// Passes grouped by the month they start in, newest first.
-    private var groupedPassSections: [(title: String, passes: [Pass])] {
-        let calendar = Calendar.current
-        let grouped = Dictionary(grouping: filteredPasses) { pass -> Date in
-            let comps = calendar.dateComponents([.year, .month], from: pass.start_date)
-            return calendar.date(from: comps) ?? pass.start_date
+    /// Icon only: the progress wording lives in the fetch sheet, so repeating it
+    /// in the toolbar just crowded the navigation bar.
+    @ViewBuilder
+    private var emailFetchToolbarLabel: some View {
+        let isFetching = isFetchingEmailPasses
+
+        Group {
+            if isFetching {
+                Image(systemName: "progress.indicator")
+                    .symbolEffect(.rotate.byLayer, options: .repeat(.continuous))
+            } else {
+                Image(systemName: "envelope.badge")
+            }
         }
-        return grouped.keys.sorted(by: >).map { key in
-            (monthSectionTitle(for: key), (grouped[key] ?? []).sorted { $0.start_date > $1.start_date })
+        .contentTransition(.symbolEffect(.replace.downUp.wholeSymbol, options: .nonRepeating))
+        .foregroundStyle(isFetching ? Color.primary : Color.blue)
+        .font(.callout).fontWeight(.medium).fontDesign(appFontDesign)
+        .animation(.snappy, value: isFetching)
+    }
+
+    // MARK: - Actions
+
+    /// Drops the status filter when a pass arrives that it would hide — adding an
+    /// expired pass while "Active" is on would otherwise look like nothing happened.
+    private func revealNewPassesIfHidden() {
+        let current = Set(passes.map(\.persistentModelID))
+        let added = current.subtracting(knownPassIDs)
+        knownPassIDs = current
+
+        if passFilter != .all,
+           added.contains(where: { id in
+               guard let pass = passes.first(where: { $0.persistentModelID == id }) else { return false }
+               return !matchesStatusFilter(pass)
+           }) {
+            withAnimation(.snappy) { passFilter = .all }
+        }
+        refreshDisplayedPasses()
+    }
+
+    private func matchesStatusFilter(_ pass: Pass) -> Bool {
+        let startOfToday = Calendar.current.startOfDay(for: Date())
+        switch passFilter {
+        case .all: return true
+        case .active: return pass.expiry_date >= startOfToday
+        case .expired: return pass.expiry_date < startOfToday
         }
     }
 
-    private var isFiltering: Bool { passFilter != .all || !selectedYears.isEmpty }
+    private func refreshDisplayedPasses() {
+        let all = passes.sorted {
+            if $0.start_date != $1.start_date {
+                return $0.start_date > $1.start_date
+            }
+            return $0.expiry_date > $1.expiry_date
+        }
+        let startOfToday = Calendar.current.startOfDay(for: Date())
 
-    /// Years covered by the saved passes, newest first.
-    private var availableYears: [Int] {
-        let calendar = Calendar.current
-        return Set(passes.map { calendar.component(.year, from: $0.start_date) }).sorted(by: >)
+        let byYear = selectedYears.isEmpty ? all : all.filter {
+            selectedYears.contains(Calendar.current.component(.year, from: $0.start_date))
+        }
+
+        displayedPasses = switch passFilter {
+        case .all:
+            byYear
+        case .active:
+            byYear.filter { $0.expiry_date >= startOfToday }
+        case .expired:
+            byYear.filter { $0.expiry_date < startOfToday }
+        }
     }
 
-    private var isSelecting: Bool { editMode.isEditing }
+    private func matches(_ pass: Pass, searchText: String) -> Bool {
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !query.isEmpty else { return true }
+
+        if pass.name.lowercased().contains(query) {
+            return true
+        }
+
+        let expiryDate = pass.expiry_date
+        let startDate = pass.start_date
+        let searchableDates = [
+            startDate.formatted(.dateTime.day().month().year()),
+            startDate.formatted(date: .abbreviated, time: .omitted),
+            startDate.formatted(date: .numeric, time: .omitted),
+            expiryDate.formatted(.dateTime.day().month().year()),
+            expiryDate.formatted(date: .abbreviated, time: .omitted),
+            expiryDate.formatted(date: .long, time: .omitted),
+            expiryDate.formatted(date: .numeric, time: .omitted),
+            expiryDate.formatted(.dateTime.year()),
+            expiryDate.formatted(.dateTime.month(.wide)),
+            expiryDate.formatted(.dateTime.month(.abbreviated)),
+            expiryDate.formatted(.dateTime.day()),
+        ]
+
+        return searchableDates.contains { $0.lowercased().contains(query) }
+    }
 
     private func endSelection() {
         withAnimation(.snappy) {
             selectedPassIDs.removeAll()
             editMode = .inactive
         }
-    }
-
-    /// Only what's on screen: a filter or a search narrows what "all" means.
-    private var selectablePassIDs: Set<PersistentIdentifier> {
-        Set(filteredPasses.map(\.persistentModelID))
-    }
-
-    private var allPassesSelected: Bool {
-        let selectable = selectablePassIDs
-        return !selectable.isEmpty && selectable.isSubset(of: selectedPassIDs)
-    }
-
-    private var selectionActionTitle: LocalizedStringKey {
-        guard isSelecting else { return "Select" }
-        return allPassesSelected ? "Deselect All" : "Select All"
     }
 
     private func toggleSelectAll() {
@@ -652,10 +735,6 @@ struct PassView: View {
         } else {
             selectedPassIDs.formUnion(selectable)
         }
-    }
-
-    private var selectedPasses: [Pass] {
-        filteredPasses.filter { selectedPassIDs.contains($0.persistentModelID) }
     }
 
     private func deleteSelectedPasses() {
@@ -691,73 +770,6 @@ struct PassView: View {
         try? modelContext.save()
         WidgetCenter.shared.reloadAllTimelines()
         refreshDisplayedPasses()
-    }
-
-    private var fetchProgressValue: Double {
-        if passSyncProgresses.isEmpty {
-            return -2.0
-        }
-        if passSyncProgresses.values.allSatisfy({ $0.stage == .searching }) {
-            return -1.0
-        }
-        if passSyncProgresses.values.allSatisfy({ $0.stage == .finished }) {
-            return Double(fetchEmailsFound + 1)
-        }
-        return Double(fetchEmailsDownloaded)
-    }
-
-    private var fetchProgressTitle: String {
-        if passSyncProgresses.isEmpty {
-            return String(localized: "Connecting…")
-        }
-        if passSyncProgresses.values.allSatisfy({ $0.stage == .searching }) {
-            return String(localized: "Searching…")
-        }
-        if passSyncProgresses.values.allSatisfy({ $0.stage == .finished }) {
-            return String(localized: "Finishing up…")
-        }
-        let totalFound = fetchEmailsFound
-        let downloaded = fetchEmailsDownloaded
-        let percentage = totalFound > 0 ? Double(downloaded) / Double(totalFound) : 0.0
-        return String(localized: "Fetching \(Int(percentage * 100))%")
-    }
-
-    private var fetchProgressSublabel: String? {
-        if passSyncProgresses.isEmpty {
-            return String(localized: "This can take a moment on the first scan.")
-        }
-        return nil
-    }
-
-    /// Icon only: the progress wording lives in the fetch sheet, so repeating it
-    /// in the toolbar just crowded the navigation bar.
-    @ViewBuilder
-    private var emailFetchToolbarLabel: some View {
-        let isFetching = isFetchingEmailPasses
-
-        Group {
-            if isFetching {
-                Image(systemName: "progress.indicator")
-                    .symbolEffect(.rotate.byLayer, options: .repeat(.continuous))
-            } else {
-                Image(systemName: "envelope.badge")
-            }
-        }
-        .contentTransition(.symbolEffect(.replace.downUp.wholeSymbol, options: .nonRepeating))
-        .foregroundStyle(isFetching ? Color.primary : Color.blue)
-        .font(.callout).fontWeight(.medium).fontDesign(appFontDesign)
-        .animation(.snappy, value: isFetching)
-    }
-
-    private var computedAccountProgresses: [AccountSyncProgress] {
-        fetchingAccountEmails.map { email in
-            let progress = passSyncProgresses[email]
-            return AccountSyncProgress(
-                email: email,
-                found: progress?.emailsFound ?? 0,
-                processed: progress?.emailsDownloaded ?? 0
-            )
-        }
     }
 
     private func openEmailFetchSheet() {

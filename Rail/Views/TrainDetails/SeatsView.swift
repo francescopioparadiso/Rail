@@ -4,18 +4,7 @@ import WidgetKit
 import StoreKit
 
 struct SeatsView: View {
-    @Environment(\.dismiss) private var dismiss
-    @Environment(\.requestReview) var requestReview
-    @Environment(\.modelContext) private var modelContext
-    @Query private var allSeats: [Seat]
-    @Query private var profiles: [UserProfile]
-
-    let train: Train
-    let seats: [Seat]
-    let initialSeatID: UUID?
-
-    @State private var searchText = ""
-    @State private var seatFormPresentation: SeatFormPresentation? = nil
+    // MARK: - Types
 
     private enum SeatFormPresentation: Identifiable {
         case new
@@ -35,6 +24,23 @@ struct SeatsView: View {
             return nil
         }
     }
+
+    // MARK: - Properties
+
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.requestReview) var requestReview
+    @Environment(\.modelContext) private var modelContext
+    @Query private var allSeats: [Seat]
+    @Query private var profiles: [UserProfile]
+
+    let train: Train
+    let seats: [Seat]
+    let initialSeatID: UUID?
+
+    @State private var searchText = ""
+    @State private var seatFormPresentation: SeatFormPresentation? = nil
+
+    // MARK: - Computed
 
     private var namePlaceholder: String {
         var nameCount: [String: Int] = [:]
@@ -59,6 +65,8 @@ struct SeatsView: View {
     private var filteredSeats: [Seat] {
         sortedSeats.filter { matches($0, searchText: searchText) }
     }
+
+    // MARK: - Body
 
     var body: some View {
         NavigationStack {
@@ -144,20 +152,8 @@ struct SeatsView: View {
         .background(appBackgroundColor.ignoresSafeArea())
     }
 
-    private func matches(_ seat: Seat, searchText: String) -> Bool {
-        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard !query.isEmpty else { return true }
+    // MARK: - Subviews
 
-        let searchableFields = [
-            seat.name,
-            seat.carriage,
-            seat.number,
-        ]
-
-        return searchableFields.contains { $0.lowercased().contains(query) }
-    }
-
-    @ViewBuilder
     private func seatRow(seat: Seat) -> some View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 8) {
@@ -197,6 +193,21 @@ struct SeatsView: View {
             HapticFeedback.tap()
             seatFormPresentation = .edit(seat)
         }
+    }
+
+    // MARK: - Actions
+
+    private func matches(_ seat: Seat, searchText: String) -> Bool {
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !query.isEmpty else { return true }
+
+        let searchableFields = [
+            seat.name,
+            seat.carriage,
+            seat.number,
+        ]
+
+        return searchableFields.contains { $0.lowercased().contains(query) }
     }
 
     private func deleteSeats(at offsets: IndexSet, from list: [Seat]) {

@@ -8,6 +8,8 @@ enum MainTab: Hashable {
 }
 
 struct ContentView: View {
+    // MARK: - Properties
+
     @Environment(\.requestReview) var requestReview
     @Environment(\.modelContext) private var modelContext
 
@@ -39,10 +41,12 @@ struct ContentView: View {
     @State private var favoritePreloadTask: Task<Void, Never>?
     @State private var favoriteRefreshGeneration = 0
     @State private var hasPreloadedFavorites = false
-    
+
     @State private var ticketTrainID: UUID? = nil
     @State private var ticketSeatID: UUID? = nil
     @State private var showTicketView = false
+
+    // MARK: - Computed
 
     private var fetchEmailsDownloaded: Int {
         ticketSyncProgresses.values.map(\.emailsDownloaded).reduce(0, +)
@@ -65,7 +69,115 @@ struct ContentView: View {
     private var showsFetchToolbarButton: Bool {
         isFetchingEmailTickets || showFetchResultCard
     }
-    
+
+    @ToolbarContentBuilder
+    private var mainToolbar: some ToolbarContent {
+        ToolbarItem(placement: .topBarLeading) {
+            ProfileToolbarButton(profileSheet: $profileSheet)
+                .padding(.trailing, 2)
+        }
+        .blendedToolbarItemBackground()
+
+        ToolbarItem(placement: .topBarLeading) {
+            sectionMenu
+        }
+        .blendedToolbarItemBackground()
+
+        if showsFetchToolbarButton {
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    openEmailFetchSheet()
+                } label: {
+                    emailFetchToolbarLabel
+                }
+                .fontDesign(appFontDesign)
+                .buttonStyle(.glassProminent)
+                .tint(isFetchingEmailTickets ? Color.clear : Color.blue.opacity(0.15))
+            }
+        }
+
+        ToolbarItem(placement: .bottomBar) {
+            Button {
+                HapticFeedback.confirm()
+                addPassSheet = true
+            } label: {
+                Image(systemName: "ticket")
+            }
+        }
+
+        ToolbarSpacer(.fixed, placement: .bottomBar)
+
+        DefaultToolbarItem(kind: .search, placement: .bottomBar)
+
+        ToolbarSpacer(.fixed, placement: .bottomBar)
+
+        ToolbarItem(placement: .bottomBar) {
+            Button {
+                HapticFeedback.confirm()
+                favoriteTrainsSheet = true
+            } label: {
+                Label("Favorites", systemImage: "heart")
+            }
+        }
+
+        ToolbarItem(placement: .bottomBar) {
+            Button {
+                HapticFeedback.confirm()
+                addTrainSheet = true
+            } label: {
+                Image(systemName: "plus")
+            }
+        }
+    }
+
+    private var sectionTitle: String {
+        selectedSection == .today ? "Today" : "Past"
+    }
+
+    private var fetchProgressTitle: String {
+        if ticketSyncProgresses.isEmpty {
+            return String(localized: "Connecting…")
+        }
+        if ticketSyncProgresses.values.allSatisfy({ $0.stage == .searching }) {
+            return String(localized: "Searching…")
+        }
+        if ticketSyncProgresses.values.allSatisfy({ $0.stage == .finished }) {
+            return String(localized: "Finishing up…")
+        }
+        return String(localized: "Fetching \(fetchGlobalPercentage)%")
+    }
+
+    /// The toolbar shows the percentage alone — the spinning glyph beside it already
+    /// says a fetch is running, so the word would only repeat it.
+    private var fetchToolbarProgressTitle: String {
+        if ticketSyncProgresses.isEmpty {
+            return String(localized: "Connecting…")
+        }
+        if ticketSyncProgresses.values.allSatisfy({ $0.stage == .searching }) {
+            return String(localized: "Searching…")
+        }
+        if ticketSyncProgresses.values.allSatisfy({ $0.stage == .finished }) {
+            return String(localized: "Finishing up…")
+        }
+        return "\(fetchGlobalPercentage)%"
+    }
+
+    private var fetchGlobalPercentage: Int {
+        let totalFound = accountProgresses.reduce(0) { $0 + $1.found }
+        let totalProcessed = accountProgresses.reduce(0) { $0 + $1.processed }
+        guard totalFound > 0 else { return 0 }
+        return min(100, Int((Double(totalProcessed) / Double(totalFound)) * 100))
+    }
+
+    private var fetchProgressSublabel: String? {
+        if ticketSyncProgresses.isEmpty {
+            return String(localized: "This can take a moment on the first scan.")
+        }
+        return nil
+    }
+
+    // MARK: - Body
+
     var body: some View {
         navigationRoot
             .background(appBackgroundColor.ignoresSafeArea())
@@ -132,6 +244,8 @@ struct ContentView: View {
             .onOpenURL(perform: handleOpenURL)
     }
 
+    // MARK: - Subviews
+
     private var navigationRoot: some View {
         NavigationStack(path: $navigationPath) {
             sectionContent
@@ -172,66 +286,6 @@ struct ContentView: View {
             )
             .opacity(selectedSection == .today ? 1 : 0)
             .allowsHitTesting(selectedSection == .today)
-        }
-    }
-
-    @ToolbarContentBuilder
-    private var mainToolbar: some ToolbarContent {
-        ToolbarItem(placement: .topBarLeading) {
-            ProfileToolbarButton(profileSheet: $profileSheet)
-                .padding(.trailing, 2)
-        }
-        .blendedToolbarItemBackground()
-
-        ToolbarItem(placement: .topBarLeading) {
-            sectionMenu
-        }
-        .blendedToolbarItemBackground()
-
-        if showsFetchToolbarButton {
-            ToolbarItem(placement: .primaryAction) {
-                Button {
-                    openEmailFetchSheet()
-                } label: {
-                    emailFetchToolbarLabel
-                }
-                .fontDesign(appFontDesign)
-                .buttonStyle(.glassProminent)
-                .tint(isFetchingEmailTickets ? Color.clear : Color.blue.opacity(0.15))
-            }
-        }
-
-        ToolbarItem(placement: .bottomBar) {
-            Button {
-                HapticFeedback.confirm()
-                addPassSheet = true
-            } label: {
-                Image(systemName: "ticket")
-            }
-        }
-
-        ToolbarSpacer(.fixed, placement: .bottomBar)
-
-        DefaultToolbarItem(kind: .search, placement: .bottomBar)
-
-        ToolbarSpacer(.fixed, placement: .bottomBar)
-
-        ToolbarItem(placement: .bottomBar) {
-            Button {
-                HapticFeedback.confirm()
-                favoriteTrainsSheet = true
-            } label: {
-                Label("Favorites", systemImage: "heart")
-            }
-        }
-
-        ToolbarItem(placement: .bottomBar) {
-            Button {
-                HapticFeedback.confirm()
-                addTrainSheet = true
-            } label: {
-                Image(systemName: "plus")
-            }
         }
     }
 
@@ -310,10 +364,6 @@ struct ContentView: View {
         }
     }
 
-    private var sectionTitle: String {
-        selectedSection == .today ? "Today" : "Past"
-    }
-
     private var sectionMenu: some View {
         Menu {
             Button {
@@ -374,6 +424,8 @@ struct ContentView: View {
         }
     }
 
+    // MARK: - Actions
+
     private func handleAppear() {
         ReviewManager.shared.requestReviewIfAppropriate(action: requestReview)
         if !hasStartedAutoFetch {
@@ -411,48 +463,6 @@ struct ContentView: View {
 
         showTicketView = url.host == "view-ticket"
         selectedSection = .today
-    }
-
-    private var fetchProgressTitle: String {
-        if ticketSyncProgresses.isEmpty {
-            return String(localized: "Connecting…")
-        }
-        if ticketSyncProgresses.values.allSatisfy({ $0.stage == .searching }) {
-            return String(localized: "Searching…")
-        }
-        if ticketSyncProgresses.values.allSatisfy({ $0.stage == .finished }) {
-            return String(localized: "Finishing up…")
-        }
-        return String(localized: "Fetching \(fetchGlobalPercentage)%")
-    }
-
-    /// The toolbar shows the percentage alone — the spinning glyph beside it already
-    /// says a fetch is running, so the word would only repeat it.
-    private var fetchToolbarProgressTitle: String {
-        if ticketSyncProgresses.isEmpty {
-            return String(localized: "Connecting…")
-        }
-        if ticketSyncProgresses.values.allSatisfy({ $0.stage == .searching }) {
-            return String(localized: "Searching…")
-        }
-        if ticketSyncProgresses.values.allSatisfy({ $0.stage == .finished }) {
-            return String(localized: "Finishing up…")
-        }
-        return "\(fetchGlobalPercentage)%"
-    }
-
-    private var fetchGlobalPercentage: Int {
-        let totalFound = accountProgresses.reduce(0) { $0 + $1.found }
-        let totalProcessed = accountProgresses.reduce(0) { $0 + $1.processed }
-        guard totalFound > 0 else { return 0 }
-        return min(100, Int((Double(totalProcessed) / Double(totalFound)) * 100))
-    }
-
-    private var fetchProgressSublabel: String? {
-        if ticketSyncProgresses.isEmpty {
-            return String(localized: "This can take a moment on the first scan.")
-        }
-        return nil
     }
 
     private func openEmailFetchSheet() {
@@ -564,9 +574,13 @@ struct ContentView: View {
 }
 
 private struct ProfileToolbarButton: View {
+    // MARK: - Properties
+
     @Query private var profiles: [UserProfile]
     @Binding var profileSheet: Bool
     @State private var profileImage: UIImage?
+
+    // MARK: - Body
 
     var body: some View {
         Button {
@@ -591,6 +605,8 @@ private struct ProfileToolbarButton: View {
         .onAppear { refreshImage() }
         .onChange(of: profiles.primary?.photo) { _, _ in refreshImage() }
     }
+
+    // MARK: - Actions
 
     private func refreshImage() {
         let photoData = profiles.primary?.photo

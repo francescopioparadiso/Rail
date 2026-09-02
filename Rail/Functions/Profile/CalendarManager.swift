@@ -3,9 +3,13 @@ import EventKit
 import SwiftData
 
 class CalendarManager {
+    // MARK: - Properties
+
     static let shared = CalendarManager()
     private let eventStore = EKEventStore()
-    
+
+    // MARK: - Computed
+
     var isAuthorized: Bool {
         let status = EKEventStore.authorizationStatus(for: .event)
         if #available(iOS 17.0, *) {
@@ -14,7 +18,9 @@ class CalendarManager {
             return status == .authorized
         }
     }
-    
+
+    // MARK: - Methods
+
     func requestAccess() async -> Bool {
         do {
             if #available(iOS 17.0, *) {
@@ -27,7 +33,7 @@ class CalendarManager {
             return false
         }
     }
-    
+
     func syncTrainEvent(train: Train, stops: [Stop], seats: [Seat], titleFormat: String, calendarIdentifier: String? = nil, travelTime: TimeInterval = 0) async {
         guard await requestAccess() else { return }
         
@@ -119,12 +125,12 @@ class CalendarManager {
             print("Error saving event: \(error)")
         }
     }
-    
+
     func getCalendars() async -> [EKCalendar] {
         guard await requestAccess() else { return [] }
         return eventStore.calendars(for: .event).sorted(by: { $0.title < $1.title })
     }
-    
+
     func removeTrainEvent(train: Train) async {
         guard await requestAccess() else { return }
         guard let identifier = train.calendarEventIdentifier, let event = eventStore.event(withIdentifier: identifier) else { return }
@@ -136,13 +142,13 @@ class CalendarManager {
             print("Error removing event: \(error)")
         }
     }
-    
+
     func removeAllEvents(trains: [Train]) async {
         for train in trains {
             await removeTrainEvent(train: train)
         }
     }
-    
+
     private func calendarTitle(for train: Train, firstStop: Stop, seats: [Seat], titleFormat: String) -> String {
         let localizedFormat = NSLocalizedString(titleFormat, comment: "")
         let needsSeatDetails = localizedFormat.contains("{carriage}")

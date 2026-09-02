@@ -1,9 +1,13 @@
 import SwiftUI
 
 struct DepartureCalendarBadge: View {
+    // MARK: - Properties
+
     let date: Date
     /// Lets the badge grow to the height of its row instead of the fixed email-list size.
     var fillsHeight: Bool = false
+
+    // MARK: - Body
 
     var body: some View {
         VStack(spacing: 0) {

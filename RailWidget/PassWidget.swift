@@ -72,8 +72,12 @@ struct Provider: TimelineProvider {
 
 // MARK: - widget view
 struct PassWidgetEntryView : View {
+    // MARK: - Properties
+
     var entry: Provider.Entry
-        
+
+    // MARK: - Body
+
     var body: some View {
         Group {
             if let passName = entry.passName, let expiry_date = entry.expiry_date {
@@ -86,12 +90,13 @@ struct PassWidgetEntryView : View {
         .containerBackground(.ultraThinMaterial, for: .widget)
         .widgetURL(URL(string: "railapp://view-pass"))
     }
-    
-    @ViewBuilder
+
+    // MARK: - Subviews
+
     func mediumLayout(name: String, date: Date) -> some View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 4) {
-                headerView()
+                headerView
                 
                 Text(name)
                     .font(.title2).fontWeight(.semibold).fontDesign(widgetFontDesign)
@@ -105,12 +110,11 @@ struct PassWidgetEntryView : View {
             
             Spacer(minLength: 0)
             
-            codeImageView()
+            codeImageView
         }
     }
-    
-    @ViewBuilder
-    private func headerView() -> some View {
+
+    private var headerView: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 4) {
                 Image(systemName: "ticket.fill")
@@ -122,7 +126,7 @@ struct PassWidgetEntryView : View {
             Divider()
         }
     }
-    
+
     @ViewBuilder
     private func expiryDateView(for date: Date) -> some View {
         let isActive = date >= Date()
@@ -158,9 +162,9 @@ struct PassWidgetEntryView : View {
             .padding(.leading, 4)
         }
     }
-    
+
     @ViewBuilder
-    private func codeImageView() -> some View {
+    private var codeImageView: some View {
         if let imageData = entry.image, let uiImage = UIImage(data: imageData) {
             Image(uiImage: uiImage)
                 .resizable()

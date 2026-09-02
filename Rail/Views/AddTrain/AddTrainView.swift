@@ -4,25 +4,29 @@ import WidgetKit
 import StoreKit
 
 struct AddTrainView: View {
+    // MARK: - Types
+
+    enum FocusField: Hashable { case number, departure, arrival }
+
+    // MARK: - Properties
+
     var focusInitially: Bool = false
     @Environment(\.requestReview) var requestReview
     @Environment(\.dismiss) private var dismiss
-    
+
     @Environment(\.modelContext) private var modelContext
     @Query private var profiles: [UserProfile]
-    
+
     @State private var addTrainStep: AddTrainStep = .addTrain
     @State private var fetchState: FetchState = .idle
-    
-    enum FocusField: Hashable { case number, departure, arrival }
+
     @FocusState private var focusedField: FocusField?
-    private var isFocused: Bool { focusedField != nil }
-    
+
     @State private var trainsFetched: [UUID: [String: Any]] = [:]
     @State private var trainID_selected: UUID? = nil
     @State private var stopsFetched: [[String: Any]] = []
     @State private var stopsSelected: [[String: Any]] = []
-    
+
     @State private var searchType: SearchType = .stations
     @State private var trainNumber: String = ""
     @State private var departureStation: String = ""
@@ -46,7 +50,11 @@ struct AddTrainView: View {
     @State private var solutionSort: SolutionSort?
     @State private var dateSelected: Date = Date()
     @State private var showDatePickerPopover = false
-    
+
+    // MARK: - Computed
+
+    private var isFocused: Bool { focusedField != nil }
+
     private var dateSubtitle: String {
         let cal = Calendar.current
         let dateString = dateSelected.formatted(.dateTime.day().month(.abbreviated))
@@ -64,7 +72,7 @@ struct AddTrainView: View {
         }
         return "\(dayPart), \(timeString)"
     }
-    
+
     private var activeStationQuery: String? {
         guard searchType == .stations,
               let field = focusedField,
@@ -119,172 +127,58 @@ struct AddTrainView: View {
             return true
         }
     }
-    
+
     private var leadingToolbarIcon: String {
         addTrainStep == .addTrain ? "xmark" : "chevron.left"
     }
 
-    private func leadingToolbarAction() {
-        guard !isSaving else { return }
-        HapticFeedback.tap()
-
-        if addTrainStep == .addTrain {
-            if isFocused {
-                focusedField = nil
-            } else {
-                dismiss()
-            }
-        } else {
-            backButtonAction()
+    /// Trains found by number, shown with the same rows as the station search.
+    /// Each is a single leg, so nothing here expands.
+    private var numberedTrainRows: [(id: UUID, solution: Solution)] {
+        trainsFetched.compactMap { id, train in
+            let stops = train["stops"] as? [[String: Any]] ?? []
+            guard let first = stops.first, let last = stops.last else { return nil }
+            let segment = SolutionSegment(
+                origin: first["name"] as? String ?? "",
+                destination: last["name"] as? String ?? "",
+                departureTime: first["ref_time"] as? Date ?? .distantPast,
+                arrivalTime: last["ref_time"] as? Date ?? .distantPast,
+                logo: train["logo"] as? String ?? "",
+                number: train["number"] as? String ?? "",
+                stationCode: "",
+                isBus: false
+            )
+            return (id, Solution(segments: [segment]))
         }
+        .sorted { $0.solution.departureTime < $1.solution.departureTime }
     }
 
-    private func resetFormState() {
-        trainsFetched = [:]
-        trainNumber = ""
-        departureStation = ""
-        arrivalStation = ""
-        departureCode = ""
-        arrivalCode = ""
-        stationSuggestions = []
-        stationFetchTask?.cancel()
-        prefetchTask?.cancel()
-        solutionsFetched = []
-        solutionID_selected = nil
-        prefetchedSegments = [:]
-        isSaving = false
-        trainID_selected = nil
-        dateSelected = Date()
-        addTrainStep = .addTrain
-        fetchState = .idle
+    private var solutionFacets: SolutionFacets { SolutionFacets(solutions: solutionsFetched) }
+
+    private var visibleSolutions: [Solution] {
+        SolutionQuery.apply(
+            to: solutionsFetched,
+            searchText: solutionSearchText,
+            filters: solutionFilters,
+            facets: solutionFacets,
+            sort: solutionSort
+        )
     }
 
-    private func backButtonAction() -> Void {
-        switch addTrainStep {
-        case .addTrain:
-            /// reset variables
-            focusedField = nil
+    // MARK: - Body
 
-        case .chooseTrain:
-            /// update focus
-            focusedField = nil
-            
-            /// change view
-            addTrainStep = .addTrain
-            
-            /// reset variables
-            trainsFetched.removeAll()
-            trainID_selected = nil
-            prefetchTask?.cancel()
-            solutionsFetched.removeAll()
-            solutionID_selected = nil
-            prefetchedSegments = [:]
-            isSaving = false
-
-            /// fetching status
-            fetchState = .idle
-            
-        case .chooseStops:
-            /// change view
-            addTrainStep = .chooseTrain
-            
-            /// reset variables
-            stopsFetched.removeAll()
-            stopsSelected.removeAll()
-            
-        case .chooseDate:
-            /// change view
-            addTrainStep = .chooseStops
-            
-            /// reset variables
-            dateSelected = Date()
-        }
-    }
-    private func nextButtonAction() -> Void {
-        switch addTrainStep {
-        case .addTrain:
-            if trainID_selected == nil {
-                /// haptic feedback
-                HapticFeedback.confirm()
-                
-                /// reset focus
-                focusedField = nil
-
-                /// change view
-                addTrainStep = .chooseTrain
-
-                /// actions
-                if searchType == .number {
-                    Task { await fetchTrains() }
-                } else {
-                    Task { await fetchSolutions() }
-                }
-            } else {
-                /// haptic feedback
-                HapticFeedback.impactHeavy()
-                
-                /// actions
-                saveTrain()
-                
-                /// change view
-                dismiss()
-            }
-            
-        case .chooseTrain:
-            if searchType == .stations {
-                guard !isSaving, solutionID_selected != nil else { return }
-
-                /// haptic feedback
-                HapticFeedback.impactHeavy()
-
-                /// stations: a solution is fully specified, save it directly
-                isSaving = true
-                Task {
-                    await saveSolution()
-                    dismiss()
-                }
-            } else {
-                /// haptic feedback
-                HapticFeedback.confirm()
-
-                /// change view
-                addTrainStep = .chooseStops
-
-                /// actions
-                saveStops()
-            }
-
-        case .chooseStops:
-            /// haptic feedback
-            HapticFeedback.confirm()
-            
-            /// change view
-            addTrainStep = .chooseDate
-            
-        case .chooseDate:
-            /// haptic feedback
-            HapticFeedback.impactHeavy()
-            
-            /// actions
-            saveTrain()
-            
-            /// change view
-            dismiss()
-        }
-    }
-    
     var body: some View {
         NavigationStack {
             ZStack {
                 switch addTrainStep {
                 case .addTrain:
-                    addTrainView()
+                    addTrainView
                     
                 case .chooseTrain:
-                    chooseTrainView()
+                    chooseTrainView
                     
                 case .chooseStops:
-                    chooseStopsView()
+                    chooseStopsView
                     
                 case .chooseDate:
                     ScrollView {
@@ -462,8 +356,10 @@ struct AddTrainView: View {
             prefetchedSegments = [:]
         }
     }
-    
-    @ViewBuilder func addTrainView() -> some View {
+
+    // MARK: - Subviews
+
+    var addTrainView: some View {
         Form {
             Section {
                 Picker("Search", selection: $searchType) {
@@ -533,7 +429,6 @@ struct AddTrainView: View {
         .fontDesign(appFontDesign)
     }
 
-    @ViewBuilder
     private func stationFieldRow(
         placeholder: String,
         text: Binding<String>,
@@ -570,7 +465,7 @@ struct AddTrainView: View {
     }
 
     // floating bar shown while typing a station: horizontally scrolling suggestions.
-    @ViewBuilder func suggestionsPill(field: FocusField) -> some View {
+    func suggestionsPill(field: FocusField) -> some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
                 ForEach(stationSuggestions, id: \.self) { station in
@@ -610,7 +505,7 @@ struct AddTrainView: View {
         .glassEffect(.regular)
     }
 
-    @ViewBuilder func chooseTrainView() -> some View {
+    @ViewBuilder var chooseTrainView: some View {
         switch fetchState {
         case .idle:
             EmptyView()
@@ -631,9 +526,9 @@ struct AddTrainView: View {
             
         case .success:
             if searchType == .stations {
-                chooseSolutionView()
+                chooseSolutionView
             } else {
-                chooseNumberedTrainView()
+                chooseNumberedTrainView
             }
 
         case .failure:
@@ -647,28 +542,7 @@ struct AddTrainView: View {
         }
     }
 
-    /// Trains found by number, shown with the same rows as the station search.
-    /// Each is a single leg, so nothing here expands.
-    private var numberedTrainRows: [(id: UUID, solution: Solution)] {
-        trainsFetched.compactMap { id, train in
-            let stops = train["stops"] as? [[String: Any]] ?? []
-            guard let first = stops.first, let last = stops.last else { return nil }
-            let segment = SolutionSegment(
-                origin: first["name"] as? String ?? "",
-                destination: last["name"] as? String ?? "",
-                departureTime: first["ref_time"] as? Date ?? .distantPast,
-                arrivalTime: last["ref_time"] as? Date ?? .distantPast,
-                logo: train["logo"] as? String ?? "",
-                number: train["number"] as? String ?? "",
-                stationCode: "",
-                isBus: false
-            )
-            return (id, Solution(segments: [segment]))
-        }
-        .sorted { $0.solution.departureTime < $1.solution.departureTime }
-    }
-
-    @ViewBuilder func chooseNumberedTrainView() -> some View {
+    var chooseNumberedTrainView: some View {
         List {
             ForEach(numberedTrainRows, id: \.id) { row in
                 let isSelected = trainID_selected == row.id
@@ -696,7 +570,7 @@ struct AddTrainView: View {
         .disabled(isSaving)
     }
 
-    @ViewBuilder func chooseSolutionView() -> some View {
+    var chooseSolutionView: some View {
         ScrollViewReader { proxy in
             List {
                 ForEach(visibleSolutions) { solution in
@@ -759,9 +633,7 @@ struct AddTrainView: View {
         }
     }
 
-    // MARK: Sort and filter menus
-
-    @ViewBuilder private var solutionSortMenu: some View {
+    private var solutionSortMenu: some View {
         Menu {
             ForEach([SolutionSortField.duration, .price], id: \.self) { field in
                 Button {
@@ -876,10 +748,6 @@ struct AddTrainView: View {
         }
     }
 
-    private func toggle(_ set: inout Set<Int>, _ value: Int) {
-        if set.contains(value) { set.remove(value) } else { set.insert(value) }
-    }
-
     private func filterButton(title: String, isOn: Bool, action: @escaping () -> Void) -> some View {
         Button {
             HapticFeedback.select()
@@ -894,60 +762,7 @@ struct AddTrainView: View {
         }
     }
 
-    /// ascending → descending → off
-    private func cycleSort(_ field: SolutionSortField) {
-        guard let current = solutionSort, current.field == field else {
-            solutionSort = SolutionSort(field: field, isAscending: true)
-            return
-        }
-        solutionSort = current.isAscending ? SolutionSort(field: field, isAscending: false) : nil
-    }
-
-    private var solutionFacets: SolutionFacets { SolutionFacets(solutions: solutionsFetched) }
-
-    private var visibleSolutions: [Solution] {
-        SolutionQuery.apply(
-            to: solutionsFetched,
-            searchText: solutionSearchText,
-            filters: solutionFilters,
-            facets: solutionFacets,
-            sort: solutionSort
-        )
-    }
-
-    private func toggleExpanded(_ solution: Solution) {
-        guard solution.segments.count > 1 else { return }
-        HapticFeedback.select()
-        withAnimation(.snappy) {
-            // opening one closes whichever was open
-            expandedSolutionID = expandedSolutionID == solution.id ? nil : solution.id
-        }
-    }
-
-    /// Places a fare on the green-to-red ramp against the others on screen.
-    private func priceRank(for solution: Solution) -> SolutionPriceRank? {
-        guard let price = solution.price else { return nil }
-        let prices = visibleSolutions.compactMap(\.price)
-        guard let cheapest = prices.min(), let priciest = prices.max(), cheapest < priciest else { return nil }
-        return SolutionPriceRank(position: (price - cheapest) / (priciest - cheapest))
-    }
-
-    // on open, jump straight to the next departure from now so the user can catch it
-    private func scrollToNextSolution(proxy: ScrollViewProxy, animated: Bool = false) {
-        let now = Date()
-        guard let target = solutionsFetched.first(where: { $0.departureTime >= now }) else { return }
-
-        DispatchQueue.main.async {
-            if animated {
-                withAnimation { proxy.scrollTo(target.id, anchor: .top) }
-            } else {
-                proxy.scrollTo(target.id, anchor: .top)
-            }
-        }
-    }
-
-    
-    @ViewBuilder func chooseStopsView() -> some View {
+    var chooseStopsView: some View {
         ZStack(alignment: .bottom) {
             List {
                 ForEach(stopsFetched.enumerated(), id: \.offset) { index, stop in
@@ -1015,7 +830,202 @@ struct AddTrainView: View {
         }
         .toolbar(.hidden, for: .tabBar)
     }
-    
+
+    // MARK: - Actions
+
+    private func leadingToolbarAction() {
+        guard !isSaving else { return }
+        HapticFeedback.tap()
+
+        if addTrainStep == .addTrain {
+            if isFocused {
+                focusedField = nil
+            } else {
+                dismiss()
+            }
+        } else {
+            backButtonAction()
+        }
+    }
+
+    private func resetFormState() {
+        trainsFetched = [:]
+        trainNumber = ""
+        departureStation = ""
+        arrivalStation = ""
+        departureCode = ""
+        arrivalCode = ""
+        stationSuggestions = []
+        stationFetchTask?.cancel()
+        prefetchTask?.cancel()
+        solutionsFetched = []
+        solutionID_selected = nil
+        prefetchedSegments = [:]
+        isSaving = false
+        trainID_selected = nil
+        dateSelected = Date()
+        addTrainStep = .addTrain
+        fetchState = .idle
+    }
+
+    private func backButtonAction() -> Void {
+        switch addTrainStep {
+        case .addTrain:
+            /// reset variables
+            focusedField = nil
+
+        case .chooseTrain:
+            /// update focus
+            focusedField = nil
+            
+            /// change view
+            addTrainStep = .addTrain
+            
+            /// reset variables
+            trainsFetched.removeAll()
+            trainID_selected = nil
+            prefetchTask?.cancel()
+            solutionsFetched.removeAll()
+            solutionID_selected = nil
+            prefetchedSegments = [:]
+            isSaving = false
+
+            /// fetching status
+            fetchState = .idle
+            
+        case .chooseStops:
+            /// change view
+            addTrainStep = .chooseTrain
+            
+            /// reset variables
+            stopsFetched.removeAll()
+            stopsSelected.removeAll()
+            
+        case .chooseDate:
+            /// change view
+            addTrainStep = .chooseStops
+            
+            /// reset variables
+            dateSelected = Date()
+        }
+    }
+    private func nextButtonAction() -> Void {
+        switch addTrainStep {
+        case .addTrain:
+            if trainID_selected == nil {
+                /// haptic feedback
+                HapticFeedback.confirm()
+                
+                /// reset focus
+                focusedField = nil
+
+                /// change view
+                addTrainStep = .chooseTrain
+
+                /// actions
+                if searchType == .number {
+                    Task { await fetchTrains() }
+                } else {
+                    Task { await fetchSolutions() }
+                }
+            } else {
+                /// haptic feedback
+                HapticFeedback.impactHeavy()
+                
+                /// actions
+                saveTrain()
+                
+                /// change view
+                dismiss()
+            }
+            
+        case .chooseTrain:
+            if searchType == .stations {
+                guard !isSaving, solutionID_selected != nil else { return }
+
+                /// haptic feedback
+                HapticFeedback.impactHeavy()
+
+                /// stations: a solution is fully specified, save it directly
+                isSaving = true
+                Task {
+                    await saveSolution()
+                    dismiss()
+                }
+            } else {
+                /// haptic feedback
+                HapticFeedback.confirm()
+
+                /// change view
+                addTrainStep = .chooseStops
+
+                /// actions
+                saveStops()
+            }
+
+        case .chooseStops:
+            /// haptic feedback
+            HapticFeedback.confirm()
+            
+            /// change view
+            addTrainStep = .chooseDate
+            
+        case .chooseDate:
+            /// haptic feedback
+            HapticFeedback.impactHeavy()
+            
+            /// actions
+            saveTrain()
+            
+            /// change view
+            dismiss()
+        }
+    }
+
+    private func toggle(_ set: inout Set<Int>, _ value: Int) {
+        if set.contains(value) { set.remove(value) } else { set.insert(value) }
+    }
+
+    /// ascending → descending → off
+    private func cycleSort(_ field: SolutionSortField) {
+        guard let current = solutionSort, current.field == field else {
+            solutionSort = SolutionSort(field: field, isAscending: true)
+            return
+        }
+        solutionSort = current.isAscending ? SolutionSort(field: field, isAscending: false) : nil
+    }
+
+    private func toggleExpanded(_ solution: Solution) {
+        guard solution.segments.count > 1 else { return }
+        HapticFeedback.select()
+        withAnimation(.snappy) {
+            // opening one closes whichever was open
+            expandedSolutionID = expandedSolutionID == solution.id ? nil : solution.id
+        }
+    }
+
+    /// Places a fare on the green-to-red ramp against the others on screen.
+    private func priceRank(for solution: Solution) -> SolutionPriceRank? {
+        guard let price = solution.price else { return nil }
+        let prices = visibleSolutions.compactMap(\.price)
+        guard let cheapest = prices.min(), let priciest = prices.max(), cheapest < priciest else { return nil }
+        return SolutionPriceRank(position: (price - cheapest) / (priciest - cheapest))
+    }
+
+    // on open, jump straight to the next departure from now so the user can catch it
+    private func scrollToNextSolution(proxy: ScrollViewProxy, animated: Bool = false) {
+        let now = Date()
+        guard let target = solutionsFetched.first(where: { $0.departureTime >= now }) else { return }
+
+        DispatchQueue.main.async {
+            if animated {
+                withAnimation { proxy.scrollTo(target.id, anchor: .top) }
+            } else {
+                proxy.scrollTo(target.id, anchor: .top)
+            }
+        }
+    }
+
     private func scheduleStationFetch(for field: FocusField) {
         let query = field == .departure ? departureStation : arrivalStation
         scheduleStationFetch(query: query, field: field)
@@ -1229,7 +1239,7 @@ struct AddTrainView: View {
             }
         }
     }
-    
+
     private func saveStops() {
         let train = trainsFetched.filter { $0.key == trainID_selected }.first
         let stops = train?.value["stops"] as? [[String: Any]] ?? []
@@ -1237,7 +1247,7 @@ struct AddTrainView: View {
             stopsFetched.append(stop)
         }
     }
-    
+
     private func selectStops(stopsFetched: [[String: Any]], currentSelection: [[String: Any]], tappedIndex: Int) -> [[String: Any]] {
         let selectedIndices: [Int] = currentSelection.compactMap { selected in
             guard let name = selected["name"] as? String else { return nil }
@@ -1272,7 +1282,7 @@ struct AddTrainView: View {
             }
         }
     }
-    
+
     private func saveTrain() {
         // unique id for train and stops
         let id = UUID()

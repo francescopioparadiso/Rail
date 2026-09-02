@@ -2,10 +2,14 @@ import Foundation
 
 // MARK: - Cache
 private class WeatherCache {
+    // MARK: - Properties
+
     static let shared = WeatherCache()
     private var cache: [String: (String, Date)] = [:]
     private let lock = NSLock()
-    
+
+    // MARK: - Methods
+
     func get(lat: Double, lon: Double, date: Date) -> String? {
         let key = cacheKey(lat: lat, lon: lon, date: date)
         lock.lock()
@@ -19,14 +23,14 @@ private class WeatherCache {
         }
         return nil
     }
-    
+
     func set(lat: Double, lon: Double, date: Date, value: String) {
         let key = cacheKey(lat: lat, lon: lon, date: date)
         lock.lock()
         defer { lock.unlock() }
         cache[key] = (value, Date())
     }
-    
+
     private func cacheKey(lat: Double, lon: Double, date: Date) -> String {
         let hour = Calendar.current.component(.hour, from: date)
         let day = Calendar.current.startOfDay(for: date)
