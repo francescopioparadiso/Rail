@@ -48,7 +48,13 @@ struct StationBoardView: View {
 
                 boardContent
             }
-            .searchable(text: $stationText, prompt: "Station")
+            // the system search field, pinned under the title rather than left to
+            // collapse into the toolbar
+            .searchable(
+                text: $stationText,
+                placement: .navigationBarDrawer(displayMode: .always),
+                prompt: "Station"
+            )
             .searchFocused($isEditingStation)
             .onSubmit(of: .search) { adoptFirstSuggestion() }
             .navigationTitle(station?.name ?? String(localized: "Timetable"))
@@ -62,8 +68,6 @@ struct StationBoardView: View {
                         Image(systemName: "xmark")
                     }
                 }
-
-                DefaultToolbarItem(kind: .search, placement: .bottomBar)
             }
             .navigationDestination(for: BoardTrain.self) { boardTrain in
                 BoardTrainDetailView(
@@ -74,7 +78,8 @@ struct StationBoardView: View {
                     onSave: save
                 )
             }
-            // stacked directly above the search field it belongs to
+            // sits above the keyboard while a station is being typed, exactly as
+            // it does in the Add Train form
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 if isEditingStation, !suggestions.isEmpty {
                     StationSuggestionsBar(suggestions: suggestions, onSelect: select)
@@ -85,6 +90,9 @@ struct StationBoardView: View {
             }
             .animation(.snappy, value: suggestions)
             .animation(.snappy, value: station)
+            // .container only: ignoring the keyboard region too would leave the
+            // station suggestion bar stranded behind the keyboard
+            .ignoresSafeArea(.container, edges: .bottom)
         }
         .onAppear {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
