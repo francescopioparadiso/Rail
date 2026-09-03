@@ -153,14 +153,16 @@ struct PassFormSheet: View {
                 if let pass = passToEdit, let pdf = pass.pdf, !pdf.isEmpty {
                     Section("Document") {
                         HStack(spacing: 12) {
-                            Image(systemName: "doc.fill")
+                            Image(systemName: "doc.append")
                                 .font(.title3)
 
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(pass.documentFilename)
+                                    .font(.headline)
                                     .lineLimit(1)
                                 Text(pdf.count.formatted(.byteCount(style: .file)))
-                                    .font(.footnote)
+                                    .font(.subheadline)
+                                    .foregroundStyle(.secondary)
                             }
 
                             Spacer(minLength: 12)
