@@ -4,16 +4,20 @@ import SwiftData
 /// A train opened from a station board, which does not belong to the app.
 ///
 /// The board knows only an identifier, so the journey is resolved on the way in and
-/// staged in a throwaway in-memory store. That store, not the app's database, is
-/// what the details screen reads and writes, so a train can be browsed — refreshing
-/// as it runs, like any other — and leave nothing behind when it is closed.
+/// staged in a context that is never saved. The details screen reads and writes that
+/// context instead of the app's own data, so a train can be browsed — advancing and
+/// refreshing as it runs, like any other — and leave nothing behind: nothing on
+/// disk, nothing in iCloud, and nothing in the lists.
 struct BoardTrainDetailView: View {
     // MARK: - Properties
+
+    @Environment(\.modelContext) private var modelContext
 
     let boardTrain: BoardTrain
     let station: String
     let kind: StationBoardKind
-    @State private var journey: StagedJourney?
+
+    @State private var journey: Train?
     @State private var didFail = false
 
     // MARK: - Body
@@ -22,12 +26,12 @@ struct BoardTrainDetailView: View {
         Group {
             if let journey {
                 DetailsView(
-                    train: journey.train,
+                    train: journey,
                     showTicketInitially: .constant(false),
                     ticketSeatID: .constant(nil),
                     isPreview: true
                 )
-                .modelContainer(journey.container)
+                .modelContext(PreviewJourneyStore.context(on: modelContext.container))
             } else if didFail {
                 ContentUnavailableView(
                     "Train unavailable",
@@ -48,6 +52,9 @@ struct BoardTrainDetailView: View {
 
     // MARK: - Actions
 
+    /// The one network call this screen makes. A board lists far more trains than
+    /// anyone opens, so a route is fetched when a train is actually asked for and
+    /// never before.
     private func resolve() async {
         guard journey == nil, !didFail else { return }
 
@@ -60,10 +67,10 @@ struct BoardTrainDetailView: View {
         journey = staged
     }
 
-    /// Turns the resolved journey into a train sitting in its own store, riding
-    /// from the station being looked at to the end of the line — or, on an arrivals
-    /// board, from the start of the line to here.
-    private func stage(_ info: [String: Any]) -> StagedJourney? {
+    /// Puts the resolved journey in the preview context, riding from the station
+    /// being looked at to the end of the line — or, on an arrivals board, from the
+    /// start of the line to here.
+    private func stage(_ info: [String: Any]) -> Train? {
         let stops = info["stops"] as? [[String: Any]] ?? []
         let names = stops.map { $0["name"] as? String ?? "" }
         guard let origin = names.first, let terminus = names.last else { return nil }
@@ -72,13 +79,12 @@ struct BoardTrainDetailView: View {
         let from = kind == .departures ? (boarded ?? origin) : origin
         let to = kind == .departures ? terminus : (boarded ?? terminus)
 
-        guard let container = PreviewJourneyStore.container else { return nil }
-
-        let journey = PreparedFavoriteTrain(info: info, fromStation: from, toStation: to)
-        let (train, _) = FavoriteTrainService.insert(journey, into: container.mainContext)
-        try? container.mainContext.save()
-
-        return StagedJourney(container: container, train: train)
+        let context = PreviewJourneyStore.context(on: modelContext.container)
+        let (train, _) = FavoriteTrainService.insert(
+            PreparedFavoriteTrain(info: info, fromStation: from, toStation: to),
+            into: context
+        )
+        return train
     }
 
     /// Which stop on the route is the one whose board this is. Both endpoints draw
@@ -98,25 +104,27 @@ struct BoardTrainDetailView: View {
     }
 }
 
-/// The store every previewed journey lives in, made once and shared.
+/// Where journeys live while they are only being looked at.
 ///
-/// One store per journey was the obvious thing to write and it crashes: Core Data
-/// hands out a connection for the first in-memory container and throws
-/// "No eligible connection available" on the second, taking the app with it the
-/// moment a second train is opened from a board. Nothing here needed more than one
-/// store anyway — a journey is told apart by its own id, not by the store it sits
-/// in. Journeys accumulate in memory for the session and go when the app does.
+/// It is a context on the app's own container, made once, with autosaving off and
+/// no save ever asked of it. Objects inserted there are visible to the screen
+/// reading that context and to nothing else — not the app's lists, not the store on
+/// disk, not iCloud — and they cost a fetch and some memory, no writes at all.
+///
+/// A container of its own was the obvious thing to write, and it is what crashed:
+/// Core Data hands out a connection for the first extra store and throws
+/// "No eligible connection available" on the next, killing the app the moment a
+/// second train was opened. Sharing the container the app already has removes the
+/// second store, and with it the whole failure.
 @MainActor
 enum PreviewJourneyStore {
-    static let container: ModelContainer? = {
-        let schema = Schema([Train.self, Stop.self, Seat.self, Favorite.self, UserProfile.self])
-        let configuration = ModelConfiguration(isStoredInMemoryOnly: true)
-        return try? ModelContainer(for: schema, configurations: configuration)
-    }()
-}
+    private static var stored: ModelContext?
 
-/// A journey staged in that store, ready for the details screen.
-private struct StagedJourney {
-    let container: ModelContainer
-    let train: Train
+    static func context(on container: ModelContainer) -> ModelContext {
+        if let stored { return stored }
+        let context = ModelContext(container)
+        context.autosaveEnabled = false
+        stored = context
+        return context
+    }
 }

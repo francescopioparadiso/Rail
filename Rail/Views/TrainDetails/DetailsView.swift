@@ -538,6 +538,9 @@ struct DetailsView: View {
             await Task.yield()
             try? await Task.sleep(nanoseconds: 300_000_000)
             guard !Task.isCancelled else { return }
+            // A board opens a train by fetching its route, so on arrival here the
+            // journey is already as new as the network can make it.
+            guard !isPreview else { return }
             await updateTrainDetails()
         }
         .task(id: train.id) {
@@ -545,7 +548,7 @@ struct DetailsView: View {
             // and let real data win; when the call comes back empty — no signal, or
             // nothing new — the clock carries the journey on from what is stored.
             while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(30))
+                try? await Task.sleep(for: .seconds(isPreview ? 60 : 30))
                 guard !Task.isCancelled else { break }
                 await updateTrainDetails()
                 guard !Task.isCancelled else { break }
@@ -965,8 +968,17 @@ struct DetailsView: View {
     @MainActor
     private func advanceJourneyLocally() {
         guard TrainProgress.advance(train: train, stops: stops) else { return }
-        try? modelContext.save()
+        persist()
         refreshDerivedState()
+    }
+
+    /// A journey being looked at off a board is never written down: its context is
+    /// never saved, so browsing a timetable costs no disk writes and no iCloud
+    /// traffic at all.
+    @MainActor
+    private func persist() {
+        guard !isPreview else { return }
+        try? modelContext.save()
     }
 
     @MainActor
@@ -1010,7 +1022,9 @@ struct DetailsView: View {
             return
         }
 
-        let fetchWeather = journeyIsToday
+        // Weather costs one request per stop, so it is fetched for journeys that
+        // are actually yours and skipped for one merely being looked at.
+        let fetchWeather = journeyIsToday && !isPreview
 
         isRefreshing = true
         defer { isRefreshing = false }
@@ -1087,7 +1101,7 @@ struct DetailsView: View {
             )
         }
         
-        try? modelContext.save()
+        persist()
         if isManual {
             WidgetCenter.shared.reloadAllTimelines()
         }
