@@ -306,6 +306,10 @@ struct PassView: View {
                 }
 
                 if !isSelecting, showsFetchToolbarButton {
+                    // inside the condition: with no mail button to separate, the
+                    // spacer would only strand the select button on its own
+                    ToolbarSpacer(.fixed, placement: .primaryAction)
+
                     ToolbarItem(placement: .primaryAction) {
                         Button {
                             openEmailFetchSheet()
@@ -551,7 +555,7 @@ struct PassView: View {
                 .foregroundStyle(statusColor)
                 .contentTransition(.symbolEffect(.replace.downUp.wholeSymbol, options: .nonRepeating))
 
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: 1) {
                 // What a pass is worth is the stretch of time it covers, so that
                 // leads; its name says which kind of pass bought that stretch.
                 Text(PassValidityPeriod.text(
