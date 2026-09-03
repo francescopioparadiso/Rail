@@ -167,7 +167,7 @@ struct StationBoardView: View {
             List {
                 ForEach(board) { boardTrain in
                     NavigationLink(value: boardTrain) {
-                        StationBoardRow(train: boardTrain, kind: kind)
+                        StationBoardRow(train: boardTrain)
                     }
                 }
             }

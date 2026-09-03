@@ -7,7 +7,6 @@ struct StationBoardRow: View {
     // MARK: - Properties
 
     let train: BoardTrain
-    let kind: StationBoardKind
 
     // MARK: - Computed
 
@@ -87,22 +86,22 @@ struct StationBoardRow: View {
     @ViewBuilder
     private var platform: some View {
         if !train.platform.isEmpty, train.platform != "-" {
-            // the same yellow chip a platform wears everywhere else in the app,
-            // with the arrow that says which way the train is going through here
-            HStack(spacing: 4) {
-                Image(systemName: kind == .departures ? "arrow.up.right" : "arrow.down.right")
-
-                // a minimum width so "3" and "12" make chips of the same size,
-                // while a platform like "1 /" still gets the room it needs
-                Text(train.platform)
-                    .monospacedDigit()
-                    .frame(minWidth: 18)
-            }
-            .font(.subheadline).fontWeight(.medium)
-            .foregroundStyle(Color.primary)
-            .padding(.horizontal, 10).padding(.vertical, 6)
-            .background(Color.yellow.opacity(0.5))
-            .cornerRadius(16)
+            // the same yellow chip a platform wears everywhere else in the app. No
+            // arrow on it here: a whole board is going the one way, so repeating it
+            // on every row says nothing the picker above hasn't.
+            Text(train.platform)
+                .font(.subheadline).fontWeight(.medium)
+                .monospacedDigit()
+                .foregroundStyle(Color.primary)
+                .lineLimit(1)
+                // a floor so "3" and "12" make chips of a size, and no ceiling: a
+                // platform like "1 Tronco" widens its own chip to fit rather than
+                // being clipped, and the station name gives up the room
+                .frame(minWidth: 18)
+                .fixedSize(horizontal: true, vertical: false)
+                .padding(.horizontal, 10).padding(.vertical, 6)
+                .background(Color.yellow.opacity(0.5))
+                .cornerRadius(16)
         }
     }
 }
