@@ -573,7 +573,7 @@ struct PassView: View {
                     .lineLimit(1)
 
                 Text(timeRemaining)
-                    .font(.subheadline)
+                    .font(.footnote)
                     .foregroundStyle(statusColor)
             }
 
