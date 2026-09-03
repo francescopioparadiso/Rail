@@ -313,8 +313,6 @@ struct PassView: View {
                             emailFetchToolbarLabel
                         }
                         .fontDesign(appFontDesign)
-                        .buttonStyle(.glassProminent)
-                        .tint(isFetchingEmailPasses ? Color.clear : Color.blue.opacity(0.15))
                     }
                 }
 
@@ -554,19 +552,21 @@ struct PassView: View {
                 .contentTransition(.symbolEffect(.replace.downUp.wholeSymbol, options: .nonRepeating))
 
             VStack(alignment: .leading, spacing: 4) {
-                Text(pass.name)
-                    .font(.headline)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-
+                // What a pass is worth is the stretch of time it covers, so that
+                // leads; its name says which kind of pass bought that stretch.
                 Text(PassValidityPeriod.text(
                     name: pass.name,
                     start: pass.start_date,
                     end: pass.expiry_date
                 ))
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+                .font(.headline)
                 .lineLimit(1)
+                .truncationMode(.tail)
+
+                Text(pass.name)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
 
                 Text(timeRemaining)
                     .font(.subheadline)
@@ -643,7 +643,7 @@ struct PassView: View {
                 Image(systemName: "progress.indicator")
                     .symbolEffect(.rotate.byLayer, options: .repeat(.continuous))
             } else {
-                Image(systemName: "envelope.badge")
+                Image(systemName: "envelope")
             }
         }
         .contentTransition(.symbolEffect(.replace.downUp.wholeSymbol, options: .nonRepeating))
