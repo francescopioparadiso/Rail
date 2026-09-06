@@ -11,6 +11,14 @@ func fetchCommonTrainList(number: String) async -> [[String: Any]] {
 
         let lines = resultString.split(separator: "\n")
 
+        // the run dates worth looking up: today's, and yesterday's for the overnight
+        // services still on the move this morning. Whether each one is actually
+        // still addable is decided on its real stop times once it comes back.
+        let calendar = Calendar.current
+        let startOfToday = calendar.startOfDay(for: Date())
+        let earliestRunDay = calendar.date(byAdding: .day, value: -1, to: startOfToday) ?? startOfToday
+        let earliestTimestamp = Int(earliestRunDay.timeIntervalSince1970) * 1000
+
         await withTaskGroup(of: [String: Any]?.self) { group in
             for line in lines {
                 let parts = line.split(separator: "|")
@@ -21,9 +29,8 @@ func fetchCommonTrainList(number: String) async -> [[String: Any]] {
 
                 let code = codeParts[1]
                 let timestamp = Int(codeParts[2]) ?? 0
-                let todayTimestamp = Int(Calendar.current.startOfDay(for: Date()).timeIntervalSince1970) * 1000
 
-                if timestamp >= todayTimestamp {
+                if timestamp >= earliestTimestamp {
                     let identifier = "\(code)/\(number)/\(timestamp)"
                     group.addTask { await TrenitaliaAPI().info(identifier: identifier, shouldFetchWeather: false) }
                 }
@@ -34,7 +41,7 @@ func fetchCommonTrainList(number: String) async -> [[String: Any]] {
             }
 
             for await result in group {
-                if let result = result { resultsArray.append(result) }
+                if let result = result, isTrainAddable(info: result) { resultsArray.append(result) }
             }
         }
 
