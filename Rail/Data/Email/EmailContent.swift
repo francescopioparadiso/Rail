@@ -83,11 +83,6 @@ struct EmailContent: Codable, Identifiable, Sendable {
         return Self.isDepartureOnOrAfterToday(departureDate)
     }
 
-    nonisolated var isPastDeparture: Bool {
-        guard let departureDate else { return false }
-        return departureDate < Date()
-    }
-
     /// Check-in page details can enrich both upcoming and past email tickets.
     nonisolated var shouldFetchCheckInDetails: Bool {
         !isSampleTicket

@@ -484,6 +484,12 @@ struct ContentView: View {
         HapticFeedback.tap()
         fetchSheetDetent = isFetchingEmailTickets ? .medium : .large
         emailImportSheet = true
+        // Opening the mailbox looks for what has arrived since the last sync and
+        // nothing more: stored emails are never read a second time. Starting over
+        // is what the refresh button inside the sheet is for.
+        if !usesMockMailbox {
+            triggerEmailTicketRefresh()
+        }
     }
 
     private func triggerEmailTicketRefresh(reloadAll: Bool = false) {

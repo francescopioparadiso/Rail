@@ -48,15 +48,20 @@ enum EmailTicketSyncService {
             try modelContext.save()
         }
 
-        // Full scan only on first sync (or after a parser upgrade). Refresh is incremental.
+        // Full scan only on first sync (or after a parser upgrade). Opening the mailbox
+        // is incremental: it reads what arrived since `lastSyncedUID` and nothing else.
         let needsFullScan = reloadAll || updatedEmails[emailIndex].needsFullMailboxScan
         if needsFullScan {
             updatedEmails = profile.emails
             updatedEmails[emailIndex].lastSyncedUID = nil
             updatedEmails[emailIndex].pendingFailedUIDs = nil
-            
-            // If it's an explicit reloadAll, we still fetch all emails again, 
-            // but we keep existing tickets so we don't delete saved trains.
+
+            // The refresh button means start over: the cached tickets go and the whole
+            // mailbox is read again. Trains already added to Today are left alone —
+            // they belong to the user, and this cache is only how they got there.
+            if reloadAll {
+                updatedEmails[emailIndex].content = []
+            }
 
             profile.emails = updatedEmails
             try modelContext.save()
@@ -96,7 +101,7 @@ enum EmailTicketSyncService {
                 stage: .finished,
                 emailsFound: fetchResult.foundCount,
                 emailsDownloaded: fetchResult.emails.count,
-                emailsSkipped: fetchResult.failedUIDs.count,
+                emailsSkipped: fetchResult.failedUIDs.count + fetchResult.rejectedUIDs.count,
                 latestWarning: nil,
                 detailsTotal: pending.count,
                 detailsCompleted: pending.count,
