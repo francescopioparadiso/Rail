@@ -227,7 +227,12 @@ enum FavoriteTrainService {
             guard let resultString = String(data: data, encoding: .utf8) else { return nil }
 
             let lines = resultString.split(separator: "\n")
-            let todayTimestamp = Int(Calendar.current.startOfDay(for: Date()).timeIntervalSince1970) * 1000
+            // yesterday's runs are looked up too, for the overnight services still
+            // going this morning; `isTrainAddable` then drops the ones that are over.
+            let calendar = Calendar.current
+            let startOfToday = calendar.startOfDay(for: Date())
+            let earliestRunDay = calendar.date(byAdding: .day, value: -1, to: startOfToday) ?? startOfToday
+            let earliestTimestamp = Int(earliestRunDay.timeIntervalSince1970) * 1000
 
             return await withTaskGroup(of: PreparedFavoriteTrain?.self) { group in
                 for line in lines {
@@ -239,11 +244,12 @@ enum FavoriteTrainService {
 
                     let code = codeParts[1]
                     let timestamp = Int(codeParts[2]) ?? 0
-                    guard timestamp >= todayTimestamp else { continue }
+                    guard timestamp >= earliestTimestamp else { continue }
 
                     let identifier = "\(code)/\(number)/\(timestamp)"
                     group.addTask {
                         guard let info = await TrenitaliaAPI().info(identifier: identifier, shouldFetchWeather: false),
+                              isTrainAddable(info: info),
                               trainContainsSegment(info: info, from: fromStation, to: toStation) else { return nil }
                         return PreparedFavoriteTrain(info: info, fromStation: fromStation, toStation: toStation)
                     }
@@ -252,6 +258,7 @@ enum FavoriteTrainService {
                 if !number.isEmpty {
                     group.addTask {
                         guard let info = await ItaloAPI().info(identifier: number, shouldFetchWeather: false),
+                              isTrainAddable(info: info),
                               trainContainsSegment(info: info, from: fromStation, to: toStation) else { return nil }
                         return PreparedFavoriteTrain(info: info, fromStation: fromStation, toStation: toStation)
                     }
