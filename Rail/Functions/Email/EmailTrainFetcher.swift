@@ -22,7 +22,11 @@ struct EmailFetchProgress: Sendable {
 
 struct EmailFetchResult: Sendable {
     let emails: [FetchedEmail]
+    /// Emails that could not be read at all. Worth another go next sync.
     let failedUIDs: [UInt64]
+    /// Emails that were read in full and are not tickets. Reading them again would
+    /// reach the same verdict, so they are remembered as checked and left alone.
+    let rejectedUIDs: [UInt64]
     let warnings: [String]
     let highestUID: UInt64?
     let uidValidity: UInt64?
@@ -150,20 +154,22 @@ actor EmailTrainFetcher {
             || sender.contains("lefrecce.it")
             || sender.contains("trenitalia")
             || sender.contains("lefrecce")
-        guard isTrenitaliaSender || extractCheckInID(from: decoded) != nil else {
+        let foundCheckInID = extractCheckInID(from: decoded)
+        guard isTrenitaliaSender || foundCheckInID != nil else {
             print("[EMAIL-DEBUG] UID \(uid): SKIPPED - not trenitalia sender and no check-in ID")
             return nil
         }
-        let checkInID = extractCheckInID(from: decoded) ?? ""
-        print("[EMAIL-DEBUG] UID \(uid): checkInID=\(checkInID.prefix(40))...")
 
-        // An Abbonamento confirmation carries the same "Il Tuo Biglietto Trenitalia" subject
-        // as a ticket, so the search picks it up too. It has no check-in link — that pairing
-        // is what separates it from a real ticket, which always has one.
-        if checkInID.isEmpty && lower.contains("abbonamento") {
-            print("[EMAIL-DEBUG] UID \(uid): SKIPPED - subscription, not a train ticket")
+        // Second filter, after the body keywords and the sender: the check-in id is the
+        // only way to reach a ticket's details, so an email without one is nothing this
+        // app can act on. An Abbonamento confirmation arrives under the same
+        // "Il Tuo Biglietto Trenitalia" subject and is separated from a real ticket
+        // by exactly this — a ticket always carries the link.
+        guard let checkInID = foundCheckInID else {
+            print("[EMAIL-DEBUG] UID \(uid): SKIPPED - no check-in ID to fetch details with")
             return nil
         }
+        print("[EMAIL-DEBUG] UID \(uid): checkInID=\(checkInID.prefix(40))...")
 
         let journey = EmailJourneyParser.parse(from: decoded)
         let date = IMAPResponse.header("Date", in: searchable).flatMap(IMAPResponse.parseDate)
@@ -260,6 +266,7 @@ actor EmailTrainFetcher {
 
         var emails: [FetchedEmail] = []
         var failedUIDs: [UInt64] = []
+        var rejectedUIDs: [UInt64] = []
         var warnings: [String] = []
         for (index, uid) in matchingUIDs.enumerated() {
             try Task.checkCancellation()
@@ -286,7 +293,7 @@ actor EmailTrainFetcher {
                     EmailFetchProgress(
                         found: matchingUIDs.count,
                         processed: index + 1,
-                        skipped: failedUIDs.count,
+                        skipped: failedUIDs.count + rejectedUIDs.count,
                         latestWarning: nil
                     )
                 )
@@ -294,8 +301,9 @@ actor EmailTrainFetcher {
                 if let parsed {
                     emails.append(parsed)
                 } else {
-                    // Downloaded successfully but not a usable check-in ticket.
-                    failedUIDs.append(uid.numeric)
+                    // Downloaded in full and not a usable check-in ticket: a settled
+                    // verdict, so this one is not queued for a retry.
+                    rejectedUIDs.append(uid.numeric)
                     let warning = String(localized: "Skipped email \(uid.raw): no check-in ticket found")
                     latestWarning = warning
                     warnings.append(warning)
@@ -325,7 +333,7 @@ actor EmailTrainFetcher {
                             EmailFetchProgress(
                                 found: matchingUIDs.count,
                                 processed: matchingUIDs.count,
-                                skipped: failedUIDs.count,
+                                skipped: failedUIDs.count + rejectedUIDs.count,
                                 latestWarning: reconnectWarning
                             )
                         )
@@ -337,7 +345,7 @@ actor EmailTrainFetcher {
                 EmailFetchProgress(
                     found: matchingUIDs.count,
                     processed: index + 1,
-                    skipped: failedUIDs.count,
+                    skipped: failedUIDs.count + rejectedUIDs.count,
                     latestWarning: latestWarning
                 )
             )
@@ -346,6 +354,7 @@ actor EmailTrainFetcher {
         return EmailFetchResult(
             emails: emails.sorted { $0.date > $1.date },
             failedUIDs: Array(Set(failedUIDs)).sorted(),
+            rejectedUIDs: Array(Set(rejectedUIDs)).sorted(),
             warnings: warnings,
             highestUID: newUIDs.last?.numeric ?? effectiveLastUID,
             uidValidity: currentUIDValidity,

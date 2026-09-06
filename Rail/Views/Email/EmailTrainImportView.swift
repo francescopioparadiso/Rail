@@ -224,10 +224,11 @@ struct EmailTrainImportView: View {
                         ForEach(groupedTicketSections, id: \.title) { section in
                             Section {
                                 ForEach(section.items) { item in
-                                    let isPast = item.ticket.isPastDeparture
-
                                     let isLoading = item.state == .loading
-                                    let canAdd = !isPast && item.state == .ready && item.ticket.isImportEligible
+                                    // Eligibility runs by the departure day, not the departure
+                                    // minute: a train that left ten minutes ago is one you may
+                                    // well be sitting on, so it stays addable all day.
+                                    let canAdd = item.state == .ready && item.ticket.isImportEligible
 
                                     Button {
                                         addTicket(item)
@@ -491,13 +492,12 @@ struct EmailTrainImportView: View {
         }
 
         let tickets = EmailTicketSyncService.tickets(from: profile)
-        // Show every ticket using email-parsed fields immediately.
-        // Check-in link details can enrich past tickets, but only upcoming ones are prepared for import.
+        // Show every ticket using email-parsed fields immediately. Only tickets
+        // departing today or later are prepared for import; the rest are listed as
+        // history and never reach for their check-in link.
         preloadedTickets = tickets.map { account, ticket in
             let state: PreloadState
-            if ticket.isPastDeparture {
-                state = .unavailable
-            } else if ticket.isImportEligible {
+            if ticket.isImportEligible {
                 state = previewTicketsAreReady ? .ready : .loading
             } else {
                 state = .unavailable
@@ -515,10 +515,10 @@ struct EmailTrainImportView: View {
 
     @MainActor
     private func prepareEligibleTrains() async {
+        // Details are fetched through the check-in link only for journeys still to
+        // come — today's included, however late in the day it is.
         let ticketsToPrepare = preloadedTickets.filter {
-            !$0.ticket.isPastDeparture
-                && $0.ticket.isImportEligible
-                && $0.state == .loading
+            $0.ticket.isImportEligible && $0.state == .loading
         }
         isPreparing = !ticketsToPrepare.isEmpty
         preparationTotal = ticketsToPrepare.count
@@ -571,8 +571,7 @@ struct EmailTrainImportView: View {
     }
 
     private func addTicket(_ item: PreloadedEmailTicketItem) {
-        guard !item.ticket.isPastDeparture,
-              item.state == .ready,
+        guard item.state == .ready,
               item.ticket.isImportEligible,
               let prepared = preparedTrains[item.id] else { return }
 
