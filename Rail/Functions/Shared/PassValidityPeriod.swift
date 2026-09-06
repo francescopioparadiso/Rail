@@ -18,15 +18,15 @@ nonisolated enum PassValidityPeriod {
             : monthly(first)
     }
 
-    // MARK: - Helpers
-
     /// A fortnight or less reads as a week-long pass, and so does anything the
     /// operator actually called "Weekly".
-    private static func isWeekly(name: String, start: Date, end: Date) -> Bool {
+    static func isWeekly(name: String, start: Date, end: Date) -> Bool {
         let days = (Calendar.current.dateComponents([.day], from: start, to: end).day ?? 0) + 1
         return days <= 14
             || name.caseInsensitiveCompare(String(localized: "Weekly")) == .orderedSame
     }
+
+    // MARK: - Helpers
 
     private static func monthly(_ date: Date) -> String {
         let formatter = DateFormatter()

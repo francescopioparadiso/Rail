@@ -7,6 +7,7 @@ struct ProfileView: View {
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.locale) private var locale
     @Query private var profiles: [UserProfile]
     @State private var showImagePicker = false
     @State private var profileImage: UIImage?
@@ -70,7 +71,11 @@ struct ProfileView: View {
         }
         .background {
             ZStack {
-                appBackgroundColor
+                // The rows on this screen are secondarySystemGroupedBackground, which
+                // in dark mode is the same colour as the app's usual backdrop — the
+                // settings list vanished into it. This is the ground that colour is
+                // meant to sit on: lighter than the rows in light mode, darker in dark.
+                Color(.systemGroupedBackground)
                 ProfileBlueprintPattern()
             }
             .ignoresSafeArea()
@@ -228,12 +233,22 @@ struct ProfileView: View {
                     Label("Email", systemImage: "envelope")
                         .labelReservedIconWidth(24)
                 }
+
+                NavigationLink {
+                    NotificationSettingsView(profile: profile)
+                } label: {
+                    Label("Notifications", systemImage: "bell")
+                        .labelReservedIconWidth(24)
+                }
             }
         }
         .scrollContentBackground(.hidden)
     }
 
-    private func statCard(title: String, value: String, systemImage: String, color: Color) -> some View {
+    // `title` takes a key, not a resolved string: `Text(String)` is the verbatim
+    // overload, so these six cards stayed English under an Italian environment
+    // while every Text(LocalizedStringKey) label around them followed it.
+    private func statCard(title: LocalizedStringKey, value: String, systemImage: String, color: Color) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Image(systemName: systemImage)
@@ -269,24 +284,26 @@ struct ProfileView: View {
             let trains = (try? context.fetch(FetchDescriptor<Train>())) ?? []
             let stops = (try? context.fetch(FetchDescriptor<Stop>())) ?? []
 
-            let pastTrainsCount = await TrainListBuilder.pastItems(trains: trains, stops: stops).count
-            let cancelledTrainsCount = trains.filter { $0.issue == "Treno cancellato" }.count
+            // Every card counts the same journeys: the ones already travelled. Read
+            // off different populations they cannot be reconciled — which is how the
+            // card could report no trains and a distance at the same time.
+            let pastItems = await TrainListBuilder.pastItems(trains: trains, stops: stops)
 
-            let selectedStopsByTrain = Dictionary(grouping: stops.filter { $0.is_selected }, by: { $0.id })
-            let totalDelay = trains.reduce(0) { total, train in
-                let lastSelectedStop = selectedStopsByTrain[train.id]?
-                    .max(by: { $0.ref_time < $1.ref_time })
-                return total + max(0, lastSelectedStop?.arr_delay ?? 0)
+            let pastTrainsCount = pastItems.count
+            let cancelledTrainsCount = pastItems.filter { $0.train.issue == "Treno cancellato" }.count
+
+            let totalDelay = pastItems.reduce(0) { total, item in
+                total + max(0, item.summary.last.arr_delay)
             }
 
+            // The stops actually served, so a journey cut short is credited with the
+            // distance it covered rather than the one it was sold for.
             var totalDistance = 0
-            let completedStops = stops.filter { $0.is_completed && $0.is_selected }
-            let groupedStops = Dictionary(grouping: completedStops, by: { $0.id })
-            for (_, trainStops) in groupedStops {
-                let sorted = trainStops.sorted(by: { $0.ref_time < $1.ref_time })
-                if let first = sorted.first, let last = sorted.last, first.name != last.name {
-                    totalDistance += distanceBetweenStations(from: first.name, to: last.name) ?? 0
-                }
+            for item in pastItems where item.train.issue != "Treno cancellato" {
+                let first = item.summary.firstNoIssues
+                let last = item.summary.lastNoIssues
+                guard first.name != last.name else { continue }
+                totalDistance += distanceBetweenStations(from: first.name, to: last.name) ?? 0
             }
 
             let passes = (try? context.fetch(FetchDescriptor<Pass>())) ?? []
@@ -307,6 +324,9 @@ struct ProfileView: View {
 
     private func formatCurrency(_ amount: Double) -> String {
         let formatter = NumberFormatter()
+        // Bare NumberFormatter reads the system locale on its own, same as
+        // DateFormatter — it needs to be told which locale the view is in.
+        formatter.locale = locale
         formatter.numberStyle = .currency
         formatter.currencyCode = "EUR"
         formatter.maximumFractionDigits = amount < 1000 ? 2 : 0

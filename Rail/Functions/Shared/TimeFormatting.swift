@@ -7,10 +7,13 @@ nonisolated func yearSectionTitle(for date: Date) -> String {
 
 /// Month heading for a list section: "Marzo" within the current year, "Marzo 2024"
 /// otherwise. Used by the past-trains list and the email ticket import.
-nonisolated func monthSectionTitle(for date: Date) -> String {
+/// Takes the locale rather than reading `.current`, so a view showing these
+/// headings in a chosen language — a preview, a screenshot build — gets them in
+/// that language instead of the device's.
+nonisolated func monthSectionTitle(for date: Date, locale: Locale = .current) -> String {
     let calendar = Calendar.current
     let formatter = DateFormatter()
-    formatter.locale = .current
+    formatter.locale = locale
     formatter.dateFormat = calendar.component(.year, from: date) == calendar.component(.year, from: Date())
         ? "LLLL" : "LLLL yyyy"
     return formatter.string(from: date).capitalized

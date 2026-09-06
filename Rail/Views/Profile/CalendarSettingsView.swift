@@ -20,46 +20,53 @@ struct CalendarSettingsView: View {
     var body: some View {
         Form {
             Section {
-                Toggle("Add to calendar automatically", isOn: calendarBinding(\.autoSyncToCalendar))
+                Toggle("Add to calendar automatically", isOn: calendarBinding(\.autoSyncToCalendar).animation())
                     .onChange(of: profile.calendarSettings.autoSyncToCalendar) { _, newValue in
                         if newValue { resyncAll() } else { removeAll() }
                     }
-
-                Picker("Calendar", selection: calendarBinding(\.calendarIdentifier)) {
-                    Text("Default").tag("")
-                    ForEach(availableCalendars, id: \.calendarIdentifier) { cal in
-                        Text(cal.title).tag(cal.calendarIdentifier)
-                    }
-                }
-                .onChange(of: profile.calendarSettings.calendarIdentifier) { _, _ in
-                    resyncAll()
-                }
-
-                Picker("Title Format", selection: calendarBinding(\.titleFormat)) {
-                    Text("Train").tag("Train")
-                    Text("Train 9808").tag("Train {number}")
-                    Text("🚄 Train").tag("🚄 Train")
-                    Text("🚂 Train").tag("🚂 Train")
-                    Text("🚉 Train").tag("🚉 Train")
-                    Text("Train 1/15A").tag("Train {carriage}/{number}")
-                }
-                .onChange(of: profile.calendarSettings.titleFormat) { _, _ in
-                    resyncAll()
-                }
-
-                Picker("Travel time", selection: calendarBinding(\.travelTime)) {
-                    Text("None").tag(Double(0))
-                    Text("15 minutes").tag(Double(900))
-                    Text("30 minutes").tag(Double(1800))
-                    Text("45 minutes").tag(Double(2700))
-                    Text("1 hour").tag(Double(3600))
-                    Text("2 hours").tag(Double(7200))
-                }
-                .onChange(of: profile.calendarSettings.travelTime) { _, _ in
-                    resyncAll()
-                }
             }
             .disabled(!isAuthorized)
+
+            // Nothing below shapes an event until there are events to shape, and
+            // switching the toggle off takes every one of them down.
+            if profile.calendarSettings.autoSyncToCalendar {
+                Section {
+                    Picker("Calendar", selection: calendarBinding(\.calendarIdentifier)) {
+                        Text("Default").tag("")
+                        ForEach(availableCalendars, id: \.calendarIdentifier) { cal in
+                            Text(cal.title).tag(cal.calendarIdentifier)
+                        }
+                    }
+                    .onChange(of: profile.calendarSettings.calendarIdentifier) { _, _ in
+                        resyncAll()
+                    }
+
+                    Picker("Title Format", selection: calendarBinding(\.titleFormat)) {
+                        Text("Train").tag("Train")
+                        Text("Train 9808").tag("Train {number}")
+                        Text("🚄 Train").tag("🚄 Train")
+                        Text("🚂 Train").tag("🚂 Train")
+                        Text("🚉 Train").tag("🚉 Train")
+                        Text("Train 1/15A").tag("Train {carriage}/{number}")
+                    }
+                    .onChange(of: profile.calendarSettings.titleFormat) { _, _ in
+                        resyncAll()
+                    }
+
+                    Picker("Travel time", selection: calendarBinding(\.travelTime)) {
+                        Text("None").tag(Double(0))
+                        Text("15 minutes").tag(Double(900))
+                        Text("30 minutes").tag(Double(1800))
+                        Text("45 minutes").tag(Double(2700))
+                        Text("1 hour").tag(Double(3600))
+                        Text("2 hours").tag(Double(7200))
+                    }
+                    .onChange(of: profile.calendarSettings.travelTime) { _, _ in
+                        resyncAll()
+                    }
+                }
+                .disabled(!isAuthorized)
+            }
         }
         .navigationTitle("Calendar")
         .fontDesign(.rounded)

@@ -13,6 +13,7 @@ struct RailApp: App {
 
     init() {
         StationLookup.warmUp()
+        NotificationManager.shared.registerDelegate()
     }
 
     var body: some Scene {

@@ -1,4 +1,4 @@
-import Foundation
+import SwiftUI
 
 /// Which side of a station's timetable is being read.
 enum StationBoardKind: String, CaseIterable, Identifiable {
@@ -7,10 +7,12 @@ enum StationBoardKind: String, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 
-    var title: String {
+    /// A key rather than a resolved string: `String(localized:)` reads the bundle's
+    /// language, so a view asking for Italian would still have been handed English.
+    var title: LocalizedStringKey {
         switch self {
-        case .departures: String(localized: "Departures")
-        case .arrivals: String(localized: "Arrivals")
+        case .departures: "Departures"
+        case .arrivals: "Arrivals"
         }
     }
 }

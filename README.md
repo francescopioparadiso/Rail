@@ -17,24 +17,28 @@
   <img src="Thumbnails/5.png" width="268" />
   <img src="Thumbnails/6.png" width="268" />
   <img src="Thumbnails/7.png" width="268" />
-  <img src="Thumbnails/8.png" width="268" />
-  <img src="Thumbnails/9.png" width="268" />
 </p>
 
 ## ✨ Ultimo aggiornamento
 
 Rail si evolve. Di nuovo.
 
-Un aggiornamento pensato per rendere ogni viaggio più semplice da seguire, dall'aggiunta del treno al widget sulla Home Screen.
+Un aggiornamento che tocca praticamente ogni schermata dell'app, dalla ricerca di un treno alla scadenza di un abbonamento.
 
-* **Nuovo design** — interfaccia più pulita e veloce, con navigazione più chiara e widget aggiornati
-* **Nuovi loghi Trenitalia** — icone dei treni rinnovate in app e widget, più nitide e coerenti
-* **Biglietti da email** — collega la tua casella e importa i check-in Trenitalia in pochi tap
-* **Cerca per stazioni** — trova treni e coincidenze partendo da partenza e arrivo, senza conoscere il numero
+* **Redesign in ogni schermata** — abbonamenti più curati, tabelloni stazione ridisegnati, profilo finalmente distinto dallo sfondo
+* **Importazione email più intelligente** — biglietti e abbonamenti importati insieme in un'unica scansione della posta, raggruppati per mese
+* **Ricerca viaggi con prezzi reali** — soluzioni classificate per costo con codice colore, filtri per durata, prezzo e numero di cambi
+* **Profilo con statistiche di viaggio** — treni presi, distanza, ritardi e cancellazioni calcolati sui soli viaggi conclusi, più foto personalizzata
+* **Tabelloni stazione in tempo reale** — partenze e arrivi di qualsiasi stazione, con aggiunta ai propri viaggi in un tocco
+* **Notifiche intelligenti** — avvisi prima di partenza, arrivo o scadenza abbonamento, che seguono i ritardi e aprono il viaggio al tocco
 
 ## ✨ Funzionalità
 
-* **Gestione Abbonamenti (Pass):** Sistema integrato per digitalizzare abbonamenti settimanali, mensili o annuali.
+* **Gestione Abbonamenti (Pass):** Sistema integrato per digitalizzare abbonamenti settimanali, mensili o annuali, con importazione automatica dalla propria casella email.
+* **Ricerca Intelligente per Tratta:** Ricerca stazione-stazione con soluzioni multiple, prezzo comparato a colpo d'occhio, filtri per durata/costo/cambi e gestione di coincidenze e bus sostitutivi.
+* **Tabellone Stazione Live:** Consultazione di partenze e arrivi in tempo reale per qualsiasi stazione, con possibilità di salvare un treno trovato direttamente nei propri viaggi.
+* **Notifiche di Viaggio:** Promemoria locali configurabili prima di partenza, arrivo o scadenza di un abbonamento, con apertura diretta del viaggio al tocco della notifica.
+* **Statistiche di Viaggio:** Riepilogo personale nel profilo con treni presi, distanza percorsa, ritardi e cancellazioni, calcolati sui viaggi effettivamente conclusi.
 * **Scanner Intelligente:** Sfrutta il framework Vision per estrarre i QR code direttamente dalle immagini della galleria e monitorare i giorni rimanenti alla scadenza.
 * **Widget "Liquid Glass":** Widget per la Home Screen con design in vetro smerigliato per mostrare lo stato dell'abbonamento, i biglietti imminenti o il prossimo viaggio a colpo d'occhio.
 * **Treni Preferiti:** Salvataggio delle tratte frequenti per aggiungere i viaggi alla propria routine con un solo tocco.

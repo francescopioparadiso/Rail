@@ -54,7 +54,9 @@ struct StationBoardView: View {
             )
             .searchFocused($isEditingStation)
             .onSubmit(of: .search) { adoptFirstSuggestion() }
-            .navigationTitle(station?.name ?? String(localized: "Timetable"))
+            // A station name is data and the fallback is a phrase, so each is passed
+            // as the kind of Text it actually is.
+            .navigationTitle(station.map { Text(verbatim: $0.name) } ?? Text("Timetable"))
             .navigationBarTitleDisplayMode(.inline)
             .background(appBackgroundColor.ignoresSafeArea())
             .toolbar {

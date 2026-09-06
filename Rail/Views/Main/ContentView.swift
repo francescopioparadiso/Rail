@@ -14,6 +14,8 @@ struct ContentView: View {
     @Environment(\.modelContext) private var modelContext
 
     @State private var selectedSection: MainTab = .today
+    @State private var deepLinks = DeepLinkRouter.shared
+    @State private var pendingRouteTask: Task<Void, Never>?
     @State private var searchText = ""
     @State private var navigationPath: [Train] = []
 
@@ -31,6 +33,21 @@ struct ContentView: View {
     @State private var ticketSyncProgresses: [String: EmailTicketSyncProgress] = [:]
     @State private var isFetchingEmailTickets = false
     @State private var showFetchResultCard = false
+
+    /// Set only by previews and screenshot builds: it puts the mail button on the
+    /// toolbar in its finished state and keeps the auto-sync away from the network,
+    /// so a made-up mailbox stays made up. The app itself never passes it.
+    private let usesMockMailbox: Bool
+
+    /// Passed with `usesMockMailbox` so a screenshot can be taken at any hour and
+    /// still show the journeys where the mock data puts them.
+    private let previewNow: Date?
+
+    init(usesMockMailbox: Bool = false, previewNow: Date? = nil) {
+        self.usesMockMailbox = usesMockMailbox
+        self.previewNow = previewNow
+        _showFetchResultCard = State(initialValue: usesMockMailbox)
+    }
     @State private var fetchedTicketsCount = 0
     @State private var emailFetchTask: Task<Void, Never>?
     @State private var accountProgresses: [AccountSyncProgress] = []
@@ -130,7 +147,9 @@ struct ContentView: View {
         }
     }
 
-    private var sectionTitle: String {
+    /// A key, not a String: `Text(String)` is the verbatim overload, so the title
+    /// stayed English while the menu beside it translated.
+    private var sectionTitle: LocalizedStringKey {
         selectedSection == .today ? "Today" : "Past"
     }
 
@@ -231,6 +250,7 @@ struct ContentView: View {
                 StationBoardView()
             }
             .onOpenURL(perform: handleOpenURL)
+            .onChange(of: deepLinks.pending) { _, _ in consumePendingDeepLink() }
     }
 
     // MARK: - Subviews
@@ -271,7 +291,8 @@ struct ContentView: View {
                 showTicketView: $showTicketView,
                 searchText: $searchText,
                 navigationPath: $navigationPath,
-                isActive: selectedSection == .today
+                isActive: selectedSection == .today,
+                previewNow: previewNow
             )
             .opacity(selectedSection == .today ? 1 : 0)
             .allowsHitTesting(selectedSection == .today)
@@ -379,7 +400,7 @@ struct ContentView: View {
         .buttonStyle(.plain)
     }
 
-    private func sectionMenuLabel(_ title: String) -> some View {
+    private func sectionMenuLabel(_ title: LocalizedStringKey) -> some View {
         HStack(alignment: .center, spacing: 4) {
             Text(title)
                 .font(.title).fontWeight(.bold).fontDesign(appFontDesign)
@@ -394,11 +415,21 @@ struct ContentView: View {
     // MARK: - Actions
 
     private func handleAppear() {
+        // A tap that launched the app parks its link before this view exists, and
+        // onChange never fires for a value that was already there.
+        consumePendingDeepLink()
+
         ReviewManager.shared.requestReviewIfAppropriate(action: requestReview)
-        if !hasStartedAutoFetch {
+        if !hasStartedAutoFetch, !usesMockMailbox {
             hasStartedAutoFetch = true
             triggerEmailTicketRefresh()
         }
+    }
+
+    private func consumePendingDeepLink() {
+        guard let url = deepLinks.pending else { return }
+        deepLinks.pending = nil
+        handleOpenURL(url)
     }
 
     private func handleOpenURL(_ url: URL) {
@@ -419,17 +450,34 @@ struct ContentView: View {
             return
         }
 
-        ticketTrainID = trainID
+        let seatID = components.queryItems?
+            .first(where: { $0.name == "seatID" })?.value
+            .flatMap(UUID.init(uuidString:))
+        let wantsTicket = url.host == "view-ticket"
 
-        if let seatIDItem = components.queryItems?.first(where: { $0.name == "seatID" }),
-           let seatIDValue = seatIDItem.value {
-            ticketSeatID = UUID(uuidString: seatIDValue)
-        } else {
-            ticketSeatID = nil
+        // A link can arrive over anything that happens to be open — a board sheet,
+        // an import sheet — so clear the way to the journey it names.
+        withAnimation(.snappy) {
+            profileSheet = false
+            addTrainSheet = false
+            addPassSheet = false
+            favoriteTrainsSheet = false
+            emailImportSheet = false
+            stationBoardSheet = false
+            navigationPath = []
+            selectedSection = .today
         }
 
-        showTicketView = url.host == "view-ticket"
-        selectedSection = .today
+        // Then push, and only then. Asking for the journey in the same turn races
+        // the sheet on its way out and arrives at an empty details screen.
+        pendingRouteTask?.cancel()
+        pendingRouteTask = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(400))
+            guard !Task.isCancelled else { return }
+            ticketSeatID = seatID
+            showTicketView = wantsTicket
+            ticketTrainID = trainID
+        }
     }
 
     private func openEmailFetchSheet() {
@@ -589,6 +637,13 @@ private struct ProfileToolbarButton: View {
     }
 }
 
+/// The moment the mock journeys are staged around: 9904 is long in, 3223 is
+/// pulling into Savigliano, and 3224 has not left yet.
+@MainActor
+fileprivate let previewMoment: Date = Calendar.current.date(
+    bySettingHour: 9, minute: 30, second: 0, of: Date()
+) ?? Date()
+
 @MainActor
 fileprivate let previewContainer: ModelContainer = {
     let schema = Schema([Train.self, Stop.self, Seat.self, Favorite.self, Pass.self, UserProfile.self])
@@ -599,17 +654,10 @@ fileprivate let previewContainer: ModelContainer = {
     container.mainContext.insert(
         UserProfile(
             name: "Francesco",
+            photo: PreviewMockData.profilePhoto(),
             emails: [
-                Emails(
-                    provider: .apple,
-                    email: PreviewCredentials.appleEmail,
-                    appPassword: PreviewCredentials.appleAppPassword
-                ),
-                Emails(
-                    provider: .google,
-                    email: PreviewCredentials.googleEmail,
-                    appPassword: PreviewCredentials.googleAppPassword
-                )
+                PreviewMockData.appleAccount(),
+                PreviewMockData.googleAccount()
             ]
         )
     )
@@ -622,7 +670,7 @@ fileprivate let previewContainer: ModelContainer = {
     
     let train1 = Train(id: UUID(), logo: "ITALO", number: "9904", identifier: "IT9904", provider: "italo", last_update_time: Date(), delay: -2, direction: "Milano Centrale", issue: "")
     let train2 = Train(id: UUID(), logo: "REG", number: "3224", identifier: "REG3224", provider: "trenitalia", last_update_time: Date(), delay: 5, direction: "Carmagnola", issue: "Corsa terminata a Carmagnola per un guasto sulla linea.")
-    let train3 = Train(id: UUID(), logo: "REG", number: "3223", identifier: "REG3223", provider: "trenitalia", last_update_time: Date(), delay: 0, direction: "Savigliano", issue: "")
+    let train3 = Train(id: UUID(), logo: "REG", number: "3223", identifier: "REG3223", provider: "trenitalia", last_update_time: Date(), delay: 3, direction: "Savigliano", issue: "")
     
     [train1, train2, train3].forEach { context.insert($0) }
     
@@ -660,8 +708,10 @@ fileprivate let previewContainer: ModelContainer = {
     
     context.insert(Stop(id: train1.id, name: "Roma Termini", platform: "24", weather: "☀️ 14°C", is_selected: true, status: 0, is_completed: true, is_in_station: false, dep_delay: 0, arr_delay: 0, dep_time_id: time(6, 20), arr_time_id: .distantPast, dep_time_eff: time(6, 20), arr_time_eff: .distantPast, ref_time: time(6, 20)))
     context.insert(Stop(id: train1.id, name: "Milano Centrale", platform: "5", weather: "🌫️ 6°C", is_selected: true, status: 0, is_completed: false, is_in_station: true, dep_delay: 0, arr_delay: -2, dep_time_id: .distantPast, arr_time_id: time(8, 46), dep_time_eff: .distantPast, arr_time_eff: time(8, 44), ref_time: time(8, 46)))
-    context.insert(Stop(id: train3.id, name: "Torino Porta Nuova", platform: "15", weather: "☁️ 9°C", is_selected: true, status: 0, is_completed: true, is_in_station: false, dep_delay: 0, arr_delay: 0, dep_time_id: time(12, 50), arr_time_id: .distantPast, dep_time_eff: time(12, 50), arr_time_eff: .distantPast, ref_time: time(12, 50)))
-    context.insert(Stop(id: train3.id, name: "Savigliano", platform: "1AF", weather: "🌧️ 7°C", is_selected: true, status: 0, is_completed: false, is_in_station: true, dep_delay: 0, arr_delay: 5, dep_time_id: .distantPast, arr_time_id: time(14, 22), dep_time_eff: .distantPast, arr_time_eff: time(14, 27), ref_time: time(14, 22)))
+    // The first leg of the day: it hands the journey over to 3224 at Savigliano,
+    // so it has to arrive there before 3224 leaves at 9:51.
+    context.insert(Stop(id: train3.id, name: "Saluzzo", platform: "1", weather: "🌧️ 7°C", is_selected: true, status: 0, is_completed: true, is_in_station: false, dep_delay: 0, arr_delay: 0, dep_time_id: time(9, 10), arr_time_id: .distantPast, dep_time_eff: time(9, 10), arr_time_eff: .distantPast, ref_time: time(9, 10)))
+    context.insert(Stop(id: train3.id, name: "Savigliano", platform: "1AF", weather: "🌦️ 8°C", is_selected: true, status: 0, is_completed: false, is_in_station: true, dep_delay: 0, arr_delay: 3, dep_time_id: .distantPast, arr_time_id: time(9, 32), dep_time_eff: .distantPast, arr_time_eff: time(9, 35), ref_time: time(9, 32)))
 
     let seats = [
         Seat(id: UUID(), trainID: train2.id, name: "Pierpaolo", carriage: "1", number: "2D", image: mockImageData),
@@ -684,10 +734,68 @@ fileprivate let previewContainer: ModelContainer = {
     )
     [fav1, fav2].forEach { context.insert($0) }
 
+    // Journeys already travelled, so the Past list has something in it and the
+    // profile's stat cards add up to something.
+    func insertPastJourney(
+        logo: String,
+        number: String,
+        from: String,
+        to: String,
+        daysAgo: Int,
+        departure: (Int, Int),
+        arrival: (Int, Int),
+        arrivalDelay: Int,
+        issue: String = ""
+    ) {
+        let calendar = Calendar.current
+        let day = calendar.date(byAdding: .day, value: -daysAgo, to: Date()) ?? Date()
+        func at(_ hourMinute: (Int, Int)) -> Date {
+            calendar.date(bySettingHour: hourMinute.0, minute: hourMinute.1, second: 0, of: day) ?? day
+        }
+
+        let isCancelled = !issue.isEmpty
+        let train = Train(
+            id: UUID(), logo: logo, number: number, identifier: "\(logo)\(number)",
+            provider: "trenitalia", last_update_time: at(arrival),
+            delay: isCancelled ? 0 : arrivalDelay, direction: to, issue: issue
+        )
+        context.insert(train)
+
+        context.insert(Stop(
+            id: train.id, name: from, platform: "", weather: "",
+            is_selected: true, status: isCancelled ? 3 : 0,
+            is_completed: !isCancelled, is_in_station: false,
+            dep_delay: 0, arr_delay: 0,
+            dep_time_id: at(departure), arr_time_id: .distantPast,
+            dep_time_eff: at(departure), arr_time_eff: .distantPast,
+            ref_time: at(departure)
+        ))
+        context.insert(Stop(
+            id: train.id, name: to, platform: "", weather: "",
+            is_selected: true, status: isCancelled ? 3 : 0,
+            is_completed: !isCancelled, is_in_station: false,
+            dep_delay: 0, arr_delay: isCancelled ? 0 : arrivalDelay,
+            dep_time_id: .distantPast, arr_time_id: at(arrival),
+            dep_time_eff: .distantPast,
+            arr_time_eff: at(arrival).addingTimeInterval(TimeInterval(arrivalDelay * 60)),
+            ref_time: at(arrival)
+        ))
+    }
+
+    insertPastJourney(logo: "FR", number: "9640", from: "Torino Porta Nuova", to: "Milano Centrale",
+                      daysAgo: 2, departure: (17, 0), arrival: (17, 55), arrivalDelay: 7)
+    insertPastJourney(logo: "FR", number: "9512", from: "Milano Centrale", to: "Roma Termini",
+                      daysAgo: 5, departure: (8, 10), arrival: (11, 15), arrivalDelay: 0)
+    insertPastJourney(logo: "IC", number: "553", from: "Roma Termini", to: "Napoli Centrale",
+                      daysAgo: 9, departure: (15, 35), arrival: (17, 25), arrivalDelay: 12)
+    insertPastJourney(logo: "REG", number: "4021", from: "Torino Porta Nuova", to: "Cuneo",
+                      daysAgo: 3, departure: (7, 20), arrival: (9, 5), arrivalDelay: 0,
+                      issue: "Treno cancellato")
+
     let passes = [
-        Pass(id: UUID(), name: "Abbonamento Mensile", expiry_date: Calendar.current.date(byAdding: .day, value: 15, to: Date())!, is_principal: false, image: mockImageData),
-        Pass(id: UUID(), name: "Settimanale Studenti", expiry_date: Calendar.current.date(byAdding: .day, value: -2, to: Date())!, is_principal: false, image: mockImageData),
-        Pass(id: UUID(), name: "Pass Regionale", expiry_date: Calendar.current.date(byAdding: .month, value: 3, to: Date())!, is_principal: true, image: mockImageData)
+        Pass(id: UUID(), name: "Abbonamento Mensile", start_date: Calendar.current.date(byAdding: .day, value: -15, to: Date())!, expiry_date: Calendar.current.date(byAdding: .day, value: 15, to: Date())!, is_principal: false, price: "62,00 €", image: mockImageData),
+        Pass(id: UUID(), name: "Settimanale Studenti", start_date: Calendar.current.date(byAdding: .day, value: -9, to: Date())!, expiry_date: Calendar.current.date(byAdding: .day, value: -2, to: Date())!, is_principal: false, price: "19,50 €", image: mockImageData),
+        Pass(id: UUID(), name: "Pass Regionale", start_date: Calendar.current.date(byAdding: .month, value: -1, to: Date())!, expiry_date: Calendar.current.date(byAdding: .month, value: 3, to: Date())!, is_principal: true, price: "540,00 €", image: mockImageData)
     ]
     passes.forEach { context.insert($0) }
 
@@ -695,6 +803,7 @@ fileprivate let previewContainer: ModelContainer = {
 }()
 
 #Preview("Content View") {
-    ContentView()
+    ContentView(usesMockMailbox: true, previewNow: previewMoment)
         .modelContainer(previewContainer)
+        .environment(\.locale, Locale(identifier: "it"))
 }
