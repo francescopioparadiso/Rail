@@ -10,6 +10,7 @@ final class UserProfile {
     var name: String = ""
     @Attribute(.externalStorage) var photo: Data?
     var calendarSettings: CalendarSettings = CalendarSettings()
+    var notificationSettings: NotificationSettings?
     var emails: [Emails] = []
 
     init(
@@ -17,13 +18,23 @@ final class UserProfile {
         name: String = "",
         photo: Data? = nil,
         calendarSettings: CalendarSettings = CalendarSettings(),
+        notificationSettings: NotificationSettings? = nil,
         emails: [Emails] = []
     ) {
         self.id = id
         self.name = name
         self.photo = photo
         self.calendarSettings = calendarSettings
+        self.notificationSettings = notificationSettings
         self.emails = emails
+    }
+
+    // MARK: - Computed
+
+    /// The stored settings are optional so an existing store can migrate; every
+    /// reader wants the defaults rather than the absence.
+    var resolvedNotificationSettings: NotificationSettings {
+        notificationSettings ?? NotificationSettings()
     }
 
     // MARK: - Methods
@@ -106,6 +117,7 @@ final class UserProfile {
         if !profile.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { score += 10 }
         if let photo = profile.photo, !photo.isEmpty { score += 5 }
         score += calendarScore(profile.calendarSettings)
+        score += notificationScore(profile.notificationSettings)
         for account in profile.emails {
             score += 20
             if !account.appPassword.isEmpty { score += 10 }
@@ -120,6 +132,15 @@ final class UserProfile {
         if settings.titleFormat != "Train {number}" { score += 2 }
         if settings.travelTime != 0 { score += 2 }
         if !settings.autoSyncToCalendar { score += 1 }
+        return score
+    }
+
+    private static func notificationScore(_ settings: NotificationSettings?) -> Int {
+        guard let settings else { return 0 }
+        var score = 0
+        if settings.isEnabled { score += 3 }
+        if settings.departureLead != 1800 { score += 2 }
+        if settings.arrivalLead != 1200 { score += 2 }
         return score
     }
 
@@ -141,6 +162,10 @@ final class UserProfile {
 
         if calendarScore(source.calendarSettings) > calendarScore(target.calendarSettings) {
             target.calendarSettings = source.calendarSettings
+        }
+
+        if notificationScore(source.notificationSettings) > notificationScore(target.notificationSettings) {
+            target.notificationSettings = source.notificationSettings
         }
 
         var emails = target.emails

@@ -55,22 +55,21 @@ struct AddTrainView: View {
 
     private var isFocused: Bool { focusedField != nil }
 
-    private var dateSubtitle: String {
+    private var dateSubtitle: Text {
         let cal = Calendar.current
         let dateString = dateSelected.formatted(.dateTime.day().month(.abbreviated))
         let timeString = dateSelected.formatted(.dateTime.hour().minute())
 
-        let dayPart: String
         if cal.isDateInYesterday(dateSelected) {
-            dayPart = "Yesterday, \(dateString)"
-        } else if cal.isDateInToday(dateSelected) {
-            dayPart = "Today, \(dateString)"
-        } else if cal.isDateInTomorrow(dateSelected) {
-            dayPart = "Tomorrow, \(dateString)"
-        } else {
-            dayPart = dateString
+            return Text("Yesterday, \(dateString), \(timeString)")
         }
-        return "\(dayPart), \(timeString)"
+        if cal.isDateInToday(dateSelected) {
+            return Text("Today, \(dateString), \(timeString)")
+        }
+        if cal.isDateInTomorrow(dateSelected) {
+            return Text("Tomorrow, \(dateString), \(timeString)")
+        }
+        return Text(verbatim: "\(dateString), \(timeString)")
     }
 
     private var activeStationQuery: String? {
@@ -235,22 +234,7 @@ struct AddTrainView: View {
                 }
                 
                 ToolbarItem(placement: .principal) {
-                    VStack(spacing: 0) {
-                        Text(addTrainStep.title)
-                            .font(.headline)
-                            .fontDesign(appFontDesign)
-                            .contentTransition(.numericText(value: Double(addTrainStep.title.hashValue)))
-                            .animation(.snappy, value: addTrainStep.title)
-                            
-                        if addTrainStep == .chooseTrain && searchType == .stations {
-                            Text(dateSubtitle)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .fontDesign(appFontDesign)
-                                .contentTransition(.numericText(value: dateSelected.timeIntervalSince1970))
-                                .animation(.snappy, value: dateSelected)
-                        }
-                    }
+                    principalTitle
                     .padding(.horizontal, 16)
                     .contentShape(Rectangle())
                     .onTapGesture {
@@ -359,6 +343,25 @@ struct AddTrainView: View {
 
     // MARK: - Subviews
 
+    private var principalTitle: some View {
+        VStack(spacing: 0) {
+            Text(addTrainStep.title)
+                .font(.headline)
+                .fontDesign(appFontDesign)
+                .contentTransition(.numericText(value: Double(addTrainStep.hashValue)))
+                .animation(.snappy, value: addTrainStep)
+
+            if addTrainStep == .chooseTrain && searchType == .stations {
+                dateSubtitle
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fontDesign(appFontDesign)
+                    .contentTransition(.numericText(value: dateSelected.timeIntervalSince1970))
+                    .animation(.snappy, value: dateSelected)
+            }
+        }
+    }
+
     var addTrainView: some View {
         Form {
             Section {
@@ -377,7 +380,7 @@ struct AddTrainView: View {
             if searchType == .stations {
                 Section {
                     stationFieldRow(
-                        placeholder: NSLocalizedString("Departure", comment: ""),
+                        placeholder: "Departure",
                         text: firstLetterCapitalized($departureStation),
                         field: .departure,
                         submitLabel: .next
@@ -391,7 +394,7 @@ struct AddTrainView: View {
                     }
 
                     stationFieldRow(
-                        placeholder: NSLocalizedString("Arrival", comment: ""),
+                        placeholder: "Arrival",
                         text: firstLetterCapitalized($arrivalStation),
                         field: .arrival,
                         submitLabel: .search
@@ -430,7 +433,7 @@ struct AddTrainView: View {
     }
 
     private func stationFieldRow(
-        placeholder: String,
+        placeholder: LocalizedStringKey,
         text: Binding<String>,
         field: FocusField,
         submitLabel: SubmitLabel,
@@ -697,7 +700,7 @@ struct AddTrainView: View {
         systemImage: String,
         buckets: [SolutionBucket],
         selection: Set<Int>,
-        label: @escaping (SolutionBucket) -> String,
+        label: @escaping (SolutionBucket) -> LocalizedStringKey,
         toggle: @escaping (Int) -> Void
     ) -> some View {
         if buckets.count > 1 {
@@ -714,7 +717,7 @@ struct AddTrainView: View {
         }
     }
 
-    private func filterButton(title: String, isOn: Bool, action: @escaping () -> Void) -> some View {
+    private func filterButton(title: LocalizedStringKey, isOn: Bool, action: @escaping () -> Void) -> some View {
         Button {
             HapticFeedback.select()
             withAnimation(.snappy) { action() }
@@ -1551,4 +1554,5 @@ extension AddTrainView {
             )
             .modelContainer(container)
         }
+        .environment(\.locale, Locale(identifier: "it"))
 }

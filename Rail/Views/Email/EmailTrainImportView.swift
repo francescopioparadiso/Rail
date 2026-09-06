@@ -13,12 +13,18 @@ struct EmailTrainImportView: View {
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.locale) private var locale
     @Query private var profiles: [UserProfile]
     @Query private var trains: [Train]
 
     var autoScanOnAppear: Bool = true
     var onTrainAdded: (() -> Void)? = nil
     var onReloadRequested: (() -> Void)? = nil
+
+    /// Previews and screenshots only. Their tickets are invented, so there is no
+    /// journey for `EmailTrainService.loadTrain` to find and every row would stay
+    /// dimmed on a lookup that cannot succeed. Treat them as already resolved.
+    var previewTicketsAreReady: Bool = false
 
     @State private var preloadedTickets: [PreloadedEmailTicketItem] = []
     @State private var preparedTrains: [UUID: PreparedEmailTrain] = [:]
@@ -86,7 +92,7 @@ struct EmailTrainImportView: View {
                 let rhsDate = rhs.ticket.departureDate ?? rhs.ticket.date
                 return lhsDate > rhsDate
             }
-            return (monthSectionTitle(for: key), items)
+            return (monthSectionTitle(for: key, locale: locale), items)
         }
     }
 
@@ -294,6 +300,7 @@ struct EmailTrainImportView: View {
                 beginScan(reloadAll: false)
             } else {
                 loadTicketsFromProfile()
+                guard !previewTicketsAreReady else { return }
                 syncTask = Task {
                     await prepareEligibleTrains()
                 }
@@ -491,7 +498,7 @@ struct EmailTrainImportView: View {
             if ticket.isPastDeparture {
                 state = .unavailable
             } else if ticket.isImportEligible {
-                state = .loading
+                state = previewTicketsAreReady ? .ready : .loading
             } else {
                 state = .unavailable
             }
@@ -602,7 +609,7 @@ private struct EmailTrainImportPreview: View {
     // MARK: - Body
 
     var body: some View {
-        EmailTrainImportView()
+        EmailTrainImportView(autoScanOnAppear: false, previewTicketsAreReady: true)
             .modelContainer(container)
     }
 }
@@ -614,12 +621,16 @@ private struct EmailTrainImportPreview: View {
         configurations: config
     )
 
-    let emailAccount = Emails(
-        provider: .apple,
-        email: "preview@icloud.com",
-        appPassword: "preview-password"
+    container.mainContext.insert(
+        UserProfile(
+            name: "Francesco",
+            photo: PreviewMockData.profilePhoto(),
+            emails: [
+                PreviewMockData.appleAccount(),
+                PreviewMockData.googleAccount()
+            ]
+        )
     )
-    container.mainContext.insert(UserProfile(name: "Francesco", emails: [emailAccount]))
 
     return Color(uiColor: .systemBackground)
         .sheet(isPresented: .constant(true)) {

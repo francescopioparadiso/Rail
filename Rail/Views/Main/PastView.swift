@@ -15,6 +15,7 @@ struct PastView: View {
     var isActive: Bool = true
 
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.locale) private var locale
     @Query private var trains: [Train]
     @Query private var stops: [Stop]
 
@@ -41,7 +42,7 @@ struct PastView: View {
             let items = (grouped[key] ?? []).sorted {
                 $0.summary.lastNoIssues.arr_time_eff > $1.summary.lastNoIssues.arr_time_eff
             }
-            return (monthSectionTitle(for: key), items)
+            return (monthSectionTitle(for: key, locale: locale), items)
         }
     }
 
@@ -101,14 +102,6 @@ struct PastView: View {
                 }
                 .scrollIndicators(.hidden)
                 .listStyle(.insetGrouped)
-                .onChange(of: ticketTrainID) { _, newID in
-                    if let id = newID, let train = trains.first(where: { $0.id == id }) {
-                        if navigationPath.last?.id != train.id {
-                            navigationPath.append(train)
-                        }
-                        ticketTrainID = nil
-                    }
-                }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -118,6 +111,16 @@ struct PastView: View {
             if rowItems.isEmpty {
                 refreshRowItems()
             }
+        }
+        .onChange(of: ticketTrainID) { _, newID in
+            // Outside the list on purpose: attached to it, a journey arriving while
+            // the list was still empty — the first one added from a board — had
+            // nothing listening, and the push was dropped.
+            guard let id = newID, let train = trains.first(where: { $0.id == id }) else { return }
+            if navigationPath.last?.id != train.id {
+                navigationPath.append(train)
+            }
+            ticketTrainID = nil
         }
         .onChange(of: trains.count) { _, _ in scheduleRefreshRowItems() }
         .onChange(of: stops.count) { _, _ in scheduleRefreshRowItems() }

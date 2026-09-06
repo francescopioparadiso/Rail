@@ -15,11 +15,16 @@ struct TodayView: View {
     @Binding var navigationPath: [Train]
     var isActive: Bool = true
 
+    /// A clock for previews and screenshots. The mock journeys are staged around a
+    /// particular moment, and the list only tells that story if it agrees.
+    var previewNow: Date? = nil
+
     @Environment(\.modelContext) private var modelContext
     @Query private var trains: [Train]
     @Query private var stops: [Stop]
     @Query private var seats: [Seat]
     @Query private var profiles: [UserProfile]
+    @Query private var passes: [Pass]
 
     @State private var isUpdating = false
     @State private var manualRefreshCounter = 0
@@ -82,14 +87,6 @@ struct TodayView: View {
                     refreshRowItems()
                     await updateTodayTrains(isManual: true)
                 }
-                .onChange(of: ticketTrainID) { _, newID in
-                    if let id = newID, let train = trains.first(where: { $0.id == id }) {
-                        if navigationPath.last?.id != train.id {
-                            navigationPath.append(train)
-                        }
-                        ticketTrainID = nil
-                    }
-                }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -100,12 +97,28 @@ struct TodayView: View {
                 refreshRowItems()
             }
         }
-        .onChange(of: trains.count) { _, _ in scheduleRefreshRowItems() }
+        .onChange(of: ticketTrainID) { _, newID in
+            // Outside the list on purpose: attached to it, a journey arriving while
+            // the list was still empty — the first one added from a board — had
+            // nothing listening, and the push was dropped.
+            guard let id = newID, let train = trains.first(where: { $0.id == id }) else { return }
+            if navigationPath.last?.id != train.id {
+                navigationPath.append(train)
+            }
+            ticketTrainID = nil
+        }
+        .onChange(of: trains.count) { _, _ in
+            scheduleRefreshRowItems()
+            syncTrainAlerts()
+        }
         .onChange(of: stops.count) { _, _ in scheduleRefreshRowItems() }
+        .onChange(of: passes.count) { _, _ in syncTrainAlerts() }
+        .onChange(of: profiles.primary?.notificationSettings) { _, _ in syncTrainAlerts() }
         .task(id: isActive) {
             guard isActive else { return }
             refreshRowItems()
             await updateTodayTrains()
+            syncTrainAlerts()
 
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 30_000_000_000)
@@ -118,7 +131,7 @@ struct TodayView: View {
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 60_000_000_000)
                 if Task.isCancelled { break }
-                listNow = Date()
+                listNow = previewNow ?? Date()
             }
         }
     }
@@ -134,8 +147,28 @@ struct TodayView: View {
         }
     }
 
+    /// Rebuilds every pending journey alert from the times now in the store, so a
+    /// delay picked up by a refresh drags its alert along with it. Alerts are local
+    /// to a device, so this also runs when iCloud brings the preferences over from
+    /// another one — including a switch turned off there, which clears them here.
+    private func syncTrainAlerts() {
+        guard let profile = profiles.primary else { return }
+        let settings = profile.resolvedNotificationSettings
+        let currentTrains = trains
+        let currentStops = stops
+        let currentPasses = passes
+        Task {
+            await NotificationManager.shared.syncAlerts(
+                trains: currentTrains,
+                stops: currentStops,
+                passes: currentPasses,
+                settings: settings
+            )
+        }
+    }
+
     private func refreshRowItems() {
-        listNow = Date()
+        listNow = previewNow ?? Date()
         stopsByTrain = Dictionary(grouping: stops, by: \.id)
         rowItems = TrainListBuilder.todayItems(trains: trains, stops: stops, now: listNow)
     }
@@ -266,6 +299,7 @@ struct TodayView: View {
         if didChange {
             try? modelContext.save()
             refreshRowItems()
+            syncTrainAlerts()
         }
 
         if isManual {

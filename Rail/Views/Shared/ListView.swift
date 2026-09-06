@@ -132,17 +132,17 @@ struct ListView: View {
                     let hour = timeToDeparture.hour ?? 0
                     let minute = timeToDeparture.minute ?? 0
 
-                    let timeString: String = {
+                    let timeString: LocalizedStringKey = {
                         if day > 0 {
-                            return "\(NSLocalizedString("Departure on", comment: "")) \(depTime.formatted(date: .abbreviated, time: .omitted))"
+                            return "Departure on \(depTime.formatted(date: .abbreviated, time: .omitted))"
                         } else if hour > 0 && minute > 0 {
-                            return "\(NSLocalizedString("Departure in", comment: "")) \(hour)h \(minute)m"
+                            return "Departure in \(hour)h \(minute)m"
                         } else if hour > 0 && minute == 0 {
-                            return "\(NSLocalizedString("Departure in", comment: "")) \(hour)h"
+                            return "Departure in \(hour)h"
                         } else if minute > 0 {
-                            return "\(NSLocalizedString("Departure in", comment: "")) \(minute)m"
+                            return "Departure in \(minute)m"
                         } else {
-                            return "Partenza imminente"
+                            return "About to depart"
                         }
                     }()
 
@@ -158,24 +158,20 @@ struct ListView: View {
                         platformIcon: "arrow.up.right"
                     )
                 } else {
-                    let delayString: String = {
+                    let delayString: LocalizedStringKey = {
                         if train.delay < 0 {
                             let delay = abs(train.delay)
                             if delay >= 60 {
-                                let hours = delay / 60
-                                let minutes = delay % 60
-                                return "\(NSLocalizedString("Early of", comment: "")) \(hours)h \(minutes)m"
+                                return "Early of \(delay / 60)h \(delay % 60)m"
                             }
-                            return "\(NSLocalizedString("Early of", comment: "")) \(delay)m"
+                            return "Early of \(delay)m"
                         } else if train.delay == 0 {
-                            return "\(NSLocalizedString("On time", comment: ""))"
+                            return "On time"
                         } else {
                             if train.delay >= 60 {
-                                let hours = train.delay / 60
-                                let minutes = train.delay % 60
-                                return "\(NSLocalizedString("Late of", comment: "")) \(hours)h \(minutes)m"
+                                return "Late of \(train.delay / 60)h \(train.delay % 60)m"
                             }
-                            return "\(NSLocalizedString("Late of", comment: "")) \(train.delay)m"
+                            return "Late of \(train.delay)m"
                         }
                     }()
 
@@ -310,7 +306,7 @@ struct ListView: View {
 
     // full-width status bar, with the platform kept alongside it in its own yellow chip
     private func statusBar(
-        text: String,
+        text: LocalizedStringKey,
         tint: Color,
         background: Color,
         platform: String?,

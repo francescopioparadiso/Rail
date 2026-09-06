@@ -11,16 +11,15 @@ enum AddTrainStep: String, CaseIterable {
     case chooseStops
     case chooseDate
     
-    var title: String {
+    /// A key rather than a resolved string: `NSLocalizedString` reads the bundle's
+    /// language and ignores `\.locale`, so a title resolved here stayed English
+    /// however the surrounding view was configured.
+    var title: LocalizedStringKey {
         switch self {
-        case .addTrain:
-            return NSLocalizedString("Add Train", comment: "")
-        case .chooseTrain:
-            return NSLocalizedString("Choose Train", comment: "")
-        case .chooseStops:
-            return NSLocalizedString("Choose Stops", comment: "")
-        case .chooseDate:
-            return NSLocalizedString("Choose Date", comment: "")
+        case .addTrain: "Add Train"
+        case .chooseTrain: "Choose Train"
+        case .chooseStops: "Choose Stops"
+        case .chooseDate: "Choose Date"
         }
     }
 }
@@ -31,14 +30,11 @@ enum FetchState: CaseIterable {
     case success
     case failure
     
-    var title: String {
+    var title: LocalizedStringKey {
         switch self {
-        case .idle, .success:
-            return ""
-        case .fetching:
-            return NSLocalizedString("Searching solutions...", comment: "")
-        case .failure:
-            return NSLocalizedString("No solutions found", comment: "")
+        case .idle, .success: ""
+        case .fetching: "Searching solutions..."
+        case .failure: "No solutions found"
         }
     }
     
@@ -53,14 +49,14 @@ enum FetchState: CaseIterable {
         }
     }
     
-    var description: String {
+    var description: LocalizedStringKey {
         switch self {
         case .idle, .success:
             return ""
         case .fetching:
-            return NSLocalizedString("This can take a few seconds.", comment: "")
+            return "This can take a few seconds."
         case .failure:
-            return NSLocalizedString("Try checking the train number and your internet connection.", comment: "")
+            return "Try checking the train number and your internet connection."
         }
     }
     

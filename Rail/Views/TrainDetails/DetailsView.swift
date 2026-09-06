@@ -299,17 +299,17 @@ struct DetailsView: View {
                     let hour = timeToDeparture.hour ?? 0
                     let minute = timeToDeparture.minute ?? 0
                     
-                    let timeString: String = {
+                    let timeString: LocalizedStringKey = {
                         if day > 0 {
-                            return String(localized: "Departure on \(depTime.formatted(date: .abbreviated, time: .omitted))")
+                            return "Departure on \(depTime.formatted(date: .abbreviated, time: .omitted))"
                         } else if hour > 0 && minute > 0 {
-                            return String(localized: "Departure in \(hour)h \(minute)m")
+                            return "Departure in \(hour)h \(minute)m"
                         } else if hour > 0 && minute == 0 {
-                            return String(localized: "Departure in \(hour)h")
+                            return "Departure in \(hour)h"
                         } else if minute > 0 {
-                            return String(localized: "Departure in \(minute)m")
+                            return "Departure in \(minute)m"
                         } else {
-                            return String(localized: "About to depart")
+                            return "About to depart"
                         }
                     }()
                     
@@ -339,28 +339,25 @@ struct DetailsView: View {
                     
                     if train.issue != "Treno cancellato" {
                         ZStack {
-                            let delayString: String = {
+                            let delayString: Text = {
                                 if lastStopNoIssues.arr_delay < 0 {
                                     let delay = abs(lastStopNoIssues.arr_delay)
                                     if delay >= 60 {
-                                        let hours = delay / 60
-                                        let minutes = delay % 60
-                                        return "\(hours)h \(minutes)m"
+                                        return Text(verbatim: "\(delay / 60)h \(delay % 60)m")
                                     }
-                                    return "\(delay)m"
+                                    return Text(verbatim: "\(delay)m")
                                 } else if lastStopNoIssues.arr_delay == 0 {
-                                    return String(localized: "On time")
+                                    return Text("On time")
                                 } else {
                                     if lastStopNoIssues.arr_delay >= 60 {
-                                        let hours = lastStopNoIssues.arr_delay / 60
-                                        let minutes = lastStopNoIssues.arr_delay % 60
-                                        return "\(hours)h \(minutes)m"
+                                        let delay = lastStopNoIssues.arr_delay
+                                        return Text(verbatim: "\(delay / 60)h \(delay % 60)m")
                                     }
-                                    return "\(lastStopNoIssues.arr_delay)m"
+                                    return Text(verbatim: "\(lastStopNoIssues.arr_delay)m")
                                 }
                             }()
                             
-                            Text(delayString)
+                            delayString
                                 .font(.subheadline)
                                 .fontDesign(appFontDesign)
                                 .foregroundStyle(lastStopNoIssues.arr_delay > 0 ? .red : .green)
@@ -373,24 +370,20 @@ struct DetailsView: View {
                 }
             } else {
                 ZStack {
-                    let delayString: String = {
+                    let delayString: LocalizedStringKey = {
                         if train.delay < 0 {
                             let delay = abs(train.delay)
                             if delay >= 60 {
-                                let hours = delay / 60
-                                let minutes = delay % 60
-                                return String(localized: "Early of \(hours)h \(minutes)m")
+                                return "Early of \(delay / 60)h \(delay % 60)m"
                             }
-                            return String(localized: "Early of \(delay)m")
+                            return "Early of \(delay)m"
                         } else if train.delay == 0 {
-                            return String(localized: "On time")
+                            return "On time"
                         } else {
                             if train.delay >= 60 {
-                                let hours = train.delay / 60
-                                let minutes = train.delay % 60
-                                return String(localized: "Late of \(hours)h \(minutes)m")
+                                return "Late of \(train.delay / 60)h \(train.delay % 60)m"
                             }
-                            return String(localized: "Late of \(train.delay)m")
+                            return "Late of \(train.delay)m"
                         }
                     }()
                     
@@ -508,9 +501,11 @@ struct DetailsView: View {
                 journeyActions
             }
 
-            DefaultToolbarItem(kind: .search, placement: .bottomBar)
+            if !isPreview {
+                DefaultToolbarItem(kind: .search, placement: .bottomBar)
+            }
         }
-        .searchable(text: $searchText, prompt: "Search stops")
+        .applyingIf(!isPreview) { $0.searchable(text: $searchText, prompt: "Search stops") }
         .sheet(item: $boardStation) { name in
             StationBoardView(initialStation: name)
         }

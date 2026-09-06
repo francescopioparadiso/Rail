@@ -1,4 +1,4 @@
-import Foundation
+import SwiftUI
 
 // MARK: - Sorting
 
@@ -184,34 +184,32 @@ enum SolutionQuery {
 
 // MARK: - Option labels
 
-func changeCountLabel(_ option: Int) -> String {
-    option >= 3
-        ? NSLocalizedString("3+ changes", comment: "Filter option for three or more changes")
-        : String.localizedStringWithFormat(NSLocalizedString("%lld changes", comment: ""), option)
+func changeCountLabel(_ option: Int) -> LocalizedStringKey {
+    option >= 3 ? "3+ changes" : "\(option) changes"
 }
 
 extension SolutionBucket {
-    var durationLabel: String {
+    var durationLabel: LocalizedStringKey {
         rangeLabel(
             lower: lowerBound.map { journeyDuration(minutes: Int($0)) },
             upper: upperBound.map { journeyDuration(minutes: Int($0)) }
         )
     }
 
-    func priceLabel(currency: String) -> String {
+    func priceLabel(currency: String) -> LocalizedStringKey {
         let money: (Double) -> String = { "\(currency) \($0.formatted(.number.precision(.fractionLength(0))))" }
         return rangeLabel(lower: lowerBound.map(money), upper: upperBound.map(money))
     }
 }
 
-private func rangeLabel(lower: String?, upper: String?) -> String {
+private func rangeLabel(lower: String?, upper: String?) -> LocalizedStringKey {
     switch (lower, upper) {
     case let (nil, upper?):
-        return String(format: NSLocalizedString("Up to %@", comment: "Upper-bounded filter range"), upper)
+        return "Up to \(upper)"
     case let (lower?, upper?):
-        return String(format: NSLocalizedString("%@ to %@", comment: "Filter range"), lower, upper)
+        return "\(lower) to \(upper)"
     case let (lower?, nil):
-        return String(format: NSLocalizedString("Over %@", comment: "Lower-bounded filter range"), lower)
+        return "Over \(lower)"
     default:
         return ""
     }

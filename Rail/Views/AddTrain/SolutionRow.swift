@@ -42,11 +42,8 @@ struct SolutionRow: View {
         isExpanded ? solution.segments.first : solution.segments.last
     }
 
-    private var changesText: String {
-        String.localizedStringWithFormat(
-            NSLocalizedString("%lld changes", comment: "Number of changes on a journey"),
-            solution.changeCount
-        )
+    private var changesText: LocalizedStringKey {
+        "\(solution.changeCount) changes"
     }
 
     // MARK: - Body
@@ -119,7 +116,7 @@ struct SolutionRow: View {
             }
             .animation(isLead ? nil : .snappy, value: isExpanded)
 
-            Text(segmentLabel(segment))
+            segmentLabel(segment)
                 .font(.headline).fontWeight(.semibold)
                 .foregroundStyle(segmentTint(segment))
                 .lineLimit(1)
@@ -175,11 +172,11 @@ struct SolutionRow: View {
 
     private var chips: some View {
         HStack(spacing: 8) {
-            chip(systemImage: "clock", text: journeyDuration(minutes: solution.durationMinutes))
+            chip(systemImage: "clock", text: Text(verbatim: journeyDuration(minutes: solution.durationMinutes)))
 
             // the changes chip doubles as the expand/collapse target
             if solution.changeCount > 0 {
-                chip(systemImage: "tram.fill", text: changesText)
+                chip(systemImage: "tram.fill", text: Text(changesText))
                     .contentShape(Capsule())
                     .onTapGesture { if canExpand { onToggleExpanded() } }
             }
@@ -201,10 +198,10 @@ struct SolutionRow: View {
         }
     }
 
-    private func chip(systemImage: String, text: String) -> some View {
+    private func chip(systemImage: String, text: Text) -> some View {
         HStack(spacing: 5) {
             Image(systemName: systemImage)
-            Text(text)
+            text
         }
         .font(.footnote).fontWeight(.semibold)
         .foregroundStyle(.secondary)
@@ -221,9 +218,9 @@ struct SolutionRow: View {
         max(0, Int(end.timeIntervalSince(start)) / 60)
     }
 
-    private func segmentLabel(_ segment: SolutionSegment) -> String {
-        if segment.isUntracked { return NSLocalizedString("Transfer", comment: "An urban transfer leg with no train number") }
-        return segment.number.isEmpty ? NSLocalizedString("Bus", comment: "") : segment.number
+    private func segmentLabel(_ segment: SolutionSegment) -> Text {
+        if segment.isUntracked { return Text("Transfer") }
+        return segment.number.isEmpty ? Text("Bus") : Text(verbatim: segment.number)
     }
 
     private func segmentTint(_ segment: SolutionSegment) -> Color {

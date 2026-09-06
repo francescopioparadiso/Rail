@@ -100,11 +100,12 @@ enum FavoriteTrainService {
     }
 
     @MainActor
+    @discardableResult
     static func savePreparedTrain(
         _ prepared: PreparedFavoriteTrain,
         modelContext: ModelContext,
         profile: UserProfile?
-    ) {
+    ) -> Train {
         let (train, addedStops) = insert(prepared, into: modelContext)
         try? modelContext.save()
 
@@ -123,6 +124,7 @@ enum FavoriteTrainService {
         }
 
         reloadWidgetTimelines()
+        return train
     }
 
     /// Turns a resolved journey into a train and its stops inside `modelContext`,

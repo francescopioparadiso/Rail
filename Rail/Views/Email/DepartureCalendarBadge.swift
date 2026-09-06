@@ -10,15 +10,19 @@ struct DepartureCalendarBadge: View {
     /// than the text beside it, which then sets the height of the whole row.
     var verticalPadding: CGFloat = 0
 
+    /// `formatted` reads the system locale on its own, so the month has to be told
+    /// which language the surrounding view is being shown in.
+    @Environment(\.locale) private var locale
+
     // MARK: - Body
 
     var body: some View {
         VStack(spacing: 0) {
-            Text(date.formatted(.dateTime.month(.abbreviated)).uppercased())
+            Text(date.formatted(.dateTime.month(.abbreviated).locale(locale)).uppercased())
                 .font(.footnote.weight(.semibold))
                 .foregroundStyle(.red)
 
-            Text(date.formatted(.dateTime.day()))
+            Text(date.formatted(.dateTime.day().locale(locale)))
                 .font(.title2.weight(.bold))
                 .foregroundStyle(.primary)
         }

@@ -477,12 +477,16 @@ private struct EmailPassImportPreview: View {
         configurations: config
     )
 
-    let emailAccount = Emails(
-        provider: .apple,
-        email: "preview@icloud.com",
-        appPassword: "preview-password"
+    container.mainContext.insert(
+        UserProfile(
+            name: "Francesco",
+            photo: PreviewMockData.profilePhoto(),
+            emails: [
+                PreviewMockData.appleAccount(),
+                PreviewMockData.googleAccount()
+            ]
+        )
     )
-    container.mainContext.insert(UserProfile(name: "Francesco", emails: [emailAccount]))
 
     return Color(uiColor: .systemBackground)
         .sheet(isPresented: .constant(true)) {

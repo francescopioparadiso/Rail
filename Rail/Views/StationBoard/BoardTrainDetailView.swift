@@ -12,6 +12,7 @@ struct BoardTrainDetailView: View {
     // MARK: - Properties
 
     @Environment(\.modelContext) private var modelContext
+    @Query private var profiles: [UserProfile]
 
     let boardTrain: BoardTrain
     let station: String
@@ -20,9 +21,29 @@ struct BoardTrainDetailView: View {
     @State private var journey: Train?
     @State private var didFail = false
 
+    /// The journey as it was resolved, kept so the same mapping that filled the
+    /// throwaway store can fill the real one if it is asked for.
+    @State private var prepared: PreparedFavoriteTrain?
+
     // MARK: - Body
 
     var body: some View {
+        ZStack(alignment: .bottom) {
+            journeyContent
+                // Keeps the button clear of the status legend that closes the
+                // details screen, the way the stop picker margins its own list.
+                .safeAreaPadding(.bottom, journey == nil ? 0 : 76)
+
+            if journey != nil {
+                addButton
+            }
+        }
+        .background(appBackgroundColor.ignoresSafeArea())
+        .task { await resolve() }
+    }
+
+    @ViewBuilder
+    private var journeyContent: some View {
         Group {
             if let journey {
                 DetailsView(
@@ -46,8 +67,29 @@ struct BoardTrainDetailView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
-        .background(appBackgroundColor.ignoresSafeArea())
-        .task { await resolve() }
+    }
+
+    private var addButton: some View {
+        Button {
+            HapticFeedback.confirm()
+            save()
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: "plus")
+                    .font(.headline)
+
+                Text("Add to my journeys")
+                    .font(.subheadline)
+                    .fontWeight(.semibold)
+            }
+            .fontDesign(appFontDesign)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+        }
+        .buttonStyle(.glassProminent)
+        .tint(Color.blue.opacity(0.15))
+        .foregroundStyle(Color.blue)
+        .padding(.bottom, 24)
     }
 
     // MARK: - Actions
@@ -67,6 +109,20 @@ struct BoardTrainDetailView: View {
         journey = staged
     }
 
+    /// Moves the journey out of the throwaway store and into the app, with the
+    /// calendar event and widget refresh every other way of adding a train gets.
+    private func save() {
+        guard let prepared else { return }
+        let train = FavoriteTrainService.savePreparedTrain(
+            prepared,
+            modelContext: modelContext,
+            profile: profiles.primary
+        )
+        // Routing closes the board sheet on its way to Today, so don't pop as well:
+        // two dismissals in one turn is what left the journey on a blank screen.
+        DeepLinkRouter.shared.open(trainID: train.id)
+    }
+
     /// Puts the resolved journey in the preview context, riding from the station
     /// being looked at to the end of the line — or, on an arrivals board, from the
     /// start of the line to here.
@@ -79,11 +135,11 @@ struct BoardTrainDetailView: View {
         let from = kind == .departures ? (boarded ?? origin) : origin
         let to = kind == .departures ? terminus : (boarded ?? terminus)
 
+        let staged = PreparedFavoriteTrain(info: info, fromStation: from, toStation: to)
+        prepared = staged
+
         let context = PreviewJourneyStore.context(on: modelContext.container)
-        let (train, _) = FavoriteTrainService.insert(
-            PreparedFavoriteTrain(info: info, fromStation: from, toStation: to),
-            into: context
-        )
+        let (train, _) = FavoriteTrainService.insert(staged, into: context)
         return train
     }
 
