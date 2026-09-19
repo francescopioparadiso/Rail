@@ -207,7 +207,7 @@ struct TrainActivityView: View {
 
             PlatformCapsule(
                 platform: state.platform,
-                isDeparture: state.targetRole != .arrival
+                isDeparture: state.isBoardingPlatform
             )
         }
     }
@@ -311,7 +311,7 @@ struct TrainLiveActivity: Widget {
 
                             PlatformCapsule(
                                 platform: context.state.platform,
-                                isDeparture: context.state.targetRole != .arrival,
+                                isDeparture: context.state.isBoardingPlatform,
                                 compact: true
                             )
                         }
@@ -323,7 +323,7 @@ struct TrainLiveActivity: Widget {
             } compactLeading: {
                 PlatformCapsule(
                     platform: context.state.platform,
-                    isDeparture: context.state.targetRole != .arrival,
+                    isDeparture: context.state.isBoardingPlatform,
                     compact: true
                 )
             } compactTrailing: {

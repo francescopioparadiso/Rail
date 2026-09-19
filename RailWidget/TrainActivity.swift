@@ -77,6 +77,16 @@ struct TrainActivityAttributes: ActivityAttributes {
         /// The journey's end, so the lifecycle can tell when there is nothing left
         /// to show without re-reading the store.
         let journeyEnd: Date
+
+        /// Whether the platform shown is one to leave from rather than one the train
+        /// is pulling into.
+        ///
+        /// It points up out of a platform only while the boarding station is still
+        /// ahead, because that is the one platform the traveller walks onto. Once
+        /// aboard, every stop the countdown names — one in the middle of the leg or
+        /// the end of it — is somewhere the train arrives, so the arrow turns down
+        /// into it.
+        var isBoardingPlatform: Bool { targetRole == .departure }
     }
 }
 

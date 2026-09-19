@@ -87,6 +87,22 @@ struct TrainActivityStateTests {
         #expect(state.targetName != "Roma Termini")
     }
 
+    @Test("The platform arrow points out of the boarding station and into everywhere else")
+    func platformArrowDirection() throws {
+        // Still to board: the platform is one to walk onto, so the arrow points up.
+        let beforeBoarding = try #require(TrainActivityState.resolve(TrainActivitySample.notDeparted, now: now))
+        #expect(beforeBoarding.isBoardingPlatform)
+
+        // Aboard and heading for a stop in the middle: the train pulls in there.
+        let enRoute = try #require(TrainActivityState.resolve(TrainActivitySample.enRoute, now: now))
+        #expect(enRoute.targetRole == .intermediate)
+        #expect(enRoute.isBoardingPlatform == false)
+
+        // The end of the leg is somewhere it arrives too.
+        let arriving = try #require(TrainActivityState.resolve(TrainActivitySample.nextIsArrival, now: now))
+        #expect(arriving.isBoardingPlatform == false)
+    }
+
     @Test("The platform shown is the target's, and follows the target as it moves")
     func platformFollowsTarget() throws {
         let beforeBoarding = try #require(TrainActivityState.resolve(TrainActivitySample.notDeparted, now: now))
