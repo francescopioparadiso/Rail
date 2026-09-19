@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// The pieces a journey is drawn with, in one place so the Live Activity and the
 /// widgets cannot drift apart.
@@ -36,6 +37,10 @@ enum JourneyPalette {
     /// before there was a Live Activity to put one in.
     static let platformBackground = Color.yellow.opacity(0.5)
 
+    /// The countdown's chip. Blue is the accent, so the one thing the journey is
+    /// counting towards wears it wherever it appears.
+    static let targetBackground = Color.blue.opacity(0.25)
+
     /// The resting background of a capsule that carries no news.
     static let neutralBackground = Color.gray.opacity(0.15)
 
@@ -45,6 +50,22 @@ enum JourneyPalette {
 
     /// Every chip in the app is drawn to this radius.
     static let capsuleRadius: CGFloat = 16
+}
+
+// MARK: - Metrics
+
+/// The insets, gathered so the Live Activity's chips can be lined up with the
+/// container's own rounded edge without hunting through view bodies.
+enum JourneyMetrics {
+    /// The Lock Screen's own corner is rounded a good deal more than a chip is, so
+    /// the chips sit close to the edge: the gap between the two radii is all the
+    /// inset a concentric look wants.
+    static let lockScreenHorizontal: CGFloat = 8
+    static let lockScreenVertical: CGFloat = 12
+
+    /// The island clips its regions hard at the edges, so its content is pulled in
+    /// rather than pushed out.
+    static let islandHorizontal: CGFloat = 6
 }
 
 // MARK: - Logo
@@ -58,11 +79,27 @@ struct TrainLogo: View {
     let logo: String
     var height: CGFloat = 24
 
+    /// Trenitalia prints categories the app has no badge for, and a Live Activity
+    /// that asked for one of them drew an empty grey box. The station board has
+    /// always fallen back to the acronym itself; so does this.
+    private var hasImage: Bool {
+        !logo.isEmpty && UIImage(named: logo) != nil
+    }
+
     var body: some View {
-        Image(logo)
-            .resizable()
-            .scaledToFit()
-            .frame(height: height)
+        if hasImage {
+            Image(logo)
+                .resizable()
+                .scaledToFit()
+                .frame(height: height)
+        } else if !logo.isEmpty {
+            Text(logo)
+                .font(.caption).fontWeight(.bold)
+                .fontDesign(journeyFontDesign)
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 6).padding(.vertical, 2)
+                .background(Color(.tertiarySystemFill), in: RoundedRectangle(cornerRadius: 6))
+        }
     }
 }
 

@@ -1,8 +1,50 @@
 import ActivityKit
+import Foundation
 import SwiftUI
 import WidgetKit
 
 // MARK: - Countdown
+
+/// Turns `TimeDataSource.durationOffset(to:)` the right way round.
+///
+/// That source measures from the target *to now*, so a stop ten minutes off arrives
+/// as a duration of -10m and the Lock Screen read "-10m". There is no `from:`
+/// counterpart in the framework, so the value is negated on the way through.
+///
+/// `Text(_:format:)` takes a `DiscreteFormatStyle` rather than any old format style
+/// because that is how SwiftUI learns when the text will next change and books a
+/// redraw for exactly then — which is what keeps the countdown ticking with the app
+/// closed. So those two questions are forwarded as well, with their direction
+/// swapped along with the value: as the offset grows, the time remaining shrinks.
+/// `input(before:)` and `input(after:)` already have defaults for `Duration`.
+struct RemainingTime: DiscreteFormatStyle {
+    private let base: Duration.UnitsFormatStyle
+
+    init(_ base: Duration.UnitsFormatStyle) {
+        self.base = base
+    }
+
+    // `Duration` is only `AdditiveArithmetic`, so there is no unary minus to reach for.
+    private func flipped(_ value: Duration) -> Duration { .zero - value }
+
+    func format(_ value: Duration) -> String {
+        base.format(flipped(value))
+    }
+
+    func discreteInput(before input: Duration) -> Duration? {
+        base.discreteInput(after: flipped(input)).map(flipped)
+    }
+
+    func discreteInput(after input: Duration) -> Duration? {
+        base.discreteInput(before: flipped(input)).map(flipped)
+    }
+
+    /// Forwarded rather than left to the protocol's default, which would return the
+    /// wrapper untouched and quietly strip the locale off the units underneath.
+    func locale(_ locale: Locale) -> RemainingTime {
+        RemainingTime(base.locale(locale))
+    }
+}
 
 /// The time left to the stop the journey is aimed at.
 ///
@@ -12,41 +54,51 @@ import WidgetKit
 /// the countdown becomes "Now".
 struct CountdownText: View {
 
-    /// How the remaining time is written.
-    ///
-    /// `.units` is the one we want — "1h 25m", "12m", a figure that changes once a
-    /// minute rather than once a second. It is also the one with the least settled
-    /// behaviour inside a Live Activity: the sign of `durationOffset(to:)` for a
-    /// future date, and whether the system really does redraw it every minute, are
-    /// both worth watching on a device.
-    ///
-    /// `.timer` is the fallback and behaves identically everywhere, at the cost of
-    /// counting seconds too. Switching is this one line.
-    enum Style { case units, timer }
-    static let style: Style = .units
+    /// How much of the remaining time is spelled out.
+    enum Detail {
+        /// Two units: "1h 25m" over an hour, "10m 50s" under it. Allowing seconds is
+        /// what makes the two-unit rule fall out on its own — the largest two units
+        /// that are not zero are exactly the pair we want at either range.
+        case full
+        /// One unit: "1h", "50m". For the island, where there is room for a glance
+        /// and nothing more.
+        case single
+    }
 
     let target: Date
     let isStale: Bool
-    var isCompact: Bool = false
+    var detail: Detail = .full
 
     var body: some View {
         Group {
             if isStale {
                 Text("Now")
-                    .foregroundStyle(JourneyPalette.target)
             } else {
-                switch Self.style {
-                case .units:
+                switch detail {
+                case .full:
                     Text(
-                        TimeDataSource<Date>.durationOffset(to: target),
-                        format: .units(
-                            allowed: [.hours, .minutes],
-                            width: .narrow,
-                            fractionalPart: .hide(rounded: .down)
+                        TimeDataSource<Duration>.durationOffset(to: target),
+                        format: RemainingTime(
+                            .units(
+                                allowed: [.hours, .minutes, .seconds],
+                                width: .narrow,
+                                maximumUnitCount: 2,
+                                fractionalPart: .hide(rounded: .down)
+                            )
                         )
                     )
-                case .timer:
-                    Text(timerInterval: Date()...max(target, Date().addingTimeInterval(1)), countsDown: true)
+                case .single:
+                    Text(
+                        TimeDataSource<Duration>.durationOffset(to: target),
+                        format: RemainingTime(
+                            .units(
+                                allowed: [.hours, .minutes],
+                                width: .narrow,
+                                maximumUnitCount: 1,
+                                fractionalPart: .hide(rounded: .down)
+                            )
+                        )
+                    )
                 }
             }
         }
@@ -56,14 +108,46 @@ struct CountdownText: View {
     }
 }
 
+/// The blue chip: where the train is heading next, and how long that is.
+///
+/// This is where a stop between the two ends of the journey gets its name said —
+/// "Alessandria · 10m 50s" — rather than taking a row of its own.
+struct TargetCapsule: View {
+    let name: String
+    let target: Date
+    let isStale: Bool
+
+    /// Dropped in the island, where only the time fits.
+    var showsName: Bool = true
+    var detail: CountdownText.Detail = .full
+    var compact: Bool = false
+
+    var body: some View {
+        JourneyCapsule(
+            background: JourneyPalette.targetBackground,
+            foreground: JourneyPalette.target,
+            fillsWidth: showsName,
+            compact: compact
+        ) {
+            HStack(spacing: 6) {
+                if showsName, !name.isEmpty {
+                    Text(name)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
+
+                CountdownText(target: target, isStale: isStale, detail: detail)
+            }
+        }
+    }
+}
+
 // MARK: - Lock Screen
 
-/// The whole journey, in three bands: who and where you are sitting, the stops, and
-/// what is left to wait.
+/// The journey in three bands: which train and which seat, the two ends of the leg,
+/// and what is left to wait.
 struct TrainActivityView: View {
     let context: ActivityViewContext<TrainActivityAttributes>
-
-    @Environment(\.showsWidgetContainerBackground) private var showsBackground
 
     private var state: TrainActivityAttributes.ContentState { context.state }
 
@@ -73,7 +157,8 @@ struct TrainActivityView: View {
             stations
             footer
         }
-        .padding(14)
+        .padding(.horizontal, JourneyMetrics.lockScreenHorizontal)
+        .padding(.vertical, JourneyMetrics.lockScreenVertical)
         // Low enough to keep the wallpaper showing through, which is what makes the
         // whole thing read as glass rather than as a card.
         .activityBackgroundTint(Color.black.opacity(0.12))
@@ -106,25 +191,19 @@ struct TrainActivityView: View {
 
     private var stations: some View {
         VStack(alignment: .leading, spacing: 4) {
-            row(state.departure, role: .departure, isDepartureSide: true)
-
-            if let intermediate = state.intermediate {
-                row(intermediate, role: .intermediate, isDepartureSide: false)
-            }
-
-            row(state.arrival, role: .arrival, isDepartureSide: false)
+            stationRow(state.departure, role: .departure, isDepartureSide: true)
+            stationRow(state.arrival, role: .arrival, isDepartureSide: false)
         }
         .font(.subheadline)
     }
 
     private var footer: some View {
         HStack(spacing: 8) {
-            JourneyCapsule(
-                foreground: context.isStale ? JourneyPalette.target : .primary,
-                fillsWidth: true
-            ) {
-                CountdownText(target: state.targetDate, isStale: context.isStale)
-            }
+            TargetCapsule(
+                name: state.targetName,
+                target: state.targetDate,
+                isStale: context.isStale
+            )
 
             PlatformCapsule(
                 platform: state.platform,
@@ -136,12 +215,15 @@ struct TrainActivityView: View {
     // MARK: Rows
 
     @ViewBuilder
-    private func row(
+    private func stationRow(
         _ row: TrainActivityAttributes.ContentState.Row,
         role: TrainActivityAttributes.ContentState.TargetRole,
         isDepartureSide: Bool
     ) -> some View {
-        let isTarget = state.targetRole == role && row.name == state.targetName
+        // Blue only when the countdown is aimed at this very row. While the train is
+        // heading for a stop in between, neither row is the target and the blue is
+        // carried by the chip below.
+        let isTarget = state.targetRole == role
 
         StationRow(
             name: row.name,
@@ -185,6 +267,10 @@ struct TrainLiveActivity: Widget {
             TrainActivityView(context: context)
         } dynamicIsland: { context in
             DynamicIsland {
+                // Leading and trailing share the top line, and the centre region
+                // competes with them for it — filling the centre pushed the logo and
+                // the seat out of the island entirely. Everything below the top line
+                // goes in the bottom region instead, which has the width to itself.
                 DynamicIslandExpandedRegion(.leading) {
                     HStack(spacing: 6) {
                         TrainLogo(logo: context.attributes.logo, height: 18)
@@ -192,6 +278,7 @@ struct TrainLiveActivity: Widget {
                             .font(.subheadline).fontWeight(.semibold)
                             .fontDesign(journeyFontDesign)
                     }
+                    .padding(.leading, JourneyMetrics.islandHorizontal)
                 }
 
                 DynamicIslandExpandedRegion(.trailing) {
@@ -199,31 +286,39 @@ struct TrainLiveActivity: Widget {
                         Link(destination: seat) {
                             SeatCapsule(label: context.attributes.seatLabel, compact: true)
                         }
+                        .padding(.trailing, JourneyMetrics.islandHorizontal)
                     } else {
                         SeatCapsule(label: context.attributes.seatLabel, compact: true)
+                            .padding(.trailing, JourneyMetrics.islandHorizontal)
                     }
-                }
-
-                DynamicIslandExpandedRegion(.center) {
-                    expandedStations(context)
                 }
 
                 DynamicIslandExpandedRegion(.bottom) {
-                    HStack(spacing: 8) {
-                        JourneyCapsule(
-                            foreground: context.isStale ? JourneyPalette.target : .primary,
-                            fillsWidth: true,
-                            compact: true
-                        ) {
-                            CountdownText(target: context.state.targetDate, isStale: context.isStale)
+                    VStack(spacing: 6) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            islandRow(context, context.state.departure, role: .departure, isDepartureSide: true)
+                            islandRow(context, context.state.arrival, role: .arrival, isDepartureSide: false)
                         }
+                        .font(.footnote)
 
-                        PlatformCapsule(
-                            platform: context.state.platform,
-                            isDeparture: context.state.targetRole != .arrival,
-                            compact: true
-                        )
+                        HStack(spacing: 8) {
+                            TargetCapsule(
+                                name: context.state.targetName,
+                                target: context.state.targetDate,
+                                isStale: context.isStale,
+                                compact: true
+                            )
+
+                            PlatformCapsule(
+                                platform: context.state.platform,
+                                isDeparture: context.state.targetRole != .arrival,
+                                compact: true
+                            )
+                        }
                     }
+                    // The island clips its regions at the edge, which was trimming
+                    // both chips; this keeps them whole.
+                    .padding(.horizontal, JourneyMetrics.islandHorizontal)
                 }
             } compactLeading: {
                 PlatformCapsule(
@@ -232,52 +327,56 @@ struct TrainLiveActivity: Widget {
                     compact: true
                 )
             } compactTrailing: {
-                CountdownText(target: context.state.targetDate, isStale: context.isStale, isCompact: true)
-                    .font(.caption)
+                TargetCapsule(
+                    name: "",
+                    target: context.state.targetDate,
+                    isStale: context.isStale,
+                    showsName: false,
+                    detail: .single,
+                    compact: true
+                )
+                .font(.caption)
             } minimal: {
-                // Shown when the island is shared with another activity, so it is
-                // only ever the one thing worth a glance.
-                CountdownText(target: context.state.targetDate, isStale: context.isStale, isCompact: true)
-                    .font(.caption2)
+                // Shown when the island is shared with another activity. The platform
+                // is dropped here: the one thing worth the space is how long is left.
+                TargetCapsule(
+                    name: "",
+                    target: context.state.targetDate,
+                    isStale: context.isStale,
+                    showsName: false,
+                    detail: .single,
+                    compact: true
+                )
+                .font(.caption2)
             }
             .widgetURL(TrainActivityLinks.journey(context.attributes))
             .keylineTint(JourneyPalette.target)
         }
     }
 
-    /// The same stations as the Lock Screen, tightened to what the island allows.
-    @ViewBuilder
-    private func expandedStations(_ context: ActivityViewContext<TrainActivityAttributes>) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            islandRow(context.state.departure, isTarget: context.state.targetRole == .departure)
-
-            if let intermediate = context.state.intermediate {
-                islandRow(intermediate, isTarget: context.state.targetRole == .intermediate)
-            }
-
-            islandRow(context.state.arrival, isTarget: context.state.targetRole == .arrival)
-        }
-        .font(.caption)
-    }
-
+    /// The same row the Lock Screen draws, so a delay is coloured identically in
+    /// both places.
     private func islandRow(
+        _ context: ActivityViewContext<TrainActivityAttributes>,
         _ row: TrainActivityAttributes.ContentState.Row,
-        isTarget: Bool
+        role: TrainActivityAttributes.ContentState.TargetRole,
+        isDepartureSide: Bool
     ) -> some View {
-        HStack {
-            Text(row.name)
-                .fontDesign(journeyFontDesign)
-                .foregroundStyle(isTarget ? JourneyPalette.target : Color.primary)
-                .lineLimit(1)
-                .truncationMode(.tail)
+        let isTarget = context.state.targetRole == role
 
-            Spacer()
-
-            Text(row.effective, format: .dateTime.hour().minute())
-                .fontDesign(journeyFontDesign)
-                .foregroundStyle(isTarget ? JourneyPalette.target : Color.secondary)
-                .monospacedDigit()
-        }
+        return StationRow(
+            name: row.name,
+            time: StopTime(
+                effective: row.effective,
+                scheduled: row.scheduled,
+                delay: row.delay,
+                isCancelled: context.state.isCancelled,
+                isArrival: !isDepartureSide,
+                firstDeparture: context.state.departure.effective,
+                isTarget: isTarget
+            ),
+            isTarget: isTarget
+        )
     }
 }
 
@@ -288,13 +387,13 @@ struct TrainLiveActivity: Widget {
 #Preview("Lock Screen", as: .content, using: TrainActivitySample.withSeat) {
     TrainLiveActivity()
 } contentStates: {
-    // Not departed: two rows, boarding station blue.
+    // Not departed: the boarding row is blue, and the chip names it too.
     TrainActivitySample.state(TrainActivitySample.notDeparted)
-    // Running, with a stop to come between the two ends: three rows.
+    // Running towards a stop in between: neither row is blue, the chip carries it.
     TrainActivitySample.state(TrainActivitySample.enRoute)
     // A leg inside a longer service, boarding and alighting mid-route.
     TrainActivitySample.state(TrainActivitySample.midRoute)
-    // Nothing left before the end of the journey: back to two rows.
+    // Nothing left before the end: the arrival row goes blue.
     TrainActivitySample.state(TrainActivitySample.nextIsArrival)
     // The target is behind us, so the activity is stale and reads "Now".
     TrainActivitySample.state(TrainActivitySample.arrivingNow)

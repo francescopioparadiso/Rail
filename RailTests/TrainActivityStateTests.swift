@@ -20,23 +20,22 @@ struct TrainActivityStateTests {
         let state = try #require(TrainActivityState.resolve(TrainActivitySample.notDeparted, now: now))
 
         #expect(state.hasDeparted == false)
-        #expect(state.intermediate == nil)
         #expect(state.departure.name == "Torino Porta Nuova")
         #expect(state.arrival.name == "Roma Termini")
         #expect(state.targetRole == .departure)
         #expect(state.targetName == "Torino Porta Nuova")
     }
 
-    @Test("A running train with a stop still to come shows it, and counts to it")
+    @Test("A running train counts down to the stop between the two ends, naming it")
     func departedWithIntermediate() throws {
         let state = try #require(TrainActivityState.resolve(TrainActivitySample.enRoute, now: now))
 
         #expect(state.hasDeparted)
-        #expect(state.intermediate?.name == "Bologna Centrale")
         #expect(state.targetRole == .intermediate)
+        // Only the two ends get rows, so this stop is named by the countdown alone.
         #expect(state.targetName == "Bologna Centrale")
-        // The middle row is the countdown's target, never some other stop.
-        #expect(state.intermediate?.name == state.targetName)
+        #expect(state.departure.name != state.targetName)
+        #expect(state.arrival.name != state.targetName)
     }
 
     @Test("A boarding station the train has not reached wins over any later stop")
@@ -54,9 +53,8 @@ struct TrainActivityStateTests {
         #expect(state.hasDeparted)
         #expect(state.targetRole == .departure)
         #expect(state.targetName == "Roma Termini")
-        // No middle row: the next stop is the boarding station itself, not a stop
-        // between the two ends.
-        #expect(state.intermediate == nil)
+        // Aimed at the boarding station itself, which is a drawn row.
+        #expect(state.departure.name == state.targetName)
     }
 
     @Test("Once the last intermediate stop is behind it, the target is the end of the journey")
@@ -65,7 +63,7 @@ struct TrainActivityStateTests {
 
         #expect(state.targetRole == .arrival)
         #expect(state.targetName == "Roma Termini")
-        #expect(state.intermediate == nil)
+        #expect(state.arrival.name == state.targetName)
     }
 
     @Test("A target already behind us leaves the activity stale, which is what reads Now")
@@ -84,7 +82,7 @@ struct TrainActivityStateTests {
 
         #expect(state.departure.name == "Milano Centrale")
         #expect(state.arrival.name == "Firenze S.M.N.")
-        #expect(state.intermediate?.name == "Bologna Centrale")
+        #expect(state.targetName == "Bologna Centrale")
         // Roma Termini is on the run but past where we get off, so it is never shown.
         #expect(state.targetName != "Roma Termini")
     }
@@ -105,8 +103,8 @@ struct TrainActivityStateTests {
         #expect(state.arrival.delay == 12)
         #expect(state.arrival.effective == state.arrival.scheduled.addingTimeInterval(12 * 60))
         // The countdown is aimed at the delay-adjusted time, never the booked one.
-        let target = try #require(state.intermediate)
-        #expect(state.targetDate == target.effective)
+        #expect(state.targetRole == .intermediate)
+        #expect(state.targetDate > now)
     }
 
     @Test("A stop struck from the run is never the target")
@@ -120,7 +118,7 @@ struct TrainActivityStateTests {
         let state = try #require(TrainActivityState.resolve(journey, now: now))
 
         #expect(state.targetName == "Milano Centrale")
-        #expect(state.intermediate?.name == "Milano Centrale")
+        #expect(state.targetRole == .intermediate)
     }
 
     @Test("A journey with nothing chosen has nothing to show")

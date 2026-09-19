@@ -54,12 +54,10 @@ struct TrainActivityAttributes: ActivityAttributes {
             let delay: Int
         }
 
+        /// The two rows drawn, and the only two. A stop in between is named by the
+        /// countdown rather than given a line of its own.
         let departure: Row
         let arrival: Row
-
-        /// The next stop, present only while the train is between boarding and
-        /// alighting. Absent otherwise, and then the activity draws two rows.
-        let intermediate: Row?
 
         /// The platform of the stop the countdown is aimed at, or empty when the
         /// operator has not said.
@@ -136,11 +134,11 @@ enum TrainActivityState {
     ///
     /// The rules, in one place:
     ///
-    /// - D is the first chosen stop and A the last. Both are drawn, always.
+    /// - D is the first chosen stop and A the last. Those two are the only rows.
     /// - The countdown is aimed at D until the train has called there, and at the
     ///   next uncalled stop afterwards.
-    /// - A middle row appears only once the train has left its origin *and* the next
-    ///   stop falls strictly between D and A. Otherwise there are two rows.
+    /// - A stop between D and A is never given a row; it is named by the countdown,
+    ///   which is where "approaching Alessandria" belongs anyway.
     /// - Every time used is the delay-adjusted one.
     static func resolve(_ journey: TrainJourney, now: Date = Date()) -> TrainActivityAttributes.ContentState? {
         let route = journey.calls.sorted { $0.refTime < $1.refTime }
@@ -176,18 +174,9 @@ enum TrainActivityState {
             target = (alighting, journeyEnd, .arrival)
         }
 
-        // The middle row is the next stop, and only when it is genuinely a stop
-        // between the two ends of the chosen leg.
-        let intermediate: TrainActivityAttributes.ContentState.Row? = {
-            guard hasDeparted, let next else { return nil }
-            guard isStrictlyBetween(next, boarding, alighting, in: route) else { return nil }
-            return row(for: next, using: .arrival)
-        }()
-
         return TrainActivityAttributes.ContentState(
             departure: row(for: boarding, using: .departure),
             arrival: row(for: alighting, using: .arrival),
-            intermediate: intermediate,
             platform: target.stop.platform,
             targetName: target.stop.name,
             targetDate: target.date,
