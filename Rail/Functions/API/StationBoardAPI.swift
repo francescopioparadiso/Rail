@@ -1,9 +1,12 @@
 import SwiftUI
 
 /// Which side of a station's timetable is being read.
+/// The order of the cases is the order the picker shows them in, `allCases` being
+/// what it iterates: arrivals first, as that is the side of the board most often
+/// wanted. Everything else reads the case itself, never its position.
 enum StationBoardKind: String, CaseIterable, Identifiable {
-    case departures
     case arrivals
+    case departures
 
     var id: String { rawValue }
 

@@ -17,7 +17,7 @@ struct StationBoardView: View {
 
     @State private var stationText = ""
     @State private var station: StationSuggestion?
-    @State private var kind: StationBoardKind = .departures
+    @State private var kind: StationBoardKind = .arrivals
 
     @State private var suggestions: [StationSuggestion] = []
     @State private var suggestionTask: Task<Void, Never>?
