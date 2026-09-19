@@ -6,6 +6,6 @@ struct RailWidgets: WidgetBundle {
     var body: some Widget {
         PassWidget()
         TicketWidget()
-        TrainWidget()
+        TrainLiveActivity()
     }
 }

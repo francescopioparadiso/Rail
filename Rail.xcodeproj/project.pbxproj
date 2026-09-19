@@ -78,6 +78,8 @@
 			membershipExceptions = (
 				JourneyPresentation.swift,
 				SharedSwiftData.swift,
+				TrainActivity.swift,
+				TrainActivitySamples.swift,
 			);
 			target = 2C0E47A22ED8D7330024EF08 /* Rail */;
 		};

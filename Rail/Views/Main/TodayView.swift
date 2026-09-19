@@ -7,6 +7,7 @@ struct TodayView: View {
     // MARK: - Properties
 
     @Environment(\.requestReview) var requestReview
+    @Environment(\.scenePhase) private var scenePhase
 
     @Binding var ticketTrainID: UUID?
     @Binding var ticketSeatID: UUID?
@@ -107,18 +108,28 @@ struct TodayView: View {
             }
             ticketTrainID = nil
         }
+        .onChange(of: scenePhase) { _, phase in
+            // Coming back to the front is the only chance the Live Activities get to
+            // move on: the next stop, the countdown's target and the middle row are
+            // all recomputed here, and a journey that ended while the app was away
+            // is taken down. It also picks up anything that drifted while Rail was
+            // not running, which with no server is the whole story.
+            guard phase == .active else { return }
+            refreshRowItems()
+            syncJourneyState()
+        }
         .onChange(of: trains.count) { _, _ in
             scheduleRefreshRowItems()
-            syncTrainAlerts()
+            syncJourneyState()
         }
         .onChange(of: stops.count) { _, _ in scheduleRefreshRowItems() }
-        .onChange(of: passes.count) { _, _ in syncTrainAlerts() }
-        .onChange(of: profiles.primary?.notificationSettings) { _, _ in syncTrainAlerts() }
+        .onChange(of: passes.count) { _, _ in syncJourneyState() }
+        .onChange(of: profiles.primary?.notificationSettings) { _, _ in syncJourneyState() }
         .task(id: isActive) {
             guard isActive else { return }
             refreshRowItems()
             await updateTodayTrains()
-            syncTrainAlerts()
+            syncJourneyState()
 
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 30_000_000_000)
@@ -147,22 +158,39 @@ struct TodayView: View {
         }
     }
 
-    /// Rebuilds every pending journey alert from the times now in the store, so a
-    /// delay picked up by a refresh drags its alert along with it. Alerts are local
-    /// to a device, so this also runs when iCloud brings the preferences over from
-    /// another one — including a switch turned off there, which clears them here.
-    private func syncTrainAlerts() {
-        guard let profile = profiles.primary else { return }
-        let settings = profile.resolvedNotificationSettings
+    /// Rebuilds everything the journeys have promised elsewhere on the device: the
+    /// pending alerts, and the Live Activities on the Lock Screen. Both are rebuilt
+    /// from the times now in the store, so a delay picked up by a refresh drags them
+    /// both along with it.
+    ///
+    /// They go together on purpose. The alert is the fallback for a device where
+    /// Live Activities are off or were refused, so the two must never be scheduled
+    /// from different readings of the same journey.
+    ///
+    /// Alerts are local to a device, so this also runs when iCloud brings the
+    /// preferences over from another one — including a switch turned off there,
+    /// which clears them here.
+    private func syncJourneyState() {
         let currentTrains = trains
         let currentStops = stops
         let currentPasses = passes
+        let currentSeats = seats
+        let settings = profiles.primary?.resolvedNotificationSettings
+
         Task {
-            await NotificationManager.shared.syncAlerts(
+            if let settings {
+                await NotificationManager.shared.syncAlerts(
+                    trains: currentTrains,
+                    stops: currentStops,
+                    passes: currentPasses,
+                    settings: settings
+                )
+            }
+
+            await TrainActivityManager.shared.sync(
                 trains: currentTrains,
                 stops: currentStops,
-                passes: currentPasses,
-                settings: settings
+                seats: currentSeats
             )
         }
     }
@@ -176,9 +204,13 @@ struct TodayView: View {
     private func deleteTodayTrains(at offsets: IndexSet) {
         let items = offsets.map { filteredRowItems[$0] }
         for item in items {
+            let trainID = item.train.id
             Task {
                 await CalendarManager.shared.removeTrainEvent(train: item.train)
             }
+            // Ended by id rather than left to the rebuild below: by then the train
+            // is out of the store and there is nothing left to match it against.
+            Task { await TrainActivityManager.shared.end(tripID: trainID) }
 
             let relatedStops = stops.filter { $0.id == item.train.id }
             relatedStops.forEach { modelContext.delete($0) }
@@ -299,7 +331,7 @@ struct TodayView: View {
         if didChange {
             try? modelContext.save()
             refreshRowItems()
-            syncTrainAlerts()
+            syncJourneyState()
         }
 
         if isManual {

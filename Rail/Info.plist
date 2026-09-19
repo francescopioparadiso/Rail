@@ -39,6 +39,8 @@
 	<string>Rail needs full access to your calendar to add and manage train journey events.</string>
 	<key>NSCalendarsUsageDescription</key>
 	<string>Rail needs access to your calendar to add train journeys as events.</string>
+	<key>NSSupportsLiveActivities</key>
+	<true/>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>remote-notification</string>

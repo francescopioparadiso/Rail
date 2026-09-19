@@ -14,6 +14,7 @@ struct RailApp: App {
     init() {
         StationLookup.warmUp()
         NotificationManager.shared.registerDelegate()
+        TrainActivityManager.shared.observeEnablement()
     }
 
     var body: some Scene {
