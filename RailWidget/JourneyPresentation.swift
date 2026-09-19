@@ -79,20 +79,18 @@ struct TrainLogo: View {
     let logo: String
     var height: CGFloat = 24
 
-    /// Trenitalia prints categories the app has no badge for, and a Live Activity
-    /// that asked for one of them drew an empty grey box. The station board has
-    /// always fallen back to the acronym itself; so does this.
-    private var hasImage: Bool {
-        !logo.isEmpty && UIImage(named: logo) != nil
-    }
-
     var body: some View {
-        if hasImage {
-            Image(logo)
+        // Looked up and drawn as one thing. Checking with `UIImage(named:)` and then
+        // drawing with `Image(_:)` is two separate lookups, and when they disagreed
+        // the result was an empty frame with the fallback never reached.
+        if let image = UIImage(named: logo) {
+            Image(uiImage: image)
                 .resizable()
                 .scaledToFit()
                 .frame(height: height)
         } else if !logo.isEmpty {
+            // Trenitalia prints categories the app has no badge for. The station
+            // board has always fallen back to the acronym itself; so does this.
             Text(logo)
                 .font(.caption).fontWeight(.bold)
                 .fontDesign(journeyFontDesign)
@@ -192,7 +190,7 @@ struct PlatformCapsule: View {
     /// pair of arrows the details view and the station board use.
     var isDeparture: Bool = true
 
-    var compact: Bool = false
+    var size: JourneyChipSize = .regular
 
     /// A platform the feed has not filled in arrives as "-" or as nothing at all.
     static func isMissing(_ platform: String) -> Bool {
@@ -206,32 +204,66 @@ struct PlatformCapsule: View {
                 Image(systemName: isDeparture ? "arrow.up.right" : "arrow.down.right")
                 Text(platform)
             }
-            .font(compact ? .caption : .subheadline)
+            .font(size.font)
             .fontWeight(.medium)
             .fontDesign(journeyFontDesign)
-            .padding(.vertical, compact ? 4 : 8)
-            .padding(.horizontal, compact ? 8 : 12)
+            .padding(.vertical, size.verticalPadding)
+            .padding(.horizontal, size.horizontalPadding)
             .background(JourneyPalette.platformBackground)
             .cornerRadius(JourneyPalette.capsuleRadius)
         }
     }
 }
 
-/// A chip carrying a seat, a delay, or whatever else a journey has to say in a word.
+/// How large a chip is drawn.
+enum JourneyChipSize {
+    /// The Dynamic Island's compact slots, where a glance is all there is room for.
+    case compact
+    /// The Lock Screen.
+    case regular
+    /// The expanded island, which has the room to make the two things that matter big.
+    case prominent
+
+    var font: Font {
+        switch self {
+        case .compact: .caption
+        case .regular: .subheadline
+        case .prominent: .title3
+        }
+    }
+
+    var verticalPadding: CGFloat {
+        switch self {
+        case .compact: 4
+        case .regular: 8
+        case .prominent: 10
+        }
+    }
+
+    var horizontalPadding: CGFloat {
+        switch self {
+        case .compact: 8
+        case .regular: 12
+        case .prominent: 16
+        }
+    }
+}
+
+/// A chip carrying a seat, a countdown, or whatever else a journey has to say in a word.
 struct JourneyCapsule<Content: View>: View {
     var background: Color = JourneyPalette.neutralBackground
     var foreground: Color = .primary
     var fillsWidth: Bool = false
-    var compact: Bool = false
+    var size: JourneyChipSize = .regular
     @ViewBuilder var content: Content
 
     var body: some View {
         content
-            .font(compact ? .caption : .subheadline)
+            .font(size.font)
             .fontDesign(journeyFontDesign)
             .foregroundStyle(foreground)
-            .padding(.vertical, compact ? 4 : 8)
-            .padding(.horizontal, compact ? 8 : 12)
+            .padding(.vertical, size.verticalPadding)
+            .padding(.horizontal, size.horizontalPadding)
             .frame(maxWidth: fillsWidth ? .infinity : nil)
             .background(background)
             .cornerRadius(JourneyPalette.capsuleRadius)
@@ -241,11 +273,11 @@ struct JourneyCapsule<Content: View>: View {
 /// The first passenger's coach and seat, absent when nobody has entered one.
 struct SeatCapsule: View {
     let label: String
-    var compact: Bool = false
+    var size: JourneyChipSize = .regular
 
     var body: some View {
         if !label.trimmingCharacters(in: .whitespaces).isEmpty {
-            JourneyCapsule(compact: compact) {
+            JourneyCapsule(size: size) {
                 HStack(spacing: 4) {
                     Image(systemName: "carseat.left.fill")
                     Text(label)
