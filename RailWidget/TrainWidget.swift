@@ -163,10 +163,7 @@ struct TrainWidgetEntryView: View {
                 VStack(spacing: 8) {
                     // MARK: - logo + number
                     HStack(alignment: .center, spacing: 8) {
-                        Image(data.logo)
-                            .resizable()
-                            .scaledToFit()
-                            .frame(height: 24)
+                        TrainLogo(logo: data.logo)
                         
                         Text(data.number)
                             .font(.title3).fontWeight(.semibold).fontDesign(widgetFontDesign)
@@ -181,29 +178,27 @@ struct TrainWidgetEntryView: View {
                     
                     // MARK: - departure and arrival stops
                     VStack(alignment: .leading, spacing: 4) {
-                        HStack {
-                            Text(data.firstStopName)
-                                .fontDesign(widgetFontDesign)
-                                .foregroundStyle(Color.primary)
-                                .lineLimit(1)
-                                .truncationMode(.tail)
-                            
-                            Spacer()
-                            
-                            timeView(eff: data.firstStopDepTimeEff, id: data.firstStopDepTimeId, delay: data.firstStopDepDelay, isCancelled: data.isCancelled)
-                        }
-                        
-                        HStack {
-                            Text(data.lastStopName)
-                                .fontDesign(widgetFontDesign)
-                                .foregroundStyle(Color.primary)
-                                .lineLimit(1)
-                                .truncationMode(.tail)
-                            
-                            Spacer()
-                            
-                            timeView(eff: data.lastStopArrTimeEff, id: data.lastStopArrTimeId, delay: data.lastStopArrDelay, isCancelled: data.isCancelled, isArrival: true, firstDepId: data.firstStopDepTimeId)
-                        }
+                        StationRow(
+                            name: data.firstStopName,
+                            time: StopTime(
+                                effective: data.firstStopDepTimeEff,
+                                scheduled: data.firstStopDepTimeId,
+                                delay: data.firstStopDepDelay,
+                                isCancelled: data.isCancelled
+                            )
+                        )
+
+                        StationRow(
+                            name: data.lastStopName,
+                            time: StopTime(
+                                effective: data.lastStopArrTimeEff,
+                                scheduled: data.lastStopArrTimeId,
+                                delay: data.lastStopArrDelay,
+                                isCancelled: data.isCancelled,
+                                isArrival: true,
+                                firstDeparture: data.firstStopDepTimeId
+                            )
+                        )
                     }
                     .font(.subheadline)
                     .padding(.horizontal, 4)
@@ -224,29 +219,6 @@ struct TrainWidgetEntryView: View {
     }
 
     // MARK: - Subviews
-
-    @ViewBuilder
-    private func timeView(eff: Date, id: Date, delay: Int, isCancelled: Bool, isArrival: Bool = false, firstDepId: Date = .distantPast) -> some View {
-        let now = Date()
-        let color: Color = {
-            if isCancelled { return .red }
-            if now >= (isArrival ? firstDepId : id) && delay != 0 {
-                return delay > 0 ? .red : .green
-            }
-            if isArrival && now >= firstDepId && delay == 0 {
-                return .green
-            }
-            if !isArrival && now >= id && delay == 0 {
-                return .green
-            }
-            return .primary
-        }()
-        
-        Text((isCancelled || (now >= (isArrival ? firstDepId : id) && delay != 0)) ? eff : id, format: .dateTime.hour().minute())
-            .fontDesign(widgetFontDesign)
-            .foregroundStyle(color)
-            .monospacedDigit()
-    }
 
     @ViewBuilder
     private func bottomBar(data: TrainWidgetData) -> some View {
@@ -293,18 +265,7 @@ struct TrainWidgetEntryView: View {
                 .background(Color.gray.opacity(0.15))
                 .cornerRadius(16)
                 
-                if data.firstStopPlatform != "-" {
-                    HStack(spacing: 4) {
-                        Image(systemName: "arrow.up.right")
-                        Text(data.firstStopPlatform)
-                    }
-                    .font(.subheadline)
-                    .fontWeight(.medium)
-                    .fontDesign(widgetFontDesign)
-                    .padding(.vertical, 8).padding(.horizontal, 12)
-                    .background(Color.yellow.opacity(0.5))
-                    .cornerRadius(16)
-                }
+                PlatformCapsule(platform: data.firstStopPlatform, isDeparture: true)
             }
         } else {
             HStack(spacing: 8) {
@@ -336,18 +297,7 @@ struct TrainWidgetEntryView: View {
                 .background(data.delay > 0 ? Color.red.opacity(0.15) : Color.green.opacity(0.15))
                 .cornerRadius(16)
                 
-                if data.lastStopPlatform != "-" {
-                    HStack(spacing: 4) {
-                        Image(systemName: "arrow.down.right")
-                        Text(data.lastStopPlatform)
-                    }
-                    .font(.subheadline)
-                    .fontWeight(.medium)
-                    .fontDesign(widgetFontDesign)
-                    .padding(.vertical, 8).padding(.horizontal, 12)
-                    .background(Color.yellow.opacity(0.5))
-                    .cornerRadius(16)
-                }
+                PlatformCapsule(platform: data.lastStopPlatform, isDeparture: false)
             }
         }
     }

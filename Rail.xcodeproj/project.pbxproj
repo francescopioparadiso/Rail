@@ -76,6 +76,7 @@
 		2C68D1ED2F2612C3002C0EAA /* Exceptions for "RailWidget" folder in "Rail" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
+				JourneyPresentation.swift,
 				SharedSwiftData.swift,
 			);
 			target = 2C0E47A22ED8D7330024EF08 /* Rail */;
