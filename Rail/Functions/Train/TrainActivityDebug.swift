@@ -24,7 +24,8 @@ enum TrainActivityDebug {
         }
 
         let now = Date()
-        let boarding = now.addingTimeInterval(delay + TrainActivitySchedule.lead)
+        // A stop far enough out that the countdown has something to count.
+        let boarding = now.addingTimeInterval(max(delay, 0) + TrainActivitySchedule.lead)
 
         let journey = TrainJourney(
             logo: "FR",
@@ -52,24 +53,60 @@ enum TrainActivityDebug {
             seatID: testSeatID
         )
 
+        let content = ActivityContent(state: state, staleDate: state.targetDate)
+
         do {
-            let activity = try Activity.request(
-                attributes: attributes,
-                content: ActivityContent(state: state, staleDate: state.targetDate),
-                pushType: nil,
-                style: .standard,
-                alertConfiguration: AlertConfiguration(
-                    title: "FR 9612",
-                    body: "Your train is coming up.",
-                    sound: .default
-                ),
-                start: now.addingTimeInterval(delay)
-            )
-            logger.info("Test live journey scheduled, id \(activity.id, privacy: .public)")
-            return "Scheduled. Close Rail — it should appear in about \(Int(delay)) seconds."
+            let activity: Activity<TrainActivityAttributes>
+            if delay > 0 {
+                activity = try Activity.request(
+                    attributes: attributes,
+                    content: content,
+                    pushType: nil,
+                    style: .standard,
+                    alertConfiguration: AlertConfiguration(
+                        title: "FR 9612",
+                        body: "Your train is coming up.",
+                        sound: .default
+                    ),
+                    start: now.addingTimeInterval(delay)
+                )
+            } else {
+                // Straight onto the screen, for looking at rather than waiting for.
+                activity = try Activity.request(
+                    attributes: attributes,
+                    content: content,
+                    pushType: nil,
+                    style: .standard
+                )
+            }
+            logger.info("Test live journey started, id \(activity.id, privacy: .public)")
+            return delay > 0
+                ? "Scheduled. Close Rail — it should appear in about \(Int(delay)) seconds."
+                : "Started."
         } catch {
             return "Refused: \(error.localizedDescription)"
         }
+    }
+
+    /// Starts a test journey right now, with no waiting.
+    ///
+    /// Reachable from a launch argument so a simulator run can put a live journey on
+    /// screen without anyone tapping anything — which is the only way to look at what
+    /// the Lock Screen and the island actually draw.
+    @discardableResult
+    static func startTestActivityNow() async -> String {
+        await scheduleTestActivity(in: 0)
+    }
+
+    /// Set by `-rail-preview-activity`: draws the Lock Screen view inside the app,
+    /// where a mistake is visible rather than being a blank rectangle.
+    static var isPreviewRequested: Bool {
+        ProcessInfo.processInfo.arguments.contains("-rail-preview-activity")
+    }
+
+    /// Set by `-rail-test-activity` on the command line. Debug builds only.
+    static var isLaunchTestRequested: Bool {
+        ProcessInfo.processInfo.arguments.contains("-rail-test-activity")
     }
 
     /// Takes down everything, test journeys included.

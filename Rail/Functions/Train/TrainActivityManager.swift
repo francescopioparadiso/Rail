@@ -49,6 +49,16 @@ final class TrainActivityManager {
         /// doubles as its age, which is what the eight-hour wall is measured from.
         let startDate: Date
         let journeyEnd: Date
+        /// What was last handed to it. An unchanged journey is left alone rather
+        /// than pushed again: every update is a fresh render, and a re-render is
+        /// exactly the moment the Lock Screen has nothing to draw.
+        var contentHash: Int?
+
+        func withContentHash(_ hash: Int) -> Record {
+            var copy = self
+            copy.contentHash = hash
+            return copy
+        }
     }
 
     // MARK: - Availability
@@ -149,12 +159,29 @@ final class TrainActivityManager {
                 return
             }
 
-            if await updateActivity(id: record.activityID, content: content) { return }
+            // Nothing has moved, so there is nothing to say. Pushing identical
+            // content would only cost another render.
+            if record.contentHash == state.hashValue {
+                return
+            }
 
-            // Either it is gone or it would not take the update. Rather than guess
-            // which, take it down and ask again.
-            Self.logger.info("Could not update the stored activity; replacing it")
-            await end(tripID: train.id)
+            switch await updateActivity(id: record.activityID, content: content) {
+            case .updated:
+                store(record.withContentHash(state.hashValue))
+                return
+
+            case .notYetStarted:
+                // Scheduled but not running, so there is nothing to update and
+                // certainly nothing to replace — tearing it down here would cancel
+                // the very thing that is meant to appear an hour before boarding,
+                // and do it again on every refresh.
+                Self.logger.info("Live journey is still pending; leaving it be")
+                return
+
+            case .gone:
+                Self.logger.info("Live journey has gone; asking for a new one")
+                forget(tripID: train.id)
+            }
         }
 
         let boarding = state.departure.effective
@@ -169,6 +196,15 @@ final class TrainActivityManager {
         }
     }
 
+    /// What came of trying to bring a live journey up to date.
+    private enum UpdateOutcome {
+        case updated
+        /// Scheduled, but the system has not started it. Leave it alone.
+        case notYetStarted
+        /// Ended or dismissed; a new one is needed.
+        case gone
+    }
+
     // MARK: - ActivityKit
 
     /// The one place that touches a stored activity id.
@@ -179,16 +215,27 @@ final class TrainActivityManager {
     /// means "assume nothing, start over" — so the feature behaves correctly either
     /// way. Worth confirming on a device; if updates do reach a pending activity,
     /// this simply stops being the path that runs.
-    private func updateActivity(id: String, content: ActivityContent<TrainActivityAttributes.ContentState>) async -> Bool {
+    private func updateActivity(
+        id: String,
+        content: ActivityContent<TrainActivityAttributes.ContentState>
+    ) async -> UpdateOutcome {
         guard let activity = Activity<TrainActivityAttributes>.activities.first(where: { $0.id == id }) else {
-            return false
+            // Whether `activities` lists an activity the system has not started yet
+            // is not something this code is willing to assume, so a miss is read as
+            // "not started" rather than "gone". Getting that the wrong way round is
+            // expensive: it would replace the activity on every single refresh, and
+            // each replacement is a fresh, blank render.
+            return .notYetStarted
         }
+
         switch activity.activityState {
         case .ended, .dismissed:
-            return false
+            return .gone
+        case .pending:
+            return .notYetStarted
         default:
             await activity.update(content)
-            return true
+            return .updated
         }
     }
 
@@ -226,7 +273,8 @@ final class TrainActivityManager {
                     tripID: tripID,
                     activityID: activity.id,
                     startDate: start ?? now,
-                    journeyEnd: state.journeyEnd
+                    journeyEnd: state.journeyEnd,
+                    contentHash: state.hashValue
                 )
             )
             Self.logger.info("Live journey \(start == nil ? "started" : "scheduled", privacy: .public) for train \(attributes.number, privacy: .public)")
