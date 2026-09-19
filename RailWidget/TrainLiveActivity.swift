@@ -5,60 +5,25 @@ import WidgetKit
 
 // MARK: - Countdown
 
-/// Turns `TimeDataSource.durationOffset(to:)` the right way round.
-///
-/// That source measures from the target *to now*, so a stop ten minutes off arrives
-/// as a duration of -10m and the Lock Screen read "-10m". There is no `from:`
-/// counterpart in the framework, so the value is negated on the way through.
-///
-/// `Text(_:format:)` takes a `DiscreteFormatStyle` rather than any old format style
-/// because that is how SwiftUI learns when the text will next change and books a
-/// redraw for exactly then — which is what keeps the countdown ticking with the app
-/// closed. So those two questions are forwarded as well, with their direction
-/// swapped along with the value: as the offset grows, the time remaining shrinks.
-/// `input(before:)` and `input(after:)` already have defaults for `Duration`.
-struct RemainingTime: DiscreteFormatStyle {
-    private let base: Duration.UnitsFormatStyle
-
-    init(_ base: Duration.UnitsFormatStyle) {
-        self.base = base
-    }
-
-    // `Duration` is only `AdditiveArithmetic`, so there is no unary minus to reach for.
-    private func flipped(_ value: Duration) -> Duration { .zero - value }
-
-    func format(_ value: Duration) -> String {
-        base.format(flipped(value))
-    }
-
-    func discreteInput(before input: Duration) -> Duration? {
-        base.discreteInput(after: flipped(input)).map(flipped)
-    }
-
-    func discreteInput(after input: Duration) -> Duration? {
-        base.discreteInput(before: flipped(input)).map(flipped)
-    }
-
-    /// Forwarded rather than left to the protocol's default, which would return the
-    /// wrapper untouched and quietly strip the locale off the units underneath.
-    func locale(_ locale: Locale) -> RemainingTime {
-        RemainingTime(base.locale(locale))
-    }
-}
-
 /// The time left to the stop the journey is aimed at.
 ///
 /// It has to keep running with Rail closed, so it is never a string this app
-/// computes: the system is handed the date and ticks it down itself. When the target
-/// arrives the activity goes stale — a flip the system also makes on its own — and
-/// the countdown becomes "Now".
+/// computes: the system is handed the dates and ticks them down itself. When the
+/// target arrives the activity goes stale — a flip the system also makes on its own
+/// — and the countdown becomes "Now".
+///
+/// The format style has to be one of Foundation's own. A Live Activity's view is
+/// archived and redrawn outside this extension, and a `FormatStyle` defined here
+/// cannot be revived in the process doing the drawing — the whole presentation comes
+/// back redacted. That is also why the remaining time is expressed as a *range*
+/// ending at the target rather than as an offset: `durationOffset(to:)` measures the
+/// other way about and reads "-10m", and correcting it would have meant a format
+/// style of our own, which is the very thing that cannot cross the boundary.
 struct CountdownText: View {
 
     /// How much of the remaining time is spelled out.
     enum Detail {
-        /// Two units: "1h 25m" over an hour, "10m 50s" under it. Allowing seconds is
-        /// what makes the two-unit rule fall out on its own — the largest two units
-        /// that are not zero are exactly the pair we want at either range.
+        /// Two units: "1h 25m" over an hour, "10m 50s" under it.
         case full
         /// One unit: "1h", "50m". For the island, where there is room for a glance
         /// and nothing more.
@@ -69,37 +34,34 @@ struct CountdownText: View {
     let isStale: Bool
     var detail: Detail = .full
 
+    /// Which units to spell out.
+    ///
+    /// `ComponentsFormatStyle` has no "at most two units" setting, so the pair is
+    /// chosen here from how far off the target is. It is decided when the content
+    /// changes, not on every tick, because the style is fixed once the system takes
+    /// the view away to redraw on its own: a journey that crosses the hour with Rail
+    /// closed simply keeps counting in minutes until the app next runs, which is the
+    /// same limitation the target itself has.
+    private var fields: Set<Date.ComponentsFormatStyle.Field> {
+        let remaining = target.timeIntervalSinceNow
+        switch detail {
+        case .full:
+            return remaining >= 3600 ? [.hour, .minute] : [.minute, .second]
+        case .single:
+            if remaining >= 3600 { return [.hour] }
+            return remaining >= 60 ? [.minute] : [.second]
+        }
+    }
+
     var body: some View {
         Group {
             if isStale {
                 Text("Now")
             } else {
-                switch detail {
-                case .full:
-                    Text(
-                        TimeDataSource<Duration>.durationOffset(to: target),
-                        format: RemainingTime(
-                            .units(
-                                allowed: [.hours, .minutes, .seconds],
-                                width: .narrow,
-                                maximumUnitCount: 2,
-                                fractionalPart: .hide(rounded: .down)
-                            )
-                        )
-                    )
-                case .single:
-                    Text(
-                        TimeDataSource<Duration>.durationOffset(to: target),
-                        format: RemainingTime(
-                            .units(
-                                allowed: [.hours, .minutes],
-                                width: .narrow,
-                                maximumUnitCount: 1,
-                                fractionalPart: .hide(rounded: .down)
-                            )
-                        )
-                    )
-                }
+                Text(
+                    TimeDataSource<Range<Date>>.dateRange(endingAt: target),
+                    format: Date.ComponentsFormatStyle(style: .narrow, fields: fields)
+                )
             }
         }
         .fontDesign(journeyFontDesign)
