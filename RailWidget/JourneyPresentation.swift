@@ -80,23 +80,26 @@ struct TrainLogo: View {
     var height: CGFloat = 24
 
     var body: some View {
-        // Looked up and drawn as one thing. Checking with `UIImage(named:)` and then
-        // drawing with `Image(_:)` is two separate lookups, and when they disagreed
-        // the result was an empty frame with the fallback never reached.
-        if let image = UIImage(named: logo) {
-            Image(uiImage: image)
-                .resizable()
-                .scaledToFit()
-                .frame(height: height)
-        } else if !logo.isEmpty {
-            // Trenitalia prints categories the app has no badge for. The station
-            // board has always fallen back to the acronym itself; so does this.
-            Text(logo)
-                .font(.caption).fontWeight(.bold)
-                .fontDesign(journeyFontDesign)
-                .foregroundStyle(.secondary)
-                .padding(.horizontal, 6).padding(.vertical, 2)
-                .background(Color(.tertiarySystemFill), in: RoundedRectangle(cornerRadius: 6))
+        if !logo.isEmpty {
+            if UIImage(named: logo) != nil {
+                // Referenced by name, never as an image. A Live Activity's view is
+                // archived to be redrawn elsewhere, and `Image(uiImage:)` puts the
+                // decoded bitmap in that archive rather than a name to look up —
+                // enough to stop the whole activity drawing at all.
+                Image(logo)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(height: height)
+            } else {
+                // Trenitalia prints categories the app has no badge for. The station
+                // board has always fallen back to the acronym itself; so does this.
+                Text(logo)
+                    .font(.caption).fontWeight(.bold)
+                    .fontDesign(journeyFontDesign)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 6).padding(.vertical, 2)
+                    .background(Color(.tertiarySystemFill), in: RoundedRectangle(cornerRadius: 6))
+            }
         }
     }
 }

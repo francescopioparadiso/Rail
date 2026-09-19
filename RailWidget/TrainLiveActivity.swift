@@ -215,7 +215,10 @@ struct TrainLiveActivity: Widget {
                 // leg and the train number here only made it cramped, so it keeps the
                 // two things worth looking up for — how long, and which platform —
                 // and draws them large.
-                DynamicIslandExpandedRegion(.center) {
+                // In the bottom region rather than the centre: this is the one
+                // that has drawn reliably here, and the centre competes with the
+                // leading and trailing slots even when they are empty.
+                DynamicIslandExpandedRegion(.bottom) {
                     HStack(spacing: 10) {
                         TargetCapsule(
                             name: context.state.targetName,
@@ -231,7 +234,7 @@ struct TrainLiveActivity: Widget {
                         )
                     }
                     .padding(.horizontal, JourneyMetrics.islandHorizontal)
-                    .padding(.top, 4)
+                    .padding(.vertical, 4)
                 }
             } compactLeading: {
                 PlatformCapsule(
