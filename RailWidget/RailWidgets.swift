@@ -3,17 +3,54 @@ import SwiftUI
 import SwiftData
 import os
 
-// MARK: - simple entry
-struct SimpleEntry: TimelineEntry {
+// The home screen widget — the principal pass — and the bundle that registers it
+// alongside the Live Activity, with its previews at the bottom. The Live Activity
+// itself is in `TrainLiveActivity.swift`.
+
+// MARK: - Bundle
+
+@main
+struct RailWidgets: WidgetBundle {
+    var body: some Widget {
+        PassWidget()
+        TrainLiveActivity()
+    }
+}
+
+// MARK: - Shared
+
+/// The rounded face the whole app is set in, shared by every widget and the Live Activity.
+let widgetFontDesign: Font.Design = .rounded
+
+func scaleImage(data: Data?, to maxWidth: CGFloat) -> Data? {
+    guard let data = data, let uiImage = UIImage(data: data) else { return nil }
+    
+    let currentSize = uiImage.size
+    guard currentSize.width > maxWidth else { return data }
+    
+    let scale = maxWidth / currentSize.width
+    let newHeight = currentSize.height * scale
+    let newSize = CGSize(width: maxWidth, height: newHeight)
+    
+    UIGraphicsBeginImageContextWithOptions(newSize, false, 1.0)
+    uiImage.draw(in: CGRect(origin: .zero, size: newSize))
+    let scaledImage = UIGraphicsGetImageFromCurrentImageContext()
+    UIGraphicsEndImageContext()
+    
+    return scaledImage?.pngData()
+}
+
+// MARK: - Pass Entry
+struct PassEntry: TimelineEntry {
     let date: Date
     let passName: String?
     let expiry_date: Date?
     let image: Data?
 }
 
-// MARK: - provider
-struct Provider: TimelineProvider {
-    typealias Entry = SimpleEntry
+// MARK: - Pass Provider
+struct PassProvider: TimelineProvider {
+    typealias Entry = PassEntry
 
     private static let logger = Logger(subsystem: "com.francescoparadis.Rail", category: "PassWidget")
 
@@ -33,8 +70,8 @@ struct Provider: TimelineProvider {
         return (nil, nil, nil)
     }
 
-    func placeholder(in context: Context) -> SimpleEntry {
-        SimpleEntry(
+    func placeholder(in context: Context) -> PassEntry {
+        PassEntry(
             date: Date(),
             passName: "Settimanale",
             expiry_date: Calendar.current.date(byAdding: .day, value: 7, to: Date()),
@@ -42,10 +79,10 @@ struct Provider: TimelineProvider {
         )
     }
 
-    func getSnapshot(in context: Context, completion: @escaping (SimpleEntry) -> ()) {
+    func getSnapshot(in context: Context, completion: @escaping (PassEntry) -> ()) {
         Task {
             let (name, expiry_date, image) = await fetchFirstPass()
-            let entry = SimpleEntry(
+            let entry = PassEntry(
                 date: Date(),
                 passName: name,
                 expiry_date: expiry_date,
@@ -55,10 +92,10 @@ struct Provider: TimelineProvider {
         }
     }
 
-    func getTimeline(in context: Context, completion: @escaping (Timeline<SimpleEntry>) -> ()) {
+    func getTimeline(in context: Context, completion: @escaping (Timeline<PassEntry>) -> ()) {
         Task {
             let (name, expiry_date, image) = await fetchFirstPass()
-            let entry = SimpleEntry(
+            let entry = PassEntry(
                 date: Date(),
                 passName: name,
                 expiry_date: expiry_date,
@@ -70,11 +107,11 @@ struct Provider: TimelineProvider {
     }
 }
 
-// MARK: - widget view
+// MARK: - Pass Widget View
 struct PassWidgetEntryView : View {
     // MARK: - Properties
 
-    var entry: Provider.Entry
+    var entry: PassProvider.Entry
 
     // MARK: - Body
 
@@ -188,12 +225,12 @@ struct PassWidgetEntryView : View {
     }
 }
 
-// MARK: - widget
+// MARK: - Pass Widget Definition
 struct PassWidget: Widget {
     let kind: String = "PassWidget"
 
     var body: some WidgetConfiguration {
-        StaticConfiguration(kind: kind, provider: Provider()) { entry in
+        StaticConfiguration(kind: kind, provider: PassProvider()) { entry in
             PassWidgetEntryView(entry: entry)
         }
         .configurationDisplayName("Pass Widget")
@@ -202,17 +239,18 @@ struct PassWidget: Widget {
     }
 }
 
-// MARK: - previews
-#Preview("Medium", as: .systemMedium) {
+// MARK: - Previews
+
+#Preview("Pass", as: .systemMedium) {
     PassWidget()
 } timeline: {
-    SimpleEntry(
+    PassEntry(
         date: .now,
         passName: "Mensile",
         expiry_date: Calendar.current.date(byAdding: .day, value: 30, to: Date()) ?? .now,
         image: scaleImage(data: UIImage(named: "sample_code")?.pngData(), to: 400)
     )
-    SimpleEntry(
+    PassEntry(
         date: .now,
         passName: "Settimanale",
         expiry_date: Calendar.current.date(byAdding: .day, value: -1, to: Date()) ?? .now,
@@ -220,10 +258,10 @@ struct PassWidget: Widget {
     )
 }
 
-#Preview("Unavailable", as: .systemMedium) {
+#Preview("Pass · none", as: .systemMedium) {
     PassWidget()
 } timeline: {
-    SimpleEntry(
+    PassEntry(
         date: .now,
         passName: nil,
         expiry_date: nil,

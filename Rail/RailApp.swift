@@ -19,15 +19,7 @@ struct RailApp: App {
 
     var body: some Scene {
         WindowGroup {
-            #if DEBUG
-            if TrainActivityDebug.isPreviewRequested {
-                TrainActivityDebugScreen()
-            } else {
-                mainScene
-            }
-            #else
             mainScene
-            #endif
         }
         .modelContainer(sharedModelContainer)
     }

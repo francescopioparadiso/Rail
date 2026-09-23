@@ -37,31 +37,40 @@ extension TrainJourney {
 extension TrainActivityAttributes {
     /// The unchanging half of a live journey: what it is, and what a tap on it opens.
     @MainActor
-    init(train: Train, stops: [Stop], seats: [Seat]) {
+    init(train: Train, stops: [Stop]) {
         let chosen = stops.filter(\.is_selected).sorted { $0.ref_time < $1.ref_time }
-
-        // Whoever is listed first, matching the ticket widget's idea of "the" seat.
-        // A journey with several passengers shows one; the rest are a tap away.
-        let seat = seats.first
-
-        let label: String = {
-            guard let seat else { return "" }
-            let carriage = seat.carriage.trimmingCharacters(in: .whitespaces)
-            let number = seat.number.trimmingCharacters(in: .whitespaces)
-            guard !carriage.isEmpty || !number.isEmpty else { return "" }
-            guard !carriage.isEmpty else { return number }
-            guard !number.isEmpty else { return carriage }
-            return "\(carriage) · \(number)"
-        }()
 
         self.init(
             logo: train.logo,
             number: train.number,
             departureName: chosen.first?.name ?? "",
             arrivalName: chosen.last?.name ?? "",
-            seatLabel: label,
-            trainID: train.id,
-            seatID: seat?.id
+            trainID: train.id
         )
+    }
+}
+
+extension TrainActivityAttributes.ContentState.Ticket {
+    /// The seat a live journey shows, if there is one worth showing.
+    ///
+    /// Whoever is listed first among the passengers who have a coach or a seat is the
+    /// one shown; a journey with several passengers shows one, and the rest are a
+    /// tap away.
+    ///
+    /// The QR code is not asked for. The form saves a seat with or without one, and
+    /// requiring it meant a passenger who had been entered never appeared. The tap
+    /// opens the ticket either way.
+    @MainActor
+    init?(seats: [Seat]) {
+        for seat in seats {
+            let carriage = seat.carriage.trimmingCharacters(in: .whitespaces)
+            let number = seat.number.trimmingCharacters(in: .whitespaces)
+            let label = [carriage, number].filter { !$0.isEmpty }.joined(separator: " – ")
+            guard !label.isEmpty else { continue }
+
+            self.init(label: label, seatID: seat.id)
+            return
+        }
+        return nil
     }
 }

@@ -13,6 +13,67 @@ struct TrainActivityStateTests {
     private typealias Leg = TrainActivitySample.Leg
     private let now = TrainActivitySample.reference
 
+    // MARK: - The stop after
+
+    @Test("Boarding is followed by the next stop on the leg")
+    func followingBoarding() throws {
+        let state = try #require(TrainActivityState.resolve(TrainActivitySample.notDeparted, now: now))
+        let next = try #require(state.following)
+
+        #expect(next.name == "Milano Centrale")
+        #expect(next.role == .intermediate)
+        #expect(next.date > state.targetDate)
+    }
+
+    @Test("A stop between the ends is followed by the end of the journey")
+    func followingIntermediate() throws {
+        let state = try #require(TrainActivityState.resolve(TrainActivitySample.enRoute, now: now))
+        let next = try #require(state.following)
+
+        #expect(next.name == "Roma Termini")
+        #expect(next.role == .arrival)
+    }
+
+    @Test("The end of the journey is followed by nothing")
+    func nothingAfterTheEnd() throws {
+        let state = try #require(TrainActivityState.resolve(TrainActivitySample.nextIsArrival, now: now))
+
+        #expect(state.targetRole == .arrival)
+        #expect(state.following == nil)
+    }
+
+    @Test("Once stale, the following stop takes the target's place and the activity is live again")
+    func advancesWhenStale() throws {
+        let state = try #require(TrainActivityState.resolve(TrainActivitySample.enRoute, now: now))
+        let next = try #require(state.following)
+
+        let drawn = state.advanced(ifStale: true)
+
+        #expect(drawn.state.targetName == next.name)
+        #expect(drawn.state.targetDate == next.date)
+        #expect(drawn.state.platform == next.platform)
+        #expect(drawn.state.isBoardingPlatform == false)
+        #expect(drawn.isStale == false)
+    }
+
+    @Test("While it is not stale, nothing moves")
+    func staysWhenLive() throws {
+        let state = try #require(TrainActivityState.resolve(TrainActivitySample.enRoute, now: now))
+        let drawn = state.advanced(ifStale: false)
+
+        #expect(drawn.state == state)
+        #expect(drawn.isStale == false)
+    }
+
+    @Test("With nothing after the target, stale stays stale and reads Now")
+    func staleAtTheEnd() throws {
+        let state = try #require(TrainActivityState.resolve(TrainActivitySample.arrivingNow, now: now))
+        let drawn = state.advanced(ifStale: true)
+
+        #expect(drawn.state == state)
+        #expect(drawn.isStale)
+    }
+
     // MARK: - Rows and target
 
     @Test("Before the train has left its origin there are two rows, aimed at boarding")

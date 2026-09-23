@@ -124,6 +124,9 @@ struct TodayView: View {
         }
         .onChange(of: stops.count) { _, _ in scheduleRefreshRowItems() }
         .onChange(of: passes.count) { _, _ in syncJourneyState() }
+        // A passenger's seat is drawn on the Lock Screen, so adding one, removing one
+        // and correcting one all have to reach it. The count alone missed the last.
+        .onChange(of: seatSignature) { _, _ in syncJourneyState() }
         .onChange(of: profiles.primary?.notificationSettings) { _, _ in syncJourneyState() }
         .task(id: isActive) {
             guard isActive else { return }
@@ -135,6 +138,10 @@ struct TodayView: View {
                 try? await Task.sleep(nanoseconds: 30_000_000_000)
                 if Task.isCancelled { break }
                 await updateTodayTrains()
+                // A leg finishing is what hands the Lock Screen to whichever train
+                // is next, and that only happens here: nothing else touches the
+                // Live Activities while the app just sits open on this list.
+                syncJourneyState()
             }
         }
         .task(id: isActive) {
@@ -156,6 +163,12 @@ struct TodayView: View {
             guard !Task.isCancelled else { return }
             refreshRowItems()
         }
+    }
+
+    /// What the Lock Screen shows of the seats, cheap to compare. The QR images are
+    /// left out on purpose: reading them would load every one on each pass.
+    private var seatSignature: [String] {
+        seats.map { "\($0.id)|\($0.trainID)|\($0.carriage)|\($0.number)" }
     }
 
     /// Rebuilds everything the journeys have promised elsewhere on the device: the

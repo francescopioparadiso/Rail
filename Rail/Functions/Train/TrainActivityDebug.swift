@@ -24,8 +24,12 @@ enum TrainActivityDebug {
         }
 
         let now = Date()
-        // A stop far enough out that the countdown has something to count.
-        let boarding = now.addingTimeInterval(max(delay, 0) + TrainActivitySchedule.lead)
+        // A stop far enough out that the countdown has something to count. Overridden
+        // with `-rail-test-boarding-minutes N`, to see how it reads at other distances.
+        let overrideMinutes = UserDefaults.standard.integer(forKey: "rail-test-boarding-minutes")
+        let boarding = overrideMinutes > 0
+            ? now.addingTimeInterval(TimeInterval(overrideMinutes * 60))
+            : now.addingTimeInterval(max(delay, 0) + TrainActivitySchedule.lead)
 
         let journey = TrainJourney(
             logo: "FR",
@@ -39,18 +43,17 @@ enum TrainActivityDebug {
             ]
         )
 
-        guard let state = TrainActivityState.resolve(journey, now: now) else {
+        guard var state = TrainActivityState.resolve(journey, now: now) else {
             return "Could not build a state for the test journey."
         }
+        state.ticket = .init(label: "4 – 12A", seatID: testSeatID)
 
         let attributes = TrainActivityAttributes(
             logo: journey.logo,
             number: journey.number,
             departureName: "Torino Porta Nuova",
             arrivalName: "Roma Termini",
-            seatLabel: "4 · 12A",
-            trainID: testTrainID,
-            seatID: testSeatID
+            trainID: testTrainID
         )
 
         let content = ActivityContent(state: state, staleDate: state.targetDate)
@@ -96,12 +99,6 @@ enum TrainActivityDebug {
     @discardableResult
     static func startTestActivityNow() async -> String {
         await scheduleTestActivity(in: 0)
-    }
-
-    /// Set by `-rail-preview-activity`: draws the Lock Screen view inside the app,
-    /// where a mistake is visible rather than being a blank rectangle.
-    static var isPreviewRequested: Bool {
-        ProcessInfo.processInfo.arguments.contains("-rail-preview-activity")
     }
 
     /// Set by `-rail-test-activity` on the command line. Debug builds only.

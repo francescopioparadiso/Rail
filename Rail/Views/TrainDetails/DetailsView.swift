@@ -10,6 +10,14 @@ extension String: @retroactive Identifiable {
     public var id: String { self }
 }
 
+/// A stop's name, tapped to open its own timetable — carried along with the moment
+/// the stop itself is due, so that board reads as of the stop rather than of now.
+struct StopBoardRequest: Identifiable {
+    let name: String
+    let referenceDate: Date
+    var id: String { name }
+}
+
 struct DetailsView: View {
     // MARK: - Properties
 
@@ -23,6 +31,10 @@ struct DetailsView: View {
     @Query private var seats: [Seat]
     @Binding var showTicketInitially: Bool
     @Binding var ticketSeatID: UUID?
+    /// Set by a tap on the Live Activity, and only there — see
+    /// `TrainActivityLinks.liveActivitySource`. Triggers the one-second delayed
+    /// scroll to the next station once the view appears.
+    @Binding var scrollToNextStation: Bool
 
     /// True for a journey opened from a station board, which is not in the app at
     /// all: it is shown read-only, with nothing on it that only a saved train can
@@ -36,13 +48,14 @@ struct DetailsView: View {
     @State private var routeDistanceKm: Int?
     @State private var isFavorite: Bool = false
     @State private var isRefreshing = false
-    @State private var boardStation: String?
+    @State private var boardStation: StopBoardRequest?
     @State private var stopSummary: StopSummary
 
     init(
         train: Train,
         showTicketInitially: Binding<Bool>,
         ticketSeatID: Binding<UUID?>,
+        scrollToNextStation: Binding<Bool> = .constant(false),
         isPreview: Bool = false
     ) {
         self.train = train
@@ -57,6 +70,7 @@ struct DetailsView: View {
         )
         self._showTicketInitially = showTicketInitially
         self._ticketSeatID = ticketSeatID
+        self._scrollToNextStation = scrollToNextStation
         self._stopSummary = State(initialValue: StopSummary.calculate(in: []))
     }
 
@@ -158,6 +172,7 @@ struct DetailsView: View {
     // MARK: - Body
 
     var body: some View {
+        ScrollViewReader { proxy in
         ScrollView(.vertical, showsIndicators: false) {
             // train logo and number
             HStack(spacing: 4) {
@@ -506,8 +521,8 @@ struct DetailsView: View {
             }
         }
         .applyingIf(!isPreview) { $0.searchable(text: $searchText, prompt: "Search stops") }
-        .sheet(item: $boardStation) { name in
-            StationBoardView(initialStation: name)
+        .sheet(item: $boardStation) { request in
+            StationBoardView(initialStation: request.name, referenceDate: request.referenceDate)
         }
         .sheet(isPresented: $seatsSheet) {
             SeatsView(train: train, seats: seats, initialSeatID: pendingSeatID)
@@ -537,6 +552,10 @@ struct DetailsView: View {
             // journey is already as new as the network can make it.
             guard !isPreview else { return }
             await updateTrainDetails()
+            // The periodic sync on the Today list only ever reaches the two soonest
+            // departures; opening a journey's own details is reason enough for its
+            // Live Activity to exist regardless, so it is asked for here too.
+            await TrainActivityManager.shared.startForOpenedDetails(train: train, stops: stops, seats: seats)
         }
         .task(id: train.id) {
             // The stop list keeps moving while the screen is open. Ask the API first
@@ -567,6 +586,20 @@ struct DetailsView: View {
                 showTicketInitially = false
                 ticketSeatID = nil
             }
+        }
+        .task(id: scrollToNextStation) {
+            guard scrollToNextStation else { return }
+            defer { scrollToNextStation = false }
+            // A journey that has not left yet always opens on its first station;
+            // only one already under way jumps ahead to what is next.
+            guard Date() >= firstStop.dep_time_id else { return }
+            try? await Task.sleep(for: .seconds(1))
+            guard !Task.isCancelled else { return }
+            guard let index = filteredStops.firstIndex(where: { !$0.is_completed }) else { return }
+            withAnimation {
+                proxy.scrollTo(index, anchor: .top)
+            }
+        }
         }
     }
 
@@ -845,7 +878,10 @@ struct DetailsView: View {
                                 .contentShape(Rectangle())
                                 .onTapGesture {
                                     HapticFeedback.tap()
-                                    boardStation = stop.name
+                                    // The first stop has nothing to arrive from, so its
+                                    // own board reads as of its departure instead.
+                                    let referenceDate = routeIndex == firstIndex ? stop.dep_time_eff : stop.arr_time_eff
+                                    boardStation = StopBoardRequest(name: stop.name, referenceDate: referenceDate)
                                 }
                             
                                 if stop.status == 3 || train.issue == "Treno cancellato" {

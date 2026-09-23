@@ -22,6 +22,8 @@ struct ContentView: View {
     @Query(sort: \Favorite.index) private var favorites: [Favorite]
     @Query private var profiles: [UserProfile]
     @Query private var trains: [Train]
+    @Query private var stops: [Stop]
+    @Query private var seats: [Seat]
     @State private var profileSheet = false
     @State private var addTrainSheet = false
     @State private var addPassSheet = false
@@ -63,6 +65,7 @@ struct ContentView: View {
     @State private var ticketTrainID: UUID? = nil
     @State private var ticketSeatID: UUID? = nil
     @State private var showTicketView = false
+    @State private var scrollToNextStation = false
 
     // MARK: - Computed
 
@@ -264,7 +267,8 @@ struct ContentView: View {
                     DetailsView(
                         train: train,
                         showTicketInitially: $showTicketView,
-                        ticketSeatID: $ticketSeatID
+                        ticketSeatID: $ticketSeatID,
+                        scrollToNextStation: $scrollToNextStation
                     )
                 }
                 .toolbar { mainToolbar }
@@ -424,6 +428,16 @@ struct ContentView: View {
             hasStartedAutoFetch = true
             triggerEmailTicketRefresh()
         }
+
+        // Asked for here, at the app's own front door, rather than left to wait on
+        // the Today list's first task: whichever train is running right now should
+        // have its Live Activity up before the app is even navigated anywhere.
+        let currentTrains = trains
+        let currentStops = stops
+        let currentSeats = seats
+        Task {
+            await TrainActivityManager.shared.sync(trains: currentTrains, stops: currentStops, seats: currentSeats)
+        }
     }
 
     private func consumePendingDeepLink() {
@@ -454,6 +468,8 @@ struct ContentView: View {
             .first(where: { $0.name == "seatID" })?.value
             .flatMap(UUID.init(uuidString:))
         let wantsTicket = url.host == "view-ticket"
+        let fromLiveActivity = components.queryItems?
+            .first(where: { $0.name == "source" })?.value == TrainActivityLinks.liveActivitySource
 
         // A link can arrive over anything that happens to be open — a board sheet,
         // an import sheet — so clear the way to the journey it names.
@@ -476,6 +492,7 @@ struct ContentView: View {
             guard !Task.isCancelled else { return }
             ticketSeatID = seatID
             showTicketView = wantsTicket
+            scrollToNextStation = fromLiveActivity
             ticketTrainID = trainID
         }
     }

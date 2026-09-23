@@ -9,7 +9,10 @@ import Foundation
 /// kilobytes, so nothing is carried that the extension could look up for itself —
 /// the operator's mark is an asset name, never image data, and only the handful of
 /// stops that get drawn are sent.
-struct TrainActivityAttributes: ActivityAttributes {
+///
+/// `nonisolated` because the app target defaults to the main actor, and ActivityKit
+/// uses this conformance off it when an activity is requested or updated.
+nonisolated struct TrainActivityAttributes: ActivityAttributes {
 
     // MARK: Static
 
@@ -22,12 +25,8 @@ struct TrainActivityAttributes: ActivityAttributes {
     let departureName: String
     let arrivalName: String
 
-    /// "4 · 12A" for the first passenger, or empty when nobody has entered a seat.
-    let seatLabel: String
-
-    /// Enough to open the journey, and the seat's QR code, from a tap.
+    /// Enough to open the journey from a tap.
     let trainID: UUID
-    let seatID: UUID?
 
     // MARK: Dynamic
 
@@ -54,6 +53,28 @@ struct TrainActivityAttributes: ActivityAttributes {
             let delay: Int
         }
 
+        /// A passenger's coach and seat, and which ticket a tap opens.
+        ///
+        /// It lives here rather than in the attributes because the attributes are
+        /// fixed the moment the activity starts. A passenger added afterwards — or a
+        /// seat corrected — would never have reached the Lock Screen.
+        struct Ticket: Codable, Hashable {
+            /// "4 – 12A".
+            let label: String
+            /// Which seat's QR code a tap opens.
+            let seatID: UUID
+        }
+
+        /// A stop the countdown can be aimed at: which one, when, and where to go.
+        struct Target: Codable, Hashable {
+            let name: String
+            /// Delay-adjusted.
+            let date: Date
+            /// Empty when the operator has not said.
+            let platform: String
+            let role: TargetRole
+        }
+
         /// The two rows drawn, and the only two. A stop in between is named by the
         /// countdown rather than given a line of its own.
         let departure: Row
@@ -61,12 +82,12 @@ struct TrainActivityAttributes: ActivityAttributes {
 
         /// The platform of the stop the countdown is aimed at, or empty when the
         /// operator has not said.
-        let platform: String
+        var platform: String
 
         /// What the countdown is counting to, always delay-adjusted.
-        let targetName: String
-        let targetDate: Date
-        let targetRole: TargetRole
+        var targetName: String
+        var targetDate: Date
+        var targetRole: TargetRole
 
         /// True once the train has left its own origin, which is what allows a
         /// middle row to appear at all.
@@ -78,6 +99,23 @@ struct TrainActivityAttributes: ActivityAttributes {
         /// to show without re-reading the store.
         let journeyEnd: Date
 
+        /// The first passenger who has a coach or a seat, or nil when nobody does.
+        /// The mapping from a journey knows nothing of seats, so this is filled
+        /// in afterwards.
+        var ticket: Ticket? = nil
+
+        /// The stop after the one the countdown is aimed at, worked out from the times
+        /// the app knew when it last ran; nil when the countdown is already on the end
+        /// of the journey.
+        ///
+        /// This is what lets the Lock Screen move on with the app closed. Nothing runs
+        /// to update an activity then, but the system does one thing by itself: at
+        /// `staleDate` it flips the activity to stale. The view draws this stop in the
+        /// target's place when that happens (see `advanced(ifStale:)`), so passing a
+        /// stop no longer strands the countdown on it. Once. The stop after that one is
+        /// not known here, and only the app running, or a push, can carry it further.
+        var following: Target? = nil
+
         /// Whether the platform shown is one to leave from rather than one the train
         /// is pulling into.
         ///
@@ -87,6 +125,25 @@ struct TrainActivityAttributes: ActivityAttributes {
         /// the end of it — is somewhere the train arrives, so the arrow turns down
         /// into it.
         var isBoardingPlatform: Bool { targetRole == .departure }
+
+        /// The state as it should be drawn.
+        ///
+        /// A stale activity has passed the stop it was counting to. When the next one
+        /// is known it takes the target's place — its name, its platform, its time and
+        /// the arrow that goes with its role — and the activity is drawn as live again,
+        /// counting to it. With nothing after it, this is the end of the journey and
+        /// stays stale, which reads "Now".
+        func advanced(ifStale isStale: Bool) -> (state: ContentState, isStale: Bool) {
+            guard isStale, let next = following else { return (self, isStale) }
+
+            var moved = self
+            moved.targetName = next.name
+            moved.targetDate = next.date
+            moved.platform = next.platform
+            moved.targetRole = next.role
+            moved.following = nil
+            return (moved, false)
+        }
     }
 }
 
@@ -151,6 +208,26 @@ enum TrainActivityState {
     ///   which is where "approaching Alessandria" belongs anyway.
     /// - Every time used is the delay-adjusted one.
     static func resolve(_ journey: TrainJourney, now: Date = Date()) -> TrainActivityAttributes.ContentState? {
+        guard var state = resolveTarget(journey, now: now) else { return nil }
+
+        // The same rules asked a second later than the target, when it will have been
+        // reached: whatever they aim at then is the stop after it. Anything that is not
+        // strictly later is the end of the journey, and there is nothing after that.
+        if let later = resolveTarget(journey, now: state.targetDate.addingTimeInterval(1)),
+           later.targetDate > state.targetDate {
+            state.following = .init(
+                name: later.targetName,
+                date: later.targetDate,
+                platform: later.platform,
+                role: later.targetRole
+            )
+        }
+
+        return state
+    }
+
+    /// One reading of the rules, without looking past it.
+    private static func resolveTarget(_ journey: TrainJourney, now: Date) -> TrainActivityAttributes.ContentState? {
         let route = journey.calls.sorted { $0.refTime < $1.refTime }
         let chosen = route.filter(\.isSelected)
         guard let boarding = chosen.first, let alighting = chosen.last else { return nil }
@@ -245,7 +322,11 @@ enum TrainActivityState {
     /// later today would read as half-completed the moment it was looked at.
     private static func hasCalled(at stop: TrainJourney.Call, now: Date, hasDeparted: Bool) -> Bool {
         if stop.isCompleted { return true }
-        guard hasDeparted, let arrival = arrivalMoment(of: stop) else { return false }
+        guard hasDeparted else { return false }
+        // A train that has pulled out has certainly called. Without this an origin, which
+        // has a departure and no arrival, was never counted as called by the clock alone.
+        if let departure = departureMoment(of: stop), now >= departure { return true }
+        guard let arrival = arrivalMoment(of: stop) else { return false }
         return now >= arrival
     }
 
@@ -329,3 +410,219 @@ enum TrainActivitySchedule {
         now >= journeyEnd
     }
 }
+
+// MARK: - Deep links
+
+/// Where a tap goes. Both forms are ones the app already answers.
+enum TrainActivityLinks {
+    /// Marks a link as having come from the Live Activity itself, rather than a
+    /// notification or a station board — the one case where the details screen
+    /// should jump ahead to the next station instead of opening on the first.
+    static let liveActivitySource = "liveActivity"
+
+    static func journey(_ attributes: TrainActivityAttributes) -> URL? {
+        URL(string: "railapp://view-train?trainID=\(attributes.trainID.uuidString)&source=\(liveActivitySource)")
+    }
+
+    /// The journey *and* the seat's ticket, opened straight to its QR code.
+    static func seat(
+        _ attributes: TrainActivityAttributes,
+        _ ticket: TrainActivityAttributes.ContentState.Ticket
+    ) -> URL? {
+        URL(
+            string: "railapp://view-ticket?trainID=\(attributes.trainID.uuidString)&seatID=\(ticket.seatID.uuidString)&source=\(liveActivitySource)"
+        )
+    }
+}
+
+// MARK: - Samples
+
+#if DEBUG
+/// Journeys to draw and to test against.
+///
+/// They are built as whole runs and put through `TrainActivityState.resolve`, rather
+/// than written out as finished content. A preview that made its own state could
+/// show a middle row the real rules would never produce; these cannot.
+enum TrainActivitySample {
+
+    /// A station on a made-up run.
+    struct Leg {
+        let name: String
+        let platform: String
+        /// Minutes from the reference moment. Negative is in the past.
+        let minutes: Int
+        var delay: Int = 0
+        var isSelected: Bool = true
+        var isCompleted: Bool = false
+        var isCancelled: Bool = false
+    }
+
+    /// Taken once, so every sample and every assertion in a run agrees on "now"
+    /// while the previews still draw against the real clock — a fixed date in the
+    /// past would leave every one of them stale.
+    static let reference = Date()
+
+    static func journey(
+        logo: String = "FR",
+        number: String = "9612",
+        isCancelled: Bool = false,
+        _ legs: [Leg],
+        from origin: Date = reference
+    ) -> TrainJourney {
+        TrainJourney(
+            logo: logo,
+            number: number,
+            isCancelled: isCancelled,
+            calls: legs.map { leg in
+                let scheduled = origin.addingTimeInterval(TimeInterval(leg.minutes * 60))
+                let effective = scheduled.addingTimeInterval(TimeInterval(leg.delay * 60))
+                return TrainJourney.Call(
+                    name: leg.name,
+                    platform: leg.platform,
+                    isSelected: leg.isSelected,
+                    isCancelled: leg.isCancelled,
+                    isCompleted: leg.isCompleted,
+                    refTime: scheduled,
+                    departureScheduled: scheduled,
+                    departureEffective: effective,
+                    arrivalScheduled: scheduled,
+                    arrivalEffective: effective,
+                    departureDelay: leg.delay,
+                    arrivalDelay: leg.delay
+                )
+            }
+        )
+    }
+
+    // MARK: - Journeys
+
+    /// Boarding is an hour off and the train has not left its origin. Two rows, the
+    /// boarding station blue.
+    static let notDeparted = journey([
+        Leg(name: "Torino Porta Nuova", platform: "3", minutes: 60),
+        Leg(name: "Milano Centrale", platform: "14", minutes: 120),
+        Leg(name: "Bologna Centrale", platform: "17", minutes: 200),
+        Leg(name: "Roma Termini", platform: "1", minutes: 320)
+    ])
+
+    /// Running, with a stop still to come between boarding and alighting. Three rows.
+    static let enRoute = journey([
+        Leg(name: "Torino Porta Nuova", platform: "3", minutes: -90, isCompleted: true),
+        Leg(name: "Milano Centrale", platform: "14", minutes: -30, isCompleted: true),
+        Leg(name: "Bologna Centrale", platform: "17", minutes: 45),
+        Leg(name: "Roma Termini", platform: "1", minutes: 160)
+    ])
+
+    /// The last intermediate stop is behind it, so the countdown is on the end of the
+    /// journey and the middle row is gone.
+    static let nextIsArrival = journey([
+        Leg(name: "Torino Porta Nuova", platform: "3", minutes: -180, isCompleted: true),
+        Leg(name: "Milano Centrale", platform: "14", minutes: -120, isCompleted: true),
+        Leg(name: "Bologna Centrale", platform: "17", minutes: -40, isCompleted: true),
+        Leg(name: "Roma Termini", platform: "1", minutes: 25)
+    ])
+
+    /// The countdown has run out: the target is behind us, so the activity is stale
+    /// and the capsule reads "Now".
+    static let arrivingNow = journey([
+        Leg(name: "Torino Porta Nuova", platform: "3", minutes: -200, isCompleted: true),
+        Leg(name: "Milano Centrale", platform: "14", minutes: -140, isCompleted: true),
+        Leg(name: "Bologna Centrale", platform: "17", minutes: -60, isCompleted: true),
+        Leg(name: "Roma Termini", platform: "1", minutes: -1)
+    ])
+
+    /// Twelve minutes down, which is the case where the times shown stop being the
+    /// timetable's.
+    static let delayed = journey([
+        Leg(name: "Torino Porta Nuova", platform: "3", minutes: -90, delay: 12, isCompleted: true),
+        Leg(name: "Milano Centrale", platform: "14", minutes: -30, delay: 12, isCompleted: true),
+        Leg(name: "Bologna Centrale", platform: "17", minutes: 45, delay: 12),
+        Leg(name: "Roma Termini", platform: "1", minutes: 160, delay: 12)
+    ])
+
+    /// The operator has not said which platform yet, so there is no yellow chip.
+    static let noPlatform = journey([
+        Leg(name: "Torino Porta Nuova", platform: "-", minutes: 60),
+        Leg(name: "Milano Centrale", platform: "-", minutes: 120),
+        Leg(name: "Roma Termini", platform: "", minutes: 320)
+    ])
+
+    /// A leg in the middle of a longer service: boarding and alighting are neither
+    /// the origin nor the terminus.
+    static let midRoute = journey([
+        Leg(name: "Torino Porta Nuova", platform: "3", minutes: -120, isSelected: false, isCompleted: true),
+        Leg(name: "Milano Centrale", platform: "14", minutes: -20, isCompleted: true),
+        Leg(name: "Bologna Centrale", platform: "17", minutes: 50),
+        Leg(name: "Firenze S.M.N.", platform: "9", minutes: 95),
+        Leg(name: "Roma Termini", platform: "1", minutes: 160, isSelected: false)
+    ])
+
+    /// Boarding is minutes away, so the countdown is at its shortest ("3:59").
+    static let imminent = journey([
+        Leg(name: "Torino Porta Nuova", platform: "3", minutes: 4),
+        Leg(name: "Milano Centrale", platform: "14", minutes: 60),
+        Leg(name: "Roma Termini", platform: "1", minutes: 250)
+    ])
+
+    /// Running, with the next stop over two hours off, so the countdown is at its
+    /// longest ("129:59") and the timer's slot at its widest.
+    static let longLeg = journey([
+        Leg(name: "Torino Porta Nuova", platform: "3", minutes: -90, isCompleted: true),
+        Leg(name: "Bologna Centrale", platform: "17", minutes: 130),
+        Leg(name: "Roma Termini", platform: "1", minutes: 260)
+    ])
+
+    /// A platform that is more than a number, which is how some stations write them.
+    static let widePlatform = journey([
+        Leg(name: "Torino Porta Nuova", platform: "12 Ovest", minutes: 30),
+        Leg(name: "Roma Termini", platform: "1", minutes: 250)
+    ])
+
+    /// Names long enough to test the truncation on every row.
+    static let longNames = journey(logo: "ITALO", number: "9924", [
+        Leg(name: "Reggio Emilia AV Mediopadana", platform: "13", minutes: -40, isCompleted: true),
+        Leg(name: "Bolzano Bozen Hauptbahnhof", platform: "4", minutes: 35),
+        Leg(name: "Villa San Giovanni Marittima", platform: "2", minutes: 150)
+    ])
+
+    // MARK: - States
+
+    static func state(
+        _ journey: TrainJourney,
+        ticket: TrainActivityAttributes.ContentState.Ticket? = nil,
+        now: Date = reference
+    ) -> TrainActivityAttributes.ContentState {
+        var state = TrainActivityState.resolve(journey, now: now)!
+        state.ticket = ticket
+        return state
+    }
+
+    // MARK: - Attributes
+
+    static let attributes = TrainActivityAttributes(
+        logo: "FR",
+        number: "9612",
+        departureName: "Torino Porta Nuova",
+        arrivalName: "Roma Termini",
+        trainID: UUID(uuidString: "11111111-1111-1111-1111-111111111111")!
+    )
+
+    /// The same journey with a different operator's mark, to see one that is not
+    /// Trenitalia's.
+    static let italo = TrainActivityAttributes(
+        logo: "ITALO",
+        number: "9924",
+        departureName: "Torino Porta Nuova",
+        arrivalName: "Roma Termini",
+        trainID: UUID(uuidString: "33333333-3333-3333-3333-333333333333")!
+    )
+
+    // MARK: - Tickets
+
+    /// A passenger with a coach and a seat.
+    static let ticket = TrainActivityAttributes.ContentState.Ticket(
+        label: "4 – 12A",
+        seatID: UUID(uuidString: "22222222-2222-2222-2222-222222222222")!
+    )
+}
+#endif

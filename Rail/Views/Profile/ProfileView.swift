@@ -9,10 +9,6 @@ struct ProfileView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.locale) private var locale
     @Query private var profiles: [UserProfile]
-    #if DEBUG
-    /// What the last Live Activity test said. Debug only.
-    @State private var liveActivityDebugMessage: String?
-    #endif
 
     @State private var showImagePicker = false
     @State private var profileImage: UIImage?
@@ -247,35 +243,6 @@ struct ProfileView: View {
                 }
             }
 
-            #if DEBUG
-            // A scheduled Live Activity only proves itself with the app closed, which
-            // no debugger can show. This books one a minute out so it can be watched
-            // for real.
-            Section(header: Text(verbatim: "Live Activity")) {
-                Button {
-                    Task { liveActivityDebugMessage = await TrainActivityDebug.scheduleTestActivity() }
-                } label: {
-                    Label { Text(verbatim: "Schedule a test in 1 minute") } icon: { Image(systemName: "clock.badge") }
-                        .labelReservedIconWidth(24)
-                }
-
-                Button(role: .destructive) {
-                    Task {
-                        await TrainActivityDebug.endAll()
-                        liveActivityDebugMessage = "Ended."
-                    }
-                } label: {
-                    Label { Text(verbatim: "End all") } icon: { Image(systemName: "xmark.circle") }
-                        .labelReservedIconWidth(24)
-                }
-
-                if let liveActivityDebugMessage {
-                    Text(verbatim: liveActivityDebugMessage)
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                }
-            }
-            #endif
         }
         .scrollContentBackground(.hidden)
     }

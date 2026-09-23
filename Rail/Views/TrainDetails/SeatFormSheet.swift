@@ -193,6 +193,10 @@ struct SeatFormSheet: View {
                         }
                     }
                     .listRowSeparator(.hidden)
+                    // The default insets are wider on the sides than top and bottom,
+                    // which threw off the white square's own even padding. Equal on
+                    // every side keeps it symmetric.
+                    .listRowInsets(EdgeInsets(top: 16, leading: 16, bottom: 16, trailing: 16))
                 } header: {
                     Text("QR Code")
                 } footer: {
@@ -272,13 +276,16 @@ struct SeatFormSheet: View {
                     .resizable()
                     .interpolation(.none)
                     .scaledToFit()
-                    .frame(maxWidth: .infinity)
-                    .padding(8)
+                    // A single pass — proposed width in, padding subtracted, square
+                    // image fit into what's left — so the white margin this leaves
+                    // is the same 16pt on every side rather than whatever the two
+                    // stacked frames before and after the padding happened to leave.
+                    .padding(16)
                     .frame(maxWidth: .infinity)
                     .background(Color.white)
                     // follows the list row's own curve inset by the padding above,
                     // instead of a fixed radius that never lined up with it
-                    .clipShape(ConcentricRectangle(corners: .concentric(minimum: .fixed(8)), isUniform: true))
+                    .clipShape(ConcentricRectangle(corners: .concentric(minimum: .fixed(20)), isUniform: true))
             } else {
                 VStack(spacing: 10) {
                     Image(systemName: "photo.on.rectangle.angled")

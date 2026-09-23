@@ -15,9 +15,15 @@ struct StationBoardView: View {
     /// board is reached from a stop rather than from the toolbar.
     var initialStation: String? = nil
 
+    /// The moment this stop's own timetable is built around, in place of now. Set
+    /// alongside `initialStation`: a stop already past, or hours off, still wants the
+    /// board as it read at its own arrival — not whatever the board reads at the
+    /// moment the sheet happens to be opened.
+    var referenceDate: Date? = nil
+
     @State private var stationText = ""
     @State private var station: StationSuggestion?
-    @State private var kind: StationBoardKind = .arrivals
+    @State private var kind: StationBoardKind
 
     @State private var suggestions: [StationSuggestion] = []
     @State private var suggestionTask: Task<Void, Never>?
@@ -28,6 +34,14 @@ struct StationBoardView: View {
     @State private var isLoadingBoard = false
 
     @FocusState private var isEditingStation: Bool
+
+    init(initialStation: String? = nil, referenceDate: Date? = nil) {
+        self.initialStation = initialStation
+        self.referenceDate = referenceDate
+        // A stop's own board reads as the connection onward from it, so it opens on
+        // departures even though the picker still lists arrivals first.
+        _kind = State(initialValue: referenceDate == nil ? .arrivals : .departures)
+    }
 
     // MARK: - Computed
 
@@ -46,14 +60,17 @@ struct StationBoardView: View {
                 boardContent
             }
             // the system search field, pinned under the title rather than left to
-            // collapse into the toolbar
-            .searchable(
-                text: $stationText,
-                placement: .navigationBarDrawer(displayMode: .always),
-                prompt: "Station"
-            )
-            .searchFocused($isEditingStation)
-            .onSubmit(of: .search) { adoptFirstSuggestion() }
+            // collapse into the toolbar — absent for a stop's own board, which
+            // already knows its station and has nothing to search for
+            .applyingIf(referenceDate == nil) {
+                $0.searchable(
+                    text: $stationText,
+                    placement: .navigationBarDrawer(displayMode: .always),
+                    prompt: "Station"
+                )
+                .searchFocused($isEditingStation)
+                .onSubmit(of: .search) { adoptFirstSuggestion() }
+            }
             // A station name is data and the fallback is a phrase, so each is passed
             // as the kind of Text it actually is.
             .navigationTitle(station.map { Text(verbatim: $0.name) } ?? Text("Timetable"))
@@ -122,9 +139,11 @@ struct StationBoardView: View {
 
             isLoadingBoard = true
             // A board is only ever now, so it keeps itself current for as long as
-            // it is on screen.
+            // it is on screen — unless it was opened as a stop's own timetable, which
+            // stays anchored to that stop's moment rather than drifting to the
+            // device's clock.
             while !Task.isCancelled {
-                let results = await StationBoardAPI.board(kind, at: code)
+                let results = await StationBoardAPI.board(kind, at: code, on: referenceDate ?? Date())
                 guard !Task.isCancelled else { return }
                 board = results
                 isLoadingBoard = false
