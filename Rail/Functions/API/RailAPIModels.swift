@@ -54,11 +54,25 @@ struct Solution: Hashable, Identifiable {
     /// nil when the fare is unavailable or the API asks us to hide it.
     let price: Double?
     let currency: String
+    /// Each ticket's fare, keyed by the index of the segment it ends on. One
+    /// entry for a journey lefrecce sold as a whole; one per part once journeys
+    /// are joined with a stop in between.
+    let ticketFares: [Int: Double]
 
     init(segments: [SolutionSegment], price: Double? = nil, currency: String = "\u{20AC}") {
+        self.init(
+            segments: segments,
+            price: price,
+            currency: currency,
+            ticketFares: price.map { [segments.count - 1: $0] } ?? [:]
+        )
+    }
+
+    private init(segments: [SolutionSegment], price: Double?, currency: String, ticketFares: [Int: Double]) {
         self.segments = segments
         self.price = price
         self.currency = currency
+        self.ticketFares = ticketFares
     }
 
     // MARK: - Computed
@@ -68,12 +82,32 @@ struct Solution: Hashable, Identifiable {
     var changeCount: Int { max(0, segments.count - 1) }
     var trackableSegments: [SolutionSegment] { segments.filter { !$0.isUntracked } }
     var durationMinutes: Int { max(0, Int(arrivalTime.timeIntervalSince(departureTime)) / 60) }
+
+    // MARK: - Combining
+
+    /// This journey and then `next`, as one trip with a stop in between. The two
+    /// are separate tickets, so the fare is only known when both halves have one.
+    func followed(by next: Solution) -> Solution {
+        let total: Double? = {
+            guard let price, let nextPrice = next.price else { return nil }
+            return price + nextPrice
+        }()
+        var fares = ticketFares
+        for (index, fare) in next.ticketFares {
+            fares[segments.count + index] = fare
+        }
+        return Solution(segments: segments + next.segments, price: total, currency: currency, ticketFares: fares)
+    }
 }
 
-/// "1h 9m" / "2h" / "45m"
+/// "1h 9m" / "2h" / "45m", and "1d 3h" / "2d" once it runs past a day
 func journeyDuration(minutes: Int) -> String {
-    let hours = minutes / 60
+    let days = minutes / (24 * 60)
+    let hours = minutes % (24 * 60) / 60
     let remainder = minutes % 60
+    if days > 0 {
+        return hours == 0 ? "\(days)d" : "\(days)d \(hours)h"
+    }
     if hours == 0 { return "\(remainder)m" }
     return remainder == 0 ? "\(hours)h" : "\(hours)h \(remainder)m"
 }

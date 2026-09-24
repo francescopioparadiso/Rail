@@ -35,8 +35,19 @@ enum SolutionSegmentResolver {
             }
         }
 
+        // viaggiatreno only knows the runs around today, so a train that isn't
+        // one of them (a December train that doesn't run today) came back with
+        // nothing and was dropped without a word
         guard let identifier = targetIdentifier,
-              let info = await TrenitaliaAPI().info(identifier: identifier, shouldFetchWeather: false) else { return nil }
+              var info = await TrenitaliaAPI().info(identifier: identifier, shouldFetchWeather: false) else {
+            return segment.isBus ? nil : fromSolution(segment)
+        }
+
+        // today's run stands in for the day's timetable; the identifier points
+        // at the day itself, so updates on the day follow the right run
+        if dayOffset != 0 {
+            info["identifier"] = viaggiatrenoIdentifier(identifier, on: segmentDay)
+        }
 
         return PreparedSolutionSegment(
             info: info,
@@ -44,6 +55,59 @@ enum SolutionSegmentResolver {
             toStation: segment.destination,
             dayOffset: dayOffset
         )
+    }
+
+    /// The train as the journey search described it: just where it's boarded
+    /// and left, filled in with the rest once it's running and can be updated.
+    private static func fromSolution(_ segment: SolutionSegment) -> PreparedSolutionSegment {
+        func stop(_ name: String, at time: Date) -> [String: Any] {
+            [
+                "name": name,
+                "platform": "-",
+                "weather": "",
+                "status": 0,
+                "is_completed": false,
+                "is_in_station": false,
+                "dep_delay": 0,
+                "arr_delay": 0,
+                "dep_time_id": time,
+                "arr_time_id": time,
+                "dep_time_eff": time,
+                "arr_time_eff": time,
+                "ref_time": time
+            ]
+        }
+
+        let day = Calendar.current.startOfDay(for: segment.departureTime)
+        let info: [String: Any] = [
+            "logo": segment.logo,
+            "number": segment.number,
+            "identifier": viaggiatrenoIdentifier("\(segment.stationCode)/\(segment.number)/0", on: day),
+            "provider": "trenitalia",
+            // never updated, so the first refresh on the day goes ahead
+            "last_update_time": Date.distantPast,
+            "delay": 0,
+            "direction": "",
+            "issue": "",
+            "stops": [
+                stop(segment.origin, at: segment.departureTime),
+                stop(segment.destination, at: segment.arrivalTime)
+            ]
+        ]
+
+        return PreparedSolutionSegment(
+            info: info,
+            fromStation: segment.origin,
+            toStation: segment.destination,
+            dayOffset: 0
+        )
+    }
+
+    /// "S08409/9512/<day in ms>": the run of that train on `day`.
+    private static func viaggiatrenoIdentifier(_ identifier: String, on day: Date) -> String {
+        let milliseconds = Int(day.timeIntervalSince1970 * 1000)
+        return (identifier.split(separator: "/").dropLast().map(String.init) + [String(milliseconds)])
+            .joined(separator: "/")
     }
 
     static func resolveAll(_ segments: [SolutionSegment]) async -> [PreparedSolutionSegment] {

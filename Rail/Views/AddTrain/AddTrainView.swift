@@ -6,7 +6,7 @@ import StoreKit
 struct AddTrainView: View {
     // MARK: - Types
 
-    enum FocusField: Hashable { case number, departure, arrival }
+    enum FocusField: Hashable { case number, station(UUID) }
 
     // MARK: - Properties
 
@@ -18,6 +18,16 @@ struct AddTrainView: View {
     @Query private var profiles: [UserProfile]
 
     @State private var addTrainStep: AddTrainStep = .addTrain
+    /// Which way the steps are sliding, like the Choose Train pages.
+    @State private var stepMovesForward = true
+    /// Set when a step change shows or leaves a searching or empty placeholder,
+    /// which fades rather than slides.
+    @State private var stepFades = false
+    /// A step change waiting for the update that sets its direction to land.
+    @State private var stepRequest: StepRequest?
+    @State private var stepRequestChanges: () -> Void = {}
+    /// Whether the trains picked so far, pinned over a page, are broken out.
+    @State private var pickedSoFarExpanded = false
     @State private var fetchState: FetchState = .idle
 
     @FocusState private var focusedField: FocusField?
@@ -29,14 +39,14 @@ struct AddTrainView: View {
 
     @State private var searchType: SearchType = .stations
     @State private var trainNumber: String = ""
-    @State private var departureStation: String = ""
-    @State private var arrivalStation: String = ""
-    @State private var departureCode: String = ""
-    @State private var arrivalCode: String = ""
+    /// The outbound trip's stations in order, then the return's once added.
+    @State private var trips: [[StationEntry]] = [[StationEntry(), StationEntry()]]
+    @State private var returnDate: Date = Date()
+    /// The station row being dragged by its handle to a new place.
+    @State private var stationDrag: StationDrag?
+    @ScaledMetric private var stationRowHeight: CGFloat = 52
     @State private var stationSuggestions: [StationSuggestion] = []
     @State private var stationFetchTask: Task<Void, Never>?
-    // true while a suggestion is being applied, so the text onChange doesn't clear the code
-    @State private var isSelectingStation = false
 
     @State private var solutionsFetched: [Solution] = []
     @State private var solutionID_selected: UUID? = nil
@@ -48,6 +58,21 @@ struct AddTrainView: View {
     @State private var solutionSearchText = ""
     @State private var solutionFilters = SolutionFilters()
     @State private var solutionSort: SolutionSort?
+    // searches with stops or a return: one page of trains for each leg
+    @State private var searchedLegs: [JourneyLeg] = []
+    @State private var legsFetched: [[Solution]] = []
+    /// The train picked on each page so far. Going back leaves them in place,
+    /// so the pages after keep their trains while they slide away.
+    @State private var legChoices: [Solution] = []
+    @State private var legPage = 0
+    /// Search, filters, sort and open row of the pages not on screen.
+    @State private var pageStates: [Int: SolutionListState] = [:]
+    /// Every train picked; what gets shown on its own and saved.
+    @State private var combinedSolution: Solution?
+    /// The picked trains again, joined up day by day for the recap.
+    @State private var journeyDays: [Solution] = []
+    /// Days open independently in the recap, unlike the one-at-a-time lists.
+    @State private var expandedDayIDs: Set<UUID> = []
     @State private var dateSelected: Date = Date()
     @State private var showDatePickerPopover = false
 
@@ -76,7 +101,7 @@ struct AddTrainView: View {
         guard searchType == .stations,
               let field = focusedField,
               field != .number else { return nil }
-        return field == .departure ? departureStation : arrivalStation
+        return stationText(for: field)
     }
 
     private var showsStationSuggestionBar: Bool {
@@ -113,11 +138,17 @@ struct AddTrainView: View {
             case .number:
                 return trainNumber.count >= 2
             case .stations:
-                return !departureCode.isEmpty && !arrivalCode.isEmpty
+                // a station typed but never resolved can't be searched; an empty one is just ignored
+                return trips.allSatisfy { stations in
+                    stations.allSatisfy { $0.name.isEmpty || !$0.code.isEmpty }
+                        && stations.filter { !$0.code.isEmpty }.count >= 2
+                }
             }
 
         case .chooseTrain:
-            return searchType == .stations ? solutionID_selected != nil : trainID_selected != nil
+            guard searchType == .stations else { return trainID_selected != nil }
+            // with stops or a return, only once every train is picked
+            return isMultiLeg ? combinedSolution != nil : solutionID_selected != nil
 
         case .chooseStops:
             return stopsSelected.count >= 2
@@ -152,15 +183,81 @@ struct AddTrainView: View {
         .sorted { $0.solution.departureTime < $1.solution.departureTime }
     }
 
-    private var solutionFacets: SolutionFacets { SolutionFacets(solutions: solutionsFetched) }
+    private var includesReturn: Bool { trips.count > 1 }
+
+    /// Every trip's stations a pair at a time, each on its trip's own day.
+    private var journeyLegs: [JourneyLeg] {
+        trips.enumerated().flatMap { trip, entries in
+            let stations = entries.filter { !$0.code.isEmpty }
+            let date = trip == 0 ? dateSelected : returnDate
+            return zip(stations, stations.dropFirst()).map { from, to in
+                JourneyLeg(origin: from.name, destination: to.name, originCode: from.code, destinationCode: to.code, date: date)
+            }
+        }
+    }
+
+    private var isMultiLeg: Bool {
+        searchType == .stations && journeyLegs.count > 1
+    }
+
+    /// The journey the checkmark saves.
+    private var selectedSolution: Solution? {
+        if isMultiLeg { return combinedSolution }
+        return solutionsFetched.first(where: { $0.id == solutionID_selected })
+    }
+
+    /// The list the search, sort and filters work on: the one page on screen.
+    private var activeSolutions: [Solution] {
+        guard isMultiLeg else { return solutionsFetched }
+        return combinedSolution == nil ? solutions(onPage: legPage) : []
+    }
+
+    private var solutionFacets: SolutionFacets { SolutionFacets(solutions: activeSolutions) }
 
     private var visibleSolutions: [Solution] {
         SolutionQuery.apply(
-            to: solutionsFetched,
+            to: activeSolutions,
             searchText: solutionSearchText,
             filters: solutionFilters,
             facets: solutionFacets,
             sort: solutionSort
+        )
+    }
+
+    /// A page's trains: the first as found, every later one only those leaving
+    /// once the train picked before it has arrived.
+    private func solutions(onPage page: Int) -> [Solution] {
+        guard legsFetched.indices.contains(page) else { return [] }
+        guard page > 0 else { return legsFetched[0] }
+        guard legChoices.indices.contains(page - 1) else { return [] }
+        let arrival = legChoices[page - 1].arrivalTime
+        return legsFetched[page].filter { $0.departureTime > arrival }
+    }
+
+    private var liveListState: SolutionListState {
+        SolutionListState(
+            searchText: solutionSearchText,
+            filters: solutionFilters,
+            sort: solutionSort,
+            expandedID: expandedSolutionID
+        )
+    }
+
+    private func listState(onPage page: Int) -> SolutionListState {
+        // under the finished journey the last page keeps how it was left
+        if page == legPage && combinedSolution == nil { return liveListState }
+        return pageStates[page] ?? SolutionListState()
+    }
+
+    private func visibleSolutions(onPage page: Int) -> [Solution] {
+        let solutions = solutions(onPage: page)
+        let state = listState(onPage: page)
+        return SolutionQuery.apply(
+            to: solutions,
+            searchText: state.searchText,
+            filters: state.filters,
+            facets: SolutionFacets(solutions: solutions),
+            sort: state.sort
         )
     }
 
@@ -169,26 +266,30 @@ struct AddTrainView: View {
     var body: some View {
         NavigationStack {
             ZStack {
-                switch addTrainStep {
-                case .addTrain:
-                    addTrainView
-                    
-                case .chooseTrain:
-                    chooseTrainView
-                    
-                case .chooseStops:
-                    chooseStopsView
-                    
-                case .chooseDate:
-                    ScrollView {
-                        DatePicker("", selection: $dateSelected, in: Date()..., displayedComponents: [.date])
-                            .datePickerStyle(GraphicalDatePickerStyle())
+                Group {
+                    switch addTrainStep {
+                    case .addTrain:
+                        addTrainView
+                        
+                    case .chooseTrain:
+                        chooseTrainView
+                        
+                    case .chooseStops:
+                        chooseStopsView
+                        
+                    case .chooseDate:
+                        ScrollView {
+                            DatePicker("", selection: $dateSelected, in: Date()..., displayedComponents: [.date])
+                                .datePickerStyle(GraphicalDatePickerStyle())
 
-                        Color.clear
-                            .frame(height: 80)
+                            Color.clear
+                                .frame(height: 80)
+                        }
+                        .padding(.horizontal, 8)
                     }
-                    .padding(.horizontal, 8)
                 }
+                // every step slides in like the Choose Train pages
+                .transition(stepTransition)
             }
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 if showsStationSuggestionBar,
@@ -263,7 +364,7 @@ struct AddTrainView: View {
         .onAppear {
             if focusInitially {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                    focusedField = searchType == .number ? .number : .departure
+                    focusedField = searchType == .number ? .number : firstStationField
                 }
             }
         }
@@ -292,13 +393,14 @@ struct AddTrainView: View {
         .onChange(of: searchType) { _, newValue in
             stationFetchTask?.cancel()
             stationSuggestions = []
-            focusedField = newValue == .number ? .number : .departure
+            focusedField = newValue == .number ? .number : firstStationField
         }
         .onChange(of: focusedField) { oldValue, newValue in
             // tapping straight into the next field still counts as choosing the
             // station the user typed, so the journey stays resolvable
             if let oldValue, oldValue != .number, oldValue != newValue {
                 adoptFirstSuggestion(for: oldValue)
+                removeIfEmptyStop(oldValue)
             }
             guard let newValue, newValue != .number else {
                 stationFetchTask?.cancel()
@@ -308,24 +410,12 @@ struct AddTrainView: View {
             stationSuggestions = []
             scheduleStationFetch(for: newValue)
         }
-        .onChange(of: departureStation) { _, newValue in
-            if isSelectingStation { isSelectingStation = false; return }
-            departureCode = ""
-            guard focusedField == .departure else { return }
-            scheduleStationFetch(query: newValue, field: .departure)
-        }
-        .onChange(of: arrivalStation) { _, newValue in
-            if isSelectingStation { isSelectingStation = false; return }
-            arrivalCode = ""
-            guard focusedField == .arrival else { return }
-            scheduleStationFetch(query: newValue, field: .arrival)
-        }
         .onChange(of: solutionID_selected) { _, newId in
             prefetchTask?.cancel()
             guard let newId,
                   searchType == .stations,
                   addTrainStep == .chooseTrain,
-                  let solution = solutionsFetched.first(where: { $0.id == newId }) else { return }
+                  let solution = selectedSolution, solution.id == newId else { return }
 
             prefetchTask = Task {
                 let prepared = await SolutionSegmentResolver.resolveAll(solution.trackableSegments)
@@ -339,9 +429,35 @@ struct AddTrainView: View {
             prefetchTask?.cancel()
             prefetchedSegments = [:]
         }
+        // runs after the update that gave the steps their new direction, so the
+        // step leaving slides out the way the one arriving slides in
+        // the return moves with the outbound, keeping the time between them,
+        // so it's never left on a day before it
+        .onChange(of: dateSelected) { old, new in
+            guard includesReturn else { return }
+            returnDate = max(returnDate.addingTimeInterval(new.timeIntervalSince(old)), new)
+        }
+        .onChange(of: stepRequest) { _, request in
+            guard let request else { return }
+            withAnimation(stepFades ? .smooth : .snappy) {
+                addTrainStep = request.step
+                stepRequestChanges()
+            }
+            stepRequestChanges = {}
+        }
     }
 
     // MARK: - Subviews
+
+    /// Forward pushes the next step in from the trailing edge, back brings the
+    /// previous one in from the leading edge.
+    private var stepTransition: AnyTransition {
+        if stepFades { return .opacity }
+        return .asymmetric(
+            insertion: .move(edge: stepMovesForward ? .trailing : .leading),
+            removal: .move(edge: stepMovesForward ? .leading : .trailing)
+        )
+    }
 
     private var principalTitle: some View {
         VStack(spacing: 0) {
@@ -378,45 +494,36 @@ struct AddTrainView: View {
             .listSectionSpacing(28)
 
             if searchType == .stations {
+                ForEach(trips.indices, id: \.self) { trip in
+                    Section {
+                        stationsEditor(trip: trip)
+                            .listRowInsets(EdgeInsets())
+                            // drawn by the editor instead, so it matches the lines
+                            // between the stations
+                            .listRowSeparator(.hidden, edges: .bottom)
+
+                        HStack(spacing: 12) {
+                            DatePicker("", selection: trip == 0 ? $dateSelected : $returnDate, in: returnRange(trip), displayedComponents: .date)
+                                .labelsHidden()
+                            DatePicker("", selection: trip == 0 ? $dateSelected : $returnDate, in: returnRange(trip), displayedComponents: .hourAndMinute)
+                                .labelsHidden()
+                            Spacer(minLength: 0)
+                        }
+                        .frame(minHeight: stationRowHeight)
+                        .listRowSeparator(.hidden, edges: .top)
+                        .listRowInsets(EdgeInsets(top: 0, leading: Self.stationGutter, bottom: 0, trailing: 16))
+                    } header: {
+                        if includesReturn {
+                            Text(trip == 0 ? "Outbound" : "Return")
+                        }
+                    }
+                }
+
                 Section {
-                    stationFieldRow(
-                        placeholder: "Departure",
-                        text: firstLetterCapitalized($departureStation),
-                        field: .departure,
-                        submitLabel: .next
-                    ) {
-                        if let first = stationSuggestions.first {
-                            selectStation(first, field: .departure)
-                        } else {
-                            adoptFirstSuggestion(for: .departure)
-                            focusedField = .arrival
-                        }
-                    }
-
-                    stationFieldRow(
-                        placeholder: "Arrival",
-                        text: firstLetterCapitalized($arrivalStation),
-                        field: .arrival,
-                        submitLabel: .search
-                    ) {
-                        if let first = stationSuggestions.first {
-                            selectStation(first, field: .arrival)
-                        } else {
-                            adoptFirstSuggestion(for: .arrival)
-                            focusedField = nil
-                        }
-                        // both stations resolved: go straight on rather than
-                        // making the user reach for the toolbar button
-                        if buttonIsActive { nextButtonAction() }
-                    }
-
-                    HStack(spacing: 12) {
-                        DatePicker("", selection: $dateSelected, displayedComponents: .date)
-                            .labelsHidden()
-                        DatePicker("", selection: $dateSelected, displayedComponents: .hourAndMinute)
-                            .labelsHidden()
-                        Spacer(minLength: 0)
-                    }
+                    returnButton
+                        .frame(maxWidth: .infinity)
+                        .listRowBackground(Color.clear)
+                        .listRowInsets(EdgeInsets())
                 }
             } else {
                 Section {
@@ -432,23 +539,97 @@ struct AddTrainView: View {
         .fontDesign(appFontDesign)
     }
 
-    private func stationFieldRow(
-        placeholder: LocalizedStringKey,
-        text: Binding<String>,
-        field: FocusField,
-        submitLabel: SubmitLabel,
-        onSubmit: @escaping () -> Void
-    ) -> some View {
-        HStack(spacing: 8) {
+    /// Room on the leading side of the station fields, where the buttons that
+    /// add a stop sit on the lines between them.
+    private static let stationGutter: CGFloat = 44
+
+    /// A trip's stations as one block, so its rows can be dragged around by their
+    /// handles, with a button in the gutter to add or remove its stop.
+    private func stationsEditor(trip: Int) -> some View {
+        let stations = trips[trip]
+
+        return ZStack(alignment: .topLeading) {
+            VStack(spacing: 0) {
+                ForEach(Array(stations.enumerated()), id: \.element.id) { index, station in
+                    stationRow(station, index: index, trip: trip)
+                }
+            }
+
+            // the lines stay put while the rows move over them
+            ForEach(1..<max(stations.count, 1), id: \.self) { index in
+                separatorLine
+                    .padding(.leading, Self.stationGutter)
+                    .offset(y: CGFloat(index) * stationRowHeight)
+            }
+
+            // One button for the trip's one stop: a plus on the line between
+            // departure and arrival, and once there's a stop a cross in its row
+            // to take it out. Two views, so one fades out as the other fades in.
+            if stations.count > 2 {
+                stopButton(trip: trip, isStop: true)
+                    .offset(y: 1.5 * stationRowHeight - Self.stopButtonSize / 2)
+                    .transition(.opacity)
+            } else {
+                stopButton(trip: trip, isStop: false)
+                    .offset(y: stationRowHeight - Self.stopButtonSize / 2)
+                    .transition(.opacity)
+            }
+        }
+        // the line down to the date, drawn the same as the ones between stations
+        .overlay(alignment: .bottom) {
+            separatorLine.padding(.leading, Self.stationGutter)
+        }
+        .coordinateSpace(.named(StationDrag.space(trip)))
+    }
+
+    private static let stopButtonSize: CGFloat = 32
+
+    private func stopButton(trip: Int, isStop: Bool) -> some View {
+        Button {
+            if isStop {
+                removeStop(trip: trip, at: 1)
+            } else {
+                addStop(trip: trip, at: 1)
+            }
+        } label: {
+            Image(systemName: isStop ? "xmark.circle.fill" : "plus.circle.fill")
+                .font(.title3)
+                .foregroundStyle(isStop ? Color.red : Color.blue)
+                .frame(width: Self.stationGutter, height: Self.stopButtonSize)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(isStop ? "Remove Stop" : "Add Stop")
+    }
+
+    private var separatorLine: some View {
+        Rectangle()
+            .fill(Color(.separator))
+            .frame(height: 1 / displayScale)
+    }
+
+    @Environment(\.displayScale) private var displayScale
+
+    private func stationRow(_ station: StationEntry, index: Int, trip: Int) -> some View {
+        let count = trips[trip].count
+        let field = FocusField.station(station.id)
+        let text = firstLetterCapitalized(stationBinding(station.id))
+        let isDragged = stationDrag?.id == station.id
+        let placeholder: LocalizedStringKey = index == 0 ? "Departure" : index == count - 1 ? "Arrival" : "Stop"
+
+        return HStack(spacing: 8) {
             TextField(placeholder, text: text)
                 .focused($focusedField, equals: field)
                 .textInputAutocapitalization(.words)
-                .submitLabel(submitLabel)
-                .onSubmit { onSubmit() }
+                // station names aren't words to correct or predict; our own
+                // suggestions bar does that job
+                .autocorrectionDisabled()
+                .submitLabel(index == count - 1 && trip == trips.count - 1 ? .search : .next)
+                .onSubmit { submitStation(station.id) }
 
             // only on the field being edited: a clear button on every filled row
             // was just noise once both stations were set
-            if focusedField == field, !text.wrappedValue.isEmpty {
+            if focusedField == field, !station.name.isEmpty {
                 Button {
                     HapticFeedback.tap()
                     text.wrappedValue = ""
@@ -462,9 +643,87 @@ struct AddTrainView: View {
                 .buttonStyle(.plain)
                 .transition(.opacity)
             }
+
+            Image(systemName: "line.3.horizontal")
+                .font(.body)
+                .foregroundStyle(.tertiary)
+                .frame(width: 44, height: stationRowHeight)
+                .contentShape(Rectangle())
+                .highPriorityGesture(reorderGesture(for: station.id, trip: trip))
+                .accessibilityLabel("Reorder")
         }
-        .animation(.snappy, value: text.wrappedValue.isEmpty)
+        .padding(.leading, Self.stationGutter)
+        .padding(.trailing, 4)
+        .frame(height: stationRowHeight)
+        .background {
+            if isDragged {
+                Color(.secondarySystemGroupedBackground)
+                    .shadow(color: .black.opacity(0.15), radius: 8, y: 2)
+            }
+        }
+        .offset(y: isDragged ? stationDrag?.offset(at: index, rowHeight: stationRowHeight) ?? 0 : 0)
+        .zIndex(isDragged ? 1 : 0)
+        // the row under the finger follows it exactly; only the others animate
+        .transaction { if isDragged { $0.animation = nil } }
+        .animation(.snappy, value: station.name.isEmpty)
         .animation(.snappy, value: focusedField)
+    }
+
+    /// Dragging a row by its handle swaps it past the rows it crosses.
+    private func reorderGesture(for id: UUID, trip: Int) -> some Gesture {
+        DragGesture(minimumDistance: 0, coordinateSpace: .named(StationDrag.space(trip)))
+            .onChanged { value in
+                guard let from = trips[trip].firstIndex(where: { $0.id == id }) else { return }
+                if stationDrag?.id != id {
+                    stationDrag = StationDrag(id: id, startIndex: from, translation: 0)
+                    HapticFeedback.select()
+                }
+                stationDrag?.translation = value.translation.height
+
+                let steps = Int((value.translation.height / stationRowHeight).rounded())
+                let target = min(max((stationDrag?.startIndex ?? from) + steps, 0), trips[trip].count - 1)
+                guard target != from else { return }
+                HapticFeedback.select()
+                withAnimation(.snappy) {
+                    trips[trip].move(fromOffsets: [from], toOffset: target > from ? target + 1 : target)
+                }
+            }
+            .onEnded { _ in
+                withAnimation(.snappy) { stationDrag = nil }
+            }
+    }
+
+    @ViewBuilder private var returnButton: some View {
+        if includesReturn {
+            Button(role: .destructive) {
+                HapticFeedback.tap()
+                if case .station(let id) = focusedField, trips[1].contains(where: { $0.id == id }) {
+                    focusedField = nil
+                }
+                withAnimation(.snappy) { trips.removeLast() }
+            } label: {
+                returnLabel("Remove Return", systemImage: "minus")
+            }
+            // the same tinted glass as the Choose Stops tip
+            .buttonStyle(.glassProminent)
+            .tint(Color.red.opacity(0.15))
+            .foregroundStyle(Color.red)
+        } else {
+            Button(action: addReturn) {
+                returnLabel("Add Return", systemImage: "plus")
+            }
+            .buttonStyle(.glassProminent)
+            .tint(Color.blue.opacity(0.15))
+            .foregroundStyle(Color.blue)
+        }
+    }
+
+    // a Label spaces its icon too far from the title for a button this small
+    private func returnLabel(_ title: LocalizedStringKey, systemImage: String) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: systemImage)
+            Text(title)
+        }
     }
 
     // floating bar shown while typing a station: horizontally scrolling suggestions.
@@ -474,7 +733,16 @@ struct AddTrainView: View {
         }
     }
 
-    @ViewBuilder var chooseTrainView: some View {
+    /// Searching, the results and nothing found fade into one another.
+    var chooseTrainView: some View {
+        ZStack {
+            fetchStateContent
+                .transition(.opacity)
+        }
+        .animation(.smooth, value: fetchState)
+    }
+
+    @ViewBuilder private var fetchStateContent: some View {
         switch fetchState {
         case .idle:
             EmptyView()
@@ -494,7 +762,9 @@ struct AddTrainView: View {
             .foregroundColor(fetchState.color)
             
         case .success:
-            if searchType == .stations {
+            if isMultiLeg {
+                chooseLegsView
+            } else if searchType == .stations {
                 chooseSolutionView
             } else {
                 chooseNumberedTrainView
@@ -540,35 +810,213 @@ struct AddTrainView: View {
     }
 
     var chooseSolutionView: some View {
-        ScrollViewReader { proxy in
-            List {
+        withSolutionTools(ScrollViewReader { proxy in
+            solutionList(
+                showsNoMatches: visibleSolutions.isEmpty && !activeSolutions.isEmpty,
+                searchText: solutionSearchText
+            ) {
                 ForEach(visibleSolutions) { solution in
                     let isSelected = solutionID_selected == solution.id
-                    // while one solution is open the rest recede, so the legs on
-                    // screen clearly belong to the row you opened
-                    let isDimmed = expandedSolutionID != nil && expandedSolutionID != solution.id
-
-                    SolutionRow(
-                        solution: solution,
-                        isExpanded: expandedSolutionID == solution.id,
-                        priceRank: priceRank(for: solution),
-                        onToggleExpanded: { toggleExpanded(solution) }
-                    )
-                    .opacity(isDimmed ? 0.4 : 1)
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        guard !isSaving else { return }
-                        HapticFeedback.select()
+                    solutionRow(
+                        solution,
+                        isSelected: isSelected,
+                        expandedID: expandedSolutionID,
+                        rankedAmong: visibleSolutions
+                    ) {
                         withAnimation(.snappy) {
                             solutionID_selected = isSelected ? nil : solution.id
                         }
                     }
-                    .listRowBackground(
-                        isSelected ? Color.accentColor.opacity(isDimmed ? 0.03 : 0.06) : nil
-                    )
-                    .id(solution.id)
                 }
             }
+            .onAppear { scrollToNextSolution(in: solutionsFetched, after: dateSelected, proxy: proxy) }
+        })
+    }
+
+    /// A search with stops or a return: one page of trains per leg, side by
+    /// side like a carousel. Picking a train slides on to the next page, and
+    /// once the last is picked the rest fall away to leave the one journey.
+    var chooseLegsView: some View {
+        withSolutionTools(GeometryReader { geometry in
+            // the finished journey is one more page, after the last leg's
+            let shownPage = combinedSolution == nil ? legPage : searchedLegs.count
+
+            ZStack {
+                ForEach(searchedLegs.indices, id: \.self) { page in
+                    legPage(page)
+                        // a page's trains hang on the one picked before it, so a
+                        // different pick there starts the page afresh
+                        .id(legChoices.indices.contains(page - 1) ? legChoices[page - 1].id : nil)
+                        .offset(x: CGFloat(page - shownPage) * geometry.size.width)
+                        .allowsHitTesting(page == shownPage)
+                        .accessibilityHidden(page != shownPage)
+                }
+
+                // always there, off to the side, so its days are already in
+                // place as it slides in; empty until the last train is picked
+                journeySummary
+                    .offset(x: CGFloat(searchedLegs.count - shownPage) * geometry.size.width)
+                    .allowsHitTesting(combinedSolution != nil)
+                    .accessibilityHidden(combinedSolution == nil)
+            }
+        })
+    }
+
+    /// Pages stay alive while off screen, so coming back to one finds it
+    /// scrolled exactly where it was left.
+    private func legPage(_ page: Int) -> some View {
+        let leg = searchedLegs[page]
+        let solutions = solutions(onPage: page)
+        let state = listState(onPage: page)
+        let visible = visibleSolutions(onPage: page)
+        let previous = legChoices.indices.contains(page - 1) ? legChoices[page - 1] : nil
+
+        return ScrollViewReader { proxy in
+            solutionList(
+                showsNoMatches: visible.isEmpty && !solutions.isEmpty,
+                searchText: state.searchText
+            ) {
+                Section {
+                    ForEach(visible) { solution in
+                        // nothing stays highlighted: a tap moves straight on
+                        solutionRow(
+                            solution,
+                            isSelected: false,
+                            expandedID: state.expandedID,
+                            rankedAmong: visible
+                        ) {
+                            pick(solution, onPage: page)
+                        }
+                    }
+                } header: {
+                    legHeader(from: leg.origin, to: leg.destination)
+                }
+            }
+            // a later page is rebuilt whenever the train before it changes, so
+            // this runs again once there's something to scroll to
+            .onAppear { scrollToNextSolution(in: solutions, after: leg.date, proxy: proxy) }
+        }
+        // the trains picked so far stay put while this page scrolls under them
+        .safeAreaBar(edge: .top) {
+            if page > 0 { pickedSoFar(beforePage: page) }
+        }
+        .overlay {
+            if let previous, solutions.isEmpty {
+                ContentUnavailableView(
+                    "No trains onward",
+                    systemImage: "moon.zzz",
+                    description: Text("Nothing leaves \(leg.origin) after \(previous.arrivalTime.formatted(Date.FormatStyle.dateTime.hour().minute())) that day.")
+                )
+                .foregroundStyle(Color.secondary)
+            }
+        }
+    }
+
+    /// Tapping it goes back a page to change the last train picked.
+    @ViewBuilder private func pickedSoFar(beforePage page: Int) -> some View {
+        let picked = Array(legChoices.prefix(page))
+        if let first = picked.first {
+            let journey = picked.dropFirst().reduce(first) { $0.followed(by: $1) }
+            SolutionRow(
+                solution: journey,
+                isExpanded: pickedSoFarExpanded,
+                priceRank: nil,
+                onToggleExpanded: {
+                    HapticFeedback.select()
+                    withAnimation(.smooth) { pickedSoFarExpanded.toggle() }
+                }
+            )
+                .padding(.horizontal, 20)
+                .padding(.vertical, 12)
+                .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 26))
+                .contentShape(.rect(cornerRadius: 26))
+                .onTapGesture {
+                    guard !isSaving else { return }
+                    HapticFeedback.select()
+                    move(toPage: page - 1)
+                }
+                .padding(.horizontal, 16)
+                .padding(.bottom, 8)
+        }
+    }
+
+    /// The finished journey, a section for each day it's travelled on.
+    private var journeySummary: some View {
+        solutionList(showsNoMatches: false, searchText: "") {
+            ForEach(Array(journeyDays.enumerated()), id: \.element.id) { index, day in
+                Section {
+                    SolutionRow(
+                        solution: day,
+                        isExpanded: expandedDayIDs.contains(day.id),
+                        priceRank: nil,
+                        onToggleExpanded: { toggleDayExpanded(day) }
+                    )
+                    .contentShape(Rectangle())
+                    // tapping the journey lets it go, back to the last page's trains
+                    .onTapGesture {
+                        guard !isSaving else { return }
+                        HapticFeedback.select()
+                        reopenLastPage()
+                    }
+                } header: {
+                    Text(day.departureTime, format: .dateTime.weekday(.wide).day().month(.wide))
+                } footer: {
+                    if index == journeyDays.count - 1, combinedSolution?.ticketFares.count ?? 0 > 1 {
+                        Text("Priced as separate tickets.")
+                    }
+                }
+            }
+        }
+    }
+
+    /// "Torino → Firenze": the first word of each name is the town, which is
+    /// all the header needs, and full names like Torino Porta Nuova got cut off.
+    private func legHeader(from origin: String, to destination: String) -> some View {
+        Text(verbatim: "\(town(origin)) → \(town(destination))")
+            .lineLimit(1)
+            .truncationMode(.middle)
+    }
+
+    private func town(_ station: String) -> String {
+        station.split(separator: " ").first.map(String.init) ?? station
+    }
+
+    private func solutionRow(
+        _ solution: Solution,
+        isSelected: Bool,
+        expandedID: UUID?,
+        rankedAmong others: [Solution]?,
+        onSelect: @escaping () -> Void
+    ) -> some View {
+        // while one solution is open the rest recede, so the legs on
+        // screen clearly belong to the row you opened
+        let isDimmed = expandedID != nil && expandedID != solution.id
+
+        return SolutionRow(
+            solution: solution,
+            isExpanded: expandedID == solution.id,
+            priceRank: others.flatMap { priceRank(for: solution, among: $0) },
+            onToggleExpanded: { toggleExpanded(solution) }
+        )
+        .opacity(isDimmed ? 0.4 : 1)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            guard !isSaving else { return }
+            HapticFeedback.select()
+            onSelect()
+        }
+        .listRowBackground(
+            isSelected ? Color.accentColor.opacity(isDimmed ? 0.03 : 0.06) : nil
+        )
+        .id(solution.id)
+    }
+
+    private func solutionList<Content: View>(
+        showsNoMatches: Bool,
+        searchText: String,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        List(content: content)
             .listStyle(.insetGrouped)
             // as scroll padding rather than a trailing row, so the last solution
             // keeps the section's rounded bottom corners
@@ -576,8 +1024,8 @@ struct AddTrainView: View {
             .scrollIndicators(.hidden)
             .disabled(isSaving)
             .overlay {
-                if visibleSolutions.isEmpty && !solutionsFetched.isEmpty {
-                    if solutionSearchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                if showsNoMatches {
+                    if searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                         ContentUnavailableView(
                             "No matching solutions",
                             systemImage: "line.3.horizontal.decrease",
@@ -585,21 +1033,27 @@ struct AddTrainView: View {
                         )
                         .foregroundStyle(Color.secondary)
                     } else {
-                        ContentUnavailableView.search(text: solutionSearchText)
+                        ContentUnavailableView.search(text: searchText)
                             .foregroundStyle(Color.secondary)
                     }
                 }
             }
+    }
+
+    /// Search, sort and filter, kept outside the pages so the bottom bar holds
+    /// still while the via carousel slides underneath it.
+    private func withSolutionTools(_ content: some View) -> some View {
+        content
             .searchable(text: $solutionSearchText, prompt: "Search solutions")
             .toolbar {
-                ToolbarItem(placement: .bottomBar) { solutionSortMenu }
+                ToolbarItem(placement: .bottomBar) {
+                    solutionSortMenu.disabled(combinedSolution != nil)
+                }
                 ToolbarSpacer(.fixed, placement: .bottomBar)
                 ToolbarItem(placement: .bottomBar) { solutionFilterMenu }
                 ToolbarSpacer(.fixed, placement: .bottomBar)
                 DefaultToolbarItem(kind: .search, placement: .bottomBar)
             }
-            .onAppear { scrollToNextSolution(proxy: proxy, animated: false) }
-        }
     }
 
     private var solutionSortMenu: some View {
@@ -820,15 +1274,14 @@ struct AddTrainView: View {
     private func resetFormState() {
         trainsFetched = [:]
         trainNumber = ""
-        departureStation = ""
-        arrivalStation = ""
-        departureCode = ""
-        arrivalCode = ""
+        trips = [[StationEntry(), StationEntry()]]
+        stationDrag = nil
         stationSuggestions = []
         stationFetchTask?.cancel()
         prefetchTask?.cancel()
         solutionsFetched = []
         solutionID_selected = nil
+        resetLegSelection()
         prefetchedSegments = [:]
         isSaving = false
         trainID_selected = nil
@@ -844,38 +1297,44 @@ struct AddTrainView: View {
             focusedField = nil
 
         case .chooseTrain:
+            /// with stops or a return, back steps through the pages first
+            if isMultiLeg && combinedSolution != nil {
+                reopenLastPage()
+                return
+            }
+            if isMultiLeg && legPage > 0 {
+                move(toPage: legPage - 1)
+                return
+            }
+
             /// update focus
             focusedField = nil
             
-            /// change view
-            addTrainStep = .addTrain
-            
-            /// reset variables
-            trainsFetched.removeAll()
-            trainID_selected = nil
-            prefetchTask?.cancel()
-            solutionsFetched.removeAll()
-            solutionID_selected = nil
-            prefetchedSegments = [:]
-            isSaving = false
-
-            /// fetching status
-            fetchState = .idle
+            /// change view, taking the results with it so the page leaving keeps them
+            go(to: .addTrain) {
+                trainsFetched.removeAll()
+                trainID_selected = nil
+                prefetchTask?.cancel()
+                solutionsFetched.removeAll()
+                solutionID_selected = nil
+                resetLegSelection()
+                prefetchedSegments = [:]
+                isSaving = false
+                fetchState = .idle
+            }
             
         case .chooseStops:
             /// change view
-            addTrainStep = .chooseTrain
-            
-            /// reset variables
-            stopsFetched.removeAll()
-            stopsSelected.removeAll()
+            go(to: .chooseTrain) {
+                stopsFetched.removeAll()
+                stopsSelected.removeAll()
+            }
             
         case .chooseDate:
             /// change view
-            addTrainStep = .chooseStops
-            
-            /// reset variables
-            dateSelected = Date()
+            go(to: .chooseStops) {
+                dateSelected = Date()
+            }
         }
     }
     private func nextButtonAction() -> Void {
@@ -889,7 +1348,7 @@ struct AddTrainView: View {
                 focusedField = nil
 
                 /// change view
-                addTrainStep = .chooseTrain
+                go(to: .chooseTrain)
 
                 /// actions
                 if searchType == .number {
@@ -910,7 +1369,7 @@ struct AddTrainView: View {
             
         case .chooseTrain:
             if searchType == .stations {
-                guard !isSaving, solutionID_selected != nil else { return }
+                guard !isSaving, selectedSolution != nil else { return }
 
                 /// haptic feedback
                 HapticFeedback.impactHeavy()
@@ -926,7 +1385,7 @@ struct AddTrainView: View {
                 HapticFeedback.confirm()
 
                 /// change view
-                addTrainStep = .chooseStops
+                go(to: .chooseStops)
 
                 /// actions
                 saveStops()
@@ -937,7 +1396,7 @@ struct AddTrainView: View {
             HapticFeedback.confirm()
             
             /// change view
-            addTrainStep = .chooseDate
+            go(to: .chooseDate)
             
         case .chooseDate:
             /// haptic feedback
@@ -949,6 +1408,22 @@ struct AddTrainView: View {
             /// change view
             dismiss()
         }
+    }
+
+    /// Moves to another step with the same slide as the Choose Train pages.
+    /// The direction lands in its own update first, so the step leaving already
+    /// carries the transition that matches it; `changes` go with the slide, so
+    /// that step keeps showing what it had on its way out. A dispatch to the next
+    /// turn wasn't enough: it could land before the first update, and a step
+    /// going back then left the way the last one had come in.
+    private func go(to step: AddTrainStep, changes: @escaping () -> Void = {}) {
+        stepMovesForward = step.order > addTrainStep.order
+        // a new search always opens on its placeholder, and one that found
+        // nothing leaves on it
+        stepFades = (step == .chooseTrain && stepMovesForward)
+            || (addTrainStep == .chooseTrain && fetchState != .success)
+        stepRequestChanges = changes
+        stepRequest = StepRequest(step: step)
     }
 
     private func toggle(_ set: inout Set<Int>, _ value: Int) {
@@ -967,36 +1442,220 @@ struct AddTrainView: View {
     private func toggleExpanded(_ solution: Solution) {
         guard solution.segments.count > 1 else { return }
         HapticFeedback.select()
-        withAnimation(.snappy) {
+        withAnimation(.smooth) {
             // opening one closes whichever was open
             expandedSolutionID = expandedSolutionID == solution.id ? nil : solution.id
         }
     }
 
+    private func toggleDayExpanded(_ day: Solution) {
+        guard day.segments.count > 1 else { return }
+        HapticFeedback.select()
+        withAnimation(.smooth) {
+            if expandedDayIDs.remove(day.id) == nil { expandedDayIDs.insert(day.id) }
+        }
+    }
+
+    private func pick(_ solution: Solution, onPage page: Int) {
+        // a different train here can change which ones are catchable after it
+        if legChoices.indices.contains(page), legChoices[page].id != solution.id {
+            pageStates = pageStates.filter { $0.key <= page }
+        }
+        legChoices = Array(legChoices.prefix(page)) + [solution]
+
+        if page == searchedLegs.count - 1 {
+            showJourney()
+        } else {
+            move(toPage: page + 1)
+        }
+    }
+
+    private func move(toPage page: Int) {
+        pageStates[legPage] = liveListState
+        apply(pageStates[page] ?? SolutionListState())
+        withAnimation(.snappy) {
+            legPage = page
+            // each page opens on the trains before it folded up
+            pickedSoFarExpanded = false
+        }
+    }
+
+    /// Every train is picked: the rest fall away to leave the one journey.
+    private func showJourney() {
+        guard let first = legChoices.first else { return }
+        let journey = legChoices.dropFirst().reduce(first) { $0.followed(by: $1) }
+        // trains leaving on the same day share a section; one that runs past
+        // midnight stays with the day it left on
+        var days: [Solution] = []
+        for choice in legChoices {
+            if let last = days.last,
+               Calendar.current.isDate(last.departureTime, inSameDayAs: choice.departureTime) {
+                days[days.count - 1] = last.followed(by: choice)
+            } else {
+                days.append(choice)
+            }
+        }
+        pageStates[legPage] = liveListState
+        journeyDays = days
+        withAnimation(.snappy) {
+            combinedSolution = journey
+            // open, so the time at each stop shows between the trains
+            expandedDayIDs = Set(days.filter { $0.segments.count > 1 }.map(\.id))
+        }
+        // starts resolving the trains while the journey is looked over
+        solutionID_selected = journey.id
+    }
+
+    /// Back from the finished journey to the last page's trains.
+    private func reopenLastPage() {
+        withAnimation(.snappy) {
+            combinedSolution = nil
+            apply(pageStates[legPage] ?? SolutionListState())
+        }
+        solutionID_selected = nil
+    }
+
+    private func apply(_ state: SolutionListState) {
+        solutionSearchText = state.searchText
+        solutionFilters = state.filters
+        solutionSort = state.sort
+        expandedSolutionID = state.expandedID
+    }
+
+    private func resetLegSelection() {
+        searchedLegs = []
+        legsFetched = []
+        legChoices = []
+        legPage = 0
+        pageStates = [:]
+        combinedSolution = nil
+        journeyDays = []
+        pickedSoFarExpanded = false
+        expandedSolutionID = nil
+    }
+
+    private var firstStationField: FocusField? {
+        trips.first?.first.map { .station($0.id) }
+    }
+
+    /// Which trip a station is in, and where.
+    private func position(of id: UUID) -> (trip: Int, index: Int)? {
+        for (trip, stations) in trips.enumerated() {
+            if let index = stations.firstIndex(where: { $0.id == id }) { return (trip, index) }
+        }
+        return nil
+    }
+
+    /// A station's text. Only typing goes through it, so it's where the station
+    /// loses its resolved code and looks for new suggestions.
+    private func stationBinding(_ id: UUID) -> Binding<String> {
+        Binding(
+            get: { position(of: id).map { trips[$0.trip][$0.index].name } ?? "" },
+            set: { newValue in
+                guard let (trip, index) = position(of: id),
+                      trips[trip][index].name != newValue else { return }
+                trips[trip][index].name = newValue
+                trips[trip][index].code = ""
+                guard focusedField == .station(id) else { return }
+                scheduleStationFetch(query: newValue, field: .station(id))
+            }
+        )
+    }
+
+    private func addStop(trip: Int, at index: Int) {
+        guard trips[trip].count == 2 else { return }
+        HapticFeedback.tap()
+        let stop = StationEntry()
+        withAnimation(.snappy) { trips[trip].insert(stop, at: index) }
+        focusedField = .station(stop.id)
+    }
+
+    private func removeStop(trip: Int, at index: Int) {
+        HapticFeedback.tap()
+        if focusedField == .station(trips[trip][index].id) {
+            focusedField = nil
+        }
+        withAnimation(.snappy) { _ = trips[trip].remove(at: index) }
+    }
+
+    /// A stop left empty is one the user changed their mind about, so it goes
+    /// once they move on. Departure and arrival always stay.
+    private func removeIfEmptyStop(_ field: FocusField) {
+        guard case .station(let id) = field,
+              let (trip, index) = position(of: id),
+              trips[trip].count > 2,
+              trips[trip][index].name.trimmingCharacters(in: .whitespaces).isEmpty else { return }
+        withAnimation(.snappy) { _ = trips[trip].remove(at: index) }
+    }
+
+    /// The return can't be picked before the outbound.
+    private func returnRange(_ trip: Int) -> PartialRangeFrom<Date> {
+        (trip == 0 ? Date.distantPast : dateSelected)...
+    }
+
+    /// The way back: the outbound's arrival to its departure, the next day at
+    /// the same time.
+    private func addReturn() {
+        HapticFeedback.tap()
+        let outbound = trips[0]
+        let back = [outbound.last, outbound.first].map {
+            StationEntry(name: $0?.name ?? "", code: $0?.code ?? "")
+        }
+        returnDate = Calendar.current.date(byAdding: .day, value: 1, to: dateSelected) ?? dateSelected
+        withAnimation(.snappy) { trips.append(back) }
+    }
+
+    /// Return on a station moves on to the next one, and on the very last runs the search.
+    private func submitStation(_ id: UUID) {
+        if let first = stationSuggestions.first {
+            selectStation(first, field: .station(id))
+        } else {
+            adoptFirstSuggestion(for: .station(id))
+            focusedField = field(after: id)
+        }
+        // every station resolved: go straight on rather than
+        // making the user reach for the toolbar button
+        if focusedField == nil, buttonIsActive { nextButtonAction() }
+    }
+
+    /// The row below, running on into the return; nil after the last.
+    private func field(after id: UUID) -> FocusField? {
+        let all = trips.flatMap { $0 }
+        guard let index = all.firstIndex(where: { $0.id == id }), index + 1 < all.count else { return nil }
+        return .station(all[index + 1].id)
+    }
+
     /// Places a fare on the green-to-red ramp against the others on screen.
-    private func priceRank(for solution: Solution) -> SolutionPriceRank? {
+    private func priceRank(for solution: Solution, among others: [Solution]) -> SolutionPriceRank? {
         guard let price = solution.price else { return nil }
-        let prices = visibleSolutions.compactMap(\.price)
+        let prices = others.compactMap(\.price)
         guard let cheapest = prices.min(), let priciest = prices.max(), cheapest < priciest else { return nil }
         return SolutionPriceRank(position: (price - cheapest) / (priciest - cheapest))
     }
 
     // on open, jump straight to the next departure from now so the user can catch it
-    private func scrollToNextSolution(proxy: ScrollViewProxy, animated: Bool = false) {
-        let now = Date()
-        guard let target = solutionsFetched.first(where: { $0.departureTime >= now }) else { return }
+    /// Opens the list on the first train leaving at or after the time asked for.
+    private func scrollToNextSolution(in solutions: [Solution], after time: Date, proxy: ScrollViewProxy) {
+        guard let target = solutions.first(where: { $0.departureTime >= time }) else { return }
 
         DispatchQueue.main.async {
-            if animated {
-                withAnimation { proxy.scrollTo(target.id, anchor: .top) }
-            } else {
-                proxy.scrollTo(target.id, anchor: .top)
-            }
+            proxy.scrollTo(target.id, anchor: .top)
+        }
+    }
+
+    private func minutesBetween(_ start: Date, _ end: Date) -> Int {
+        max(0, Int(end.timeIntervalSince(start)) / 60)
+    }
+
+    private func stationText(for field: FocusField) -> String {
+        switch field {
+        case .station(let id): return stationBinding(id).wrappedValue
+        case .number: return trainNumber
         }
     }
 
     private func scheduleStationFetch(for field: FocusField) {
-        let query = field == .departure ? departureStation : arrivalStation
+        let query = stationText(for: field)
         scheduleStationFetch(query: query, field: field)
     }
 
@@ -1027,8 +1686,7 @@ struct AddTrainView: View {
         await MainActor.run {
             guard !Task.isCancelled else { return }
             guard focusedField == field else { return }
-            let current = field == .departure ? departureStation : arrivalStation
-            guard current == query else { return }
+            guard stationText(for: field) == query else { return }
             stationSuggestions = results
         }
     }
@@ -1038,26 +1696,12 @@ struct AddTrainView: View {
     private func adoptFirstSuggestion(for field: FocusField) {
         guard let match = stationSuggestions.first else { return }
 
-        switch field {
-        case .departure:
-            guard departureCode.isEmpty,
-                  !departureStation.trimmingCharacters(in: .whitespaces).isEmpty else { return }
-            if departureStation != match.name {
-                isSelectingStation = true
-                departureStation = match.name
-            }
-            departureCode = match.code
-        case .arrival:
-            guard arrivalCode.isEmpty,
-                  !arrivalStation.trimmingCharacters(in: .whitespaces).isEmpty else { return }
-            if arrivalStation != match.name {
-                isSelectingStation = true
-                arrivalStation = match.name
-            }
-            arrivalCode = match.code
-        case .number:
-            break
-        }
+        guard case .station(let id) = field,
+              let (trip, index) = position(of: id),
+              trips[trip][index].code.isEmpty,
+              !trips[trip][index].name.trimmingCharacters(in: .whitespaces).isEmpty else { return }
+        trips[trip][index].name = match.name
+        trips[trip][index].code = match.code
     }
 
     private func firstLetterCapitalized(_ source: Binding<String>) -> Binding<String> {
@@ -1070,37 +1714,65 @@ struct AddTrainView: View {
     private func selectStation(_ station: StationSuggestion, field: FocusField) {
         HapticFeedback.select()
         stationSuggestions = []
-        isSelectingStation = true
-        if field == .departure {
-            departureStation = station.name
-            departureCode = station.code
-            focusedField = .arrival
-        } else {
-            arrivalStation = station.name
-            arrivalCode = station.code
-            focusedField = nil
-        }
+        guard case .station(let id) = field, let (trip, index) = position(of: id) else { return }
+        trips[trip][index].name = station.name
+        trips[trip][index].code = station.code
+        focusedField = self.field(after: id)
     }
 
     private func fetchSolutions() async {
         fetchState = .fetching
 
-        let results = await TrenitaliaAPI().trainSolutions(
-            departureLocationId: departureCode,
-            arrivalLocationId: arrivalCode,
-            departureTime: dateSelected
-        )
+        let legs = journeyLegs
+        guard isMultiLeg else {
+            guard let leg = legs.first else {
+                await MainActor.run { fetchState = .failure }
+                return
+            }
+            let results = await TrenitaliaAPI().trainSolutions(
+                departureLocationId: leg.originCode,
+                arrivalLocationId: leg.destinationCode,
+                departureTime: leg.date
+            )
+
+            await MainActor.run {
+                solutionsFetched = results
+                fetchState = results.isEmpty ? .failure : .success
+            }
+            return
+        }
+
+        // every leg at once: the later ones are only narrowed down to what's
+        // catchable once the train before them is picked
+        let results = await withTaskGroup(of: (Int, [Solution]).self) { group in
+            for (index, leg) in legs.enumerated() {
+                group.addTask {
+                    let solutions = await TrenitaliaAPI().trainSolutions(
+                        departureLocationId: leg.originCode,
+                        arrivalLocationId: leg.destinationCode,
+                        departureTime: leg.date
+                    )
+                    return (index, solutions)
+                }
+            }
+            var byIndex: [Int: [Solution]] = [:]
+            for await (index, solutions) in group { byIndex[index] = solutions }
+            return legs.indices.map { byIndex[$0] ?? [] }
+        }
 
         await MainActor.run {
-            solutionsFetched = results
-            fetchState = results.isEmpty ? .failure : .success
+            resetLegSelection()
+            solutionID_selected = nil
+            searchedLegs = legs
+            legsFetched = results
+            fetchState = results.contains(where: \.isEmpty) ? .failure : .success
         }
     }
 
     // saves the selected solution: each leg becomes its own train, so connected
     // journeys render with the connection manager just like in TodayView.
     private func saveSolution() async {
-        guard let solution = solutionsFetched.first(where: { $0.id == solutionID_selected }) else {
+        guard let solution = selectedSolution else {
             await MainActor.run { isSaving = false }
             return
         }
@@ -1393,7 +2065,7 @@ extension AddTrainView {
         self._addTrainStep = State(initialValue: previewView)
         self._stopsFetched = State(initialValue: stopsFetched)
         self._stopsSelected = State(initialValue: stopsSelected)
-        self._departureStation = State(initialValue: departureStation)
+        self._trips = State(initialValue: [[StationEntry(name: departureStation), StationEntry()]])
     }
 
     // preview helper for the "Choose Train" step (number search → trains, stations search → solutions)

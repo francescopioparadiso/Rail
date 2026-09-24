@@ -49,52 +49,79 @@ struct SolutionRow: View {
     // MARK: - Body
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 0) {
             // The first leg's header and route stay put across expansion — only
             // their values change — so nothing above the fold shifts or refades.
             if let first = solution.segments.first {
-                VStack(alignment: .leading, spacing: 8) {
-                    segmentHeader(first, extraCount: solution.segments.count - 1, showsChevron: canExpand, isLead: true)
-                    route(
-                        origin: first.origin,
-                        destination: leadDestination?.destination ?? first.destination,
-                        departure: first.departureTime,
-                        arrival: isExpanded ? first.arrivalTime : solution.arrivalTime,
-                        isLead: true
+                VStack(alignment: .leading, spacing: 12) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        segmentHeader(first, extraCount: solution.segments.count - 1, showsChevron: canExpand, isLead: true)
+                        route(
+                            origin: first.origin,
+                            destination: leadDestination?.destination ?? first.destination,
+                            departure: first.departureTime,
+                            arrival: isExpanded ? first.arrivalTime : solution.arrivalTime,
+                            isLead: true
+                        )
+                    }
+
+                    // Collapsed these sum up the whole trip; expanded they become the
+                    // first train's own, and each leg below gets its own.
+                    chips(
+                        minutes: isExpanded ? minutesBetween(first.departureTime, first.arrivalTime) : solution.durationMinutes,
+                        showsChanges: !isExpanded,
+                        price: isExpanded ? solution.ticketFares[0] : solution.price
                     )
                 }
             }
 
-            // Remaining legs unfold underneath, pushing the chips and the rows below down.
-            if isExpanded {
-                ForEach(Array(solution.segments.enumerated()).dropFirst(), id: \.offset) { index, segment in
-                    VStack(alignment: .leading, spacing: 12) {
-                        ConnectionDivider(minutes: minutesBetween(
-                            solution.segments[index - 1].arrivalTime,
-                            segment.departureTime
-                        ))
-                        VStack(alignment: .leading, spacing: 8) {
-                            segmentHeader(segment, extraCount: 0, showsChevron: false, isLead: false)
-                            route(
-                                origin: segment.origin,
-                                destination: segment.destination,
-                                departure: segment.departureTime,
-                                arrival: segment.arrivalTime,
-                                isLead: false
-                            )
-                        }
-                    }
-                    .transition(.opacity)
+            // Remaining legs fade in where they'll sit while the row grows to
+            // make room for them. Clipped, so they're only ever seen inside the
+            // room the row has made so far.
+            VStack(spacing: 0) {
+                // a single train has nothing below it, not even the gap
+                if isExpanded && canExpand {
+                    remainingLegs
+                        .padding(.top, 12)
+                        .transition(.opacity)
                 }
             }
-
-            chips
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+            .clipped()
         }
         .fontDesign(appFontDesign)
         .padding(.vertical, 4)
     }
 
     // MARK: - Subviews
+
+    private var remainingLegs: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            ForEach(Array(solution.segments.enumerated()).dropFirst(), id: \.offset) { index, segment in
+                VStack(alignment: .leading, spacing: 12) {
+                    ConnectionDivider(minutes: minutesBetween(
+                        solution.segments[index - 1].arrivalTime,
+                        segment.departureTime
+                    ))
+                    VStack(alignment: .leading, spacing: 8) {
+                        segmentHeader(segment, extraCount: 0, showsChevron: false, isLead: false)
+                        route(
+                            origin: segment.origin,
+                            destination: segment.destination,
+                            departure: segment.departureTime,
+                            arrival: segment.arrivalTime,
+                            isLead: false
+                        )
+                    }
+                    chips(
+                        minutes: minutesBetween(segment.departureTime, segment.arrivalTime),
+                        showsChanges: false,
+                        price: solution.ticketFares[index]
+                    )
+                }
+            }
+        }
+    }
 
     private func segmentHeader(_ segment: SolutionSegment, extraCount: Int, showsChevron: Bool, isLead: Bool) -> some View {
         HStack(spacing: 8) {
@@ -114,19 +141,19 @@ struct SolutionRow: View {
                         .frame(height: UIFont.preferredFont(forTextStyle: .title3).lineHeight * 0.8)
                 }
             }
-            .animation(isLead ? nil : .snappy, value: isExpanded)
+            .animation(isLead ? nil : .smooth, value: isExpanded)
 
             segmentLabel(segment)
                 .font(.headline).fontWeight(.semibold)
                 .foregroundStyle(segmentTint(segment))
                 .lineLimit(1)
-                .animation(isLead ? nil : .snappy, value: isExpanded)
+                .animation(isLead ? nil : .smooth, value: isExpanded)
 
             if extraCount > 0 && !isExpanded {
                 Text("+\(extraCount)")
                     .font(.body).fontWeight(.regular)
                     .foregroundStyle(.secondary)
-                    .transition(.opacity.combined(with: .scale(scale: 0.7)))
+                    .transition(.opacity)
             }
 
             Spacer(minLength: 0)
@@ -141,7 +168,7 @@ struct SolutionRow: View {
                     .foregroundStyle(.secondary)
                     .frame(width: 13, height: 13)
                     .rotationEffect(.degrees(isExpanded ? 90 : 0))
-                    .animation(.snappy, value: isExpanded)
+                    .animation(.smooth, value: isExpanded)
                     .frame(width: 44, height: 32, alignment: .trailing)
                     .contentShape(Rectangle())
                     .onTapGesture(perform: onToggleExpanded)
@@ -158,7 +185,7 @@ struct SolutionRow: View {
                 Text(departure.formatted(Date.FormatStyle.dateTime.hour().minute()))
                     .monospacedDigit()
             }
-            .animation(isLead ? nil : .snappy, value: isExpanded)
+            .animation(isLead ? nil : .smooth, value: isExpanded)
             HStack {
                 Text(destination)
                 Spacer(minLength: 12)
@@ -170,12 +197,12 @@ struct SolutionRow: View {
         .foregroundStyle(.secondary)
     }
 
-    private var chips: some View {
+    private func chips(minutes: Int, showsChanges: Bool, price: Double?) -> some View {
         HStack(spacing: 8) {
-            chip(systemImage: "clock", text: Text(verbatim: journeyDuration(minutes: solution.durationMinutes)))
+            chip(systemImage: "clock", text: Text(verbatim: journeyDuration(minutes: minutes)))
 
-            // the changes chip doubles as the expand/collapse target
-            if solution.changeCount > 0 {
+            // the changes chip doubles as the expand target
+            if showsChanges && solution.changeCount > 0 {
                 chip(systemImage: "tram.fill", text: Text(changesText))
                     .contentShape(Capsule())
                     .onTapGesture { if canExpand { onToggleExpanded() } }
@@ -183,8 +210,10 @@ struct SolutionRow: View {
 
             Spacer(minLength: 0)
 
-            if let price = solution.price {
-                let tint = priceRank?.color ?? .secondary
+            if let price {
+                // the rank is for the whole fare, so a ticket that's only part
+                // of it stays neutral
+                let tint = price == solution.price ? priceRank?.color ?? .secondary : .secondary
                 Text("\(solution.currency) \(price, format: .number.precision(.fractionLength(2)))")
                     .font(.footnote).fontWeight(.semibold)
                     .monospacedDigit()
@@ -196,6 +225,9 @@ struct SolutionRow: View {
                     .background(tint.opacity(0.15), in: Capsule())
             }
         }
+        // chips just swap, with no animation: easing them looked like they
+        // slid in while the row grew around them
+        .transaction { $0.animation = nil }
     }
 
     private func chip(systemImage: String, text: Text) -> some View {
