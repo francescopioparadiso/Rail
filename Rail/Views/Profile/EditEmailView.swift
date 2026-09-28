@@ -188,7 +188,7 @@ struct EditEmailView: View {
         .background(appBackgroundColor.ignoresSafeArea())
         .navigationTitle(account?.email.isEmpty == false ? account!.email : String(localized: "Email Details"))
         .navigationBarTitleDisplayMode(.inline)
-        .fontDesign(.rounded)
+        .fontDesign(appFontDesign)
         .onAppear {
             scheduleCredentialVerification()
         }

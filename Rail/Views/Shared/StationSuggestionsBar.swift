@@ -6,6 +6,9 @@ struct StationSuggestionsBar: View {
     // MARK: - Properties
 
     let suggestions: [StationSuggestion]
+    /// Whether these are the stations around the user rather than matches for
+    /// what was typed, each then marked with a location glyph.
+    var isNearby: Bool = false
     let onSelect: (StationSuggestion) -> Void
 
     // MARK: - Body
@@ -17,14 +20,22 @@ struct StationSuggestionsBar: View {
                     Button {
                         onSelect(station)
                     } label: {
-                        Text(station.name)
-                            .font(.subheadline).fontWeight(.medium)
-                            .fontDesign(appFontDesign)
-                            .foregroundStyle(.primary)
-                            .lineLimit(1)
-                            .frame(height: 32)
-                            .padding(.vertical, 6).padding(.horizontal, 16)
-                            .background(.thinMaterial, in: Capsule())
+                        HStack(spacing: 6) {
+                            if isNearby {
+                                Image(systemName: "location.fill")
+                                    .font(.caption)
+                                    .foregroundStyle(.tint)
+                            }
+
+                            Text(station.name)
+                                .foregroundStyle(.primary)
+                                .lineLimit(1)
+                        }
+                        .font(.subheadline).fontWeight(.medium)
+                        .fontDesign(appFontDesign)
+                        .frame(height: 32)
+                        .padding(.vertical, 6).padding(.horizontal, 16)
+                        .background(.thinMaterial, in: Capsule())
                     }
                     .buttonStyle(.plain)
                 }

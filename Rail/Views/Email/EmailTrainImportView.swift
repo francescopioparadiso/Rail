@@ -18,6 +18,10 @@ struct EmailTrainImportView: View {
     @Query private var trains: [Train]
 
     var autoScanOnAppear: Bool = true
+    /// Set while the presenter looks for mail that arrived since the last sync. The
+    /// tickets already stored stay listed under a small indicator, and the list is
+    /// reloaded once the fetch is done.
+    var isFetchingNewest: Bool = false
     var onTrainAdded: (() -> Void)? = nil
     var onReloadRequested: (() -> Void)? = nil
 
@@ -29,6 +33,8 @@ struct EmailTrainImportView: View {
     @State private var preloadedTickets: [PreloadedEmailTicketItem] = []
     @State private var preparedTrains: [UUID: PreparedEmailTrain] = [:]
     @State private var isWorking = false
+    /// Whether this view's own scan reads the whole mailbox rather than what's new.
+    @State private var isScanningEverything = false
     @State private var isPreparing = false
     @State private var hasStarted = false
     @State private var syncError: String?
@@ -66,6 +72,10 @@ struct EmailTrainImportView: View {
     }
 
     private var isFiltering: Bool { !selectedAccounts.isEmpty }
+
+    private var isLookingForNewest: Bool {
+        isFetchingNewest || (isWorking && !isScanningEverything)
+    }
 
     private var filteredTickets: [PreloadedEmailTicketItem] {
         var items = preloadedTickets
@@ -149,8 +159,11 @@ struct EmailTrainImportView: View {
                     )
                     .foregroundStyle(Color.secondary)
                     .fontDesign(appFontDesign)
-                } else if isWorking && preloadedTickets.isEmpty {
+                } else if isWorking && isScanningEverything && preloadedTickets.isEmpty {
                     progressView
+                } else if isLookingForNewest && preloadedTickets.isEmpty {
+                    newestTrainsIndicator
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else if preloadedTickets.isEmpty {
                     ContentUnavailableView {
                         Label("No tickets found", systemImage: "envelope")
@@ -184,9 +197,9 @@ struct EmailTrainImportView: View {
                     .fontDesign(appFontDesign)
                 } else {
                     List {
-                        if isWorking {
+                        if isWorking || isFetchingNewest {
                             Section {
-                                progressView
+                                newestTrainsIndicator
                                     .frame(maxWidth: .infinity)
                                     .listRowBackground(Color.clear)
                             }
@@ -277,7 +290,7 @@ struct EmailTrainImportView: View {
                     } label: {
                         Image(systemName: "arrow.clockwise")
                     }
-                    .disabled(isWorking)
+                    .disabled(isWorking || isFetchingNewest)
                 }
 
                 if availableAccounts.count > 1 {
@@ -305,6 +318,16 @@ struct EmailTrainImportView: View {
                 syncTask = Task {
                     await prepareEligibleTrains()
                 }
+            }
+        }
+        .onChange(of: isFetchingNewest) { _, isFetching in
+            guard !isFetching else { return }
+            // the presenter's fetch is done: list what it found and prepare the new ones
+            syncTask?.cancel()
+            loadTicketsFromProfile()
+            guard !previewTicketsAreReady else { return }
+            syncTask = Task {
+                await prepareEligibleTrains()
             }
         }
         .onDisappear { syncTask?.cancel() }
@@ -361,6 +384,10 @@ struct EmailTrainImportView: View {
         }
     }
 
+    private var newestTrainsIndicator: some View {
+        EmailFetchingNewestIndicator(title: "Fetching newest trains…")
+    }
+
     private var progressView: some View {
         EmailSyncProgressView(
             isFetching: !isSyncFinished,
@@ -398,6 +425,8 @@ struct EmailTrainImportView: View {
     }
 
     private func refreshMailbox(reloadAll: Bool) async {
+        // the presenter is already looking; its result reloads the list
+        guard !isFetchingNewest else { return }
         if isWorking, let syncTask {
             await syncTask.value
             return
@@ -413,6 +442,9 @@ struct EmailTrainImportView: View {
     private func scanMailbox(reloadAll: Bool) async {
         guard let profile = profiles.primary else { return }
 
+        isScanningEverything = reloadAll || profile.emails
+            .filter(\.hasConfiguredCredentials)
+            .contains(where: \.needsFullMailboxScan)
         isWorking = true
         defer {
             isPreparing = false
@@ -492,13 +524,17 @@ struct EmailTrainImportView: View {
         }
 
         let tickets = EmailTicketSyncService.tickets(from: profile)
+        // A reload keeps what was already prepared, so rows that were ready don't
+        // dim again while the new ones catch up.
+        let ids = Set(tickets.map(\.ticket.id))
+        preparedTrains = preparedTrains.filter { ids.contains($0.key) }
         // Show every ticket using email-parsed fields immediately. Only tickets
         // departing today or later are prepared for import; the rest are listed as
         // history and never reach for their check-in link.
         preloadedTickets = tickets.map { account, ticket in
             let state: PreloadState
             if ticket.isImportEligible {
-                state = previewTicketsAreReady ? .ready : .loading
+                state = previewTicketsAreReady || preparedTrains[ticket.id] != nil ? .ready : .loading
             } else {
                 state = .unavailable
             }
@@ -509,7 +545,6 @@ struct EmailTrainImportView: View {
                 state: state
             )
         }
-        preparedTrains = [:]
         pruneAccountFilter()
     }
 
@@ -526,48 +561,67 @@ struct EmailTrainImportView: View {
 
         guard let profile = profiles.primary else { return }
 
-        for item in ticketsToPrepare {
-            guard !Task.isCancelled else { return }
-            var ticket = item.ticket
-            
-            if !ticket.hasLoadedDetails {
-                if let emailIndex = profile.emails.firstIndex(where: { $0.email == item.accountEmail }) {
-                    do {
-                        try await EmailTicketSyncService.fetchAndSaveTicketDetails(
-                            for: ticket.id,
-                            checkInID: ticket.link,
-                            emailIndex: emailIndex,
-                            profile: profile,
-                            modelContext: modelContext
-                        )
-                        if let updated = profile.emails[emailIndex].content.first(where: { $0.id == ticket.id }) {
-                            ticket = updated
-                        }
-                    } catch {
-                        print("Failed to fetch details for \(ticket.id): \(error)")
-                    }
-                }
+        // A few at a time: each waits mostly on the network — the ticket's email,
+        // then the train's route — so running them side by side is what saves time.
+        await withTaskGroup(of: Void.self) { group in
+            var pending = ticketsToPrepare[...]
+            for _ in 0..<Self.preparationConcurrency {
+                guard let item = pending.popFirst() else { break }
+                group.addTask { await prepare(item, profile: profile) }
             }
-            
-            let prepared = await EmailTrainService.loadTrain(for: ticket)
-
-            guard !Task.isCancelled else { return }
-            guard let index = preloadedTickets.firstIndex(where: { $0.id == ticket.id }) else { continue }
-
-            if let prepared {
-                let passengers = resolvedPassengers(for: ticket, prepared: prepared)
-                preparedTrains[ticket.id] = PreparedEmailTrain(
-                    prepared: prepared.prepared,
-                    passengers: passengers
-                )
-                preloadedTickets[index].state = .ready
-            } else {
-                preloadedTickets[index].state = .unavailable
+            for await _ in group {
+                guard !Task.isCancelled, let item = pending.popFirst() else { continue }
+                group.addTask { await prepare(item, profile: profile) }
             }
-            preparedCount += 1
         }
 
-        isPreparing = false
+        // a replaced run leaves the flag to the one that replaced it
+        if !Task.isCancelled { isPreparing = false }
+    }
+
+    /// How many tickets are prepared at once.
+    private static let preparationConcurrency = 4
+
+    @MainActor
+    private func prepare(_ item: PreloadedEmailTicketItem, profile: UserProfile) async {
+        guard !Task.isCancelled else { return }
+        var ticket = item.ticket
+
+        if !ticket.hasLoadedDetails {
+            if let emailIndex = profile.emails.firstIndex(where: { $0.email == item.accountEmail }) {
+                do {
+                    try await EmailTicketSyncService.fetchAndSaveTicketDetails(
+                        for: ticket.id,
+                        checkInID: ticket.link,
+                        emailIndex: emailIndex,
+                        profile: profile,
+                        modelContext: modelContext
+                    )
+                    if let updated = profile.emails[emailIndex].content.first(where: { $0.id == ticket.id }) {
+                        ticket = updated
+                    }
+                } catch {
+                    print("Failed to fetch details for \(ticket.id): \(error)")
+                }
+            }
+        }
+
+        let prepared = await EmailTrainService.loadTrain(for: ticket)
+
+        guard !Task.isCancelled else { return }
+        guard let index = preloadedTickets.firstIndex(where: { $0.id == ticket.id }) else { return }
+
+        if let prepared {
+            let passengers = resolvedPassengers(for: ticket, prepared: prepared)
+            preparedTrains[ticket.id] = PreparedEmailTrain(
+                prepared: prepared.prepared,
+                passengers: passengers
+            )
+            preloadedTickets[index].state = .ready
+        } else {
+            preloadedTickets[index].state = .unavailable
+        }
+        preparedCount += 1
     }
 
     private func addTicket(_ item: PreloadedEmailTicketItem) {

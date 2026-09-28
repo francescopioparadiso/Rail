@@ -39,6 +39,8 @@ enum EmailPassSyncService {
         if needsFullScan {
             updatedEmails[emailIndex].lastSyncedPassUID = nil
             updatedEmails[emailIndex].pendingFailedPassUIDs = nil
+            // the rescan stages every PDF afresh, so the old copies would only linger
+            updatedEmails[emailIndex].passes.forEach { PassPDFStore.discard($0.pdfFilename) }
             updatedEmails[emailIndex].passes = []
             profile.emails = updatedEmails
             try modelContext.save()
@@ -102,6 +104,28 @@ enum EmailPassSyncService {
                 return $0.pass.startDate > $1.pass.startDate
             }
             return $0.pass.endDate > $1.pass.endDate
+        }
+    }
+
+    /// The pass with its PDF staged on this device, downloading the email again when
+    /// the staged copy is missing — already moved onto an imported pass, or staged on
+    /// another device before the list synced here. Unchanged if that fails.
+    @MainActor
+    static func withStagedPDF(_ emailPass: EmailPassContent, account: Emails) async -> EmailPassContent {
+        guard !PassPDFStore.exists(emailPass.pdfFilename) else { return emailPass }
+        do {
+            guard let pdf = try await EmailPassFetcher(account: account).fetchPDF(
+                uid: emailPass.imapUID,
+                name: emailPass.name,
+                startDate: emailPass.startDate,
+                endDate: emailPass.endDate
+            ), let filename = PassPDFStore.stage(pdf) else { return emailPass }
+            var staged = emailPass
+            staged.pdfFilename = filename
+            return staged
+        } catch {
+            print("Error downloading pass PDF: \(error)")
+            return emailPass
         }
     }
 

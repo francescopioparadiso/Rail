@@ -1,63 +1,64 @@
-station, code
-Agropoli, AGR
-Ancona, FF_
-Bari, BAC
-Barletta, BLT
-Benevento, BEN
-Bergamo, BGM
-Bisceglie, BIG
-Bologna, BC_
-Bolzano, BLZ
-Brescia, BSC
-Caserta, CEA
-Conegliano, CON
-Desenzano, DSG
-Ferrara, F__
-Firenze Santa Maria Novella, SMN
-Foggia, FG_
-Genova, G__
-Genova Brignole, GB_
-Genova Piazza Principe, G__
-Lamezia Terme Centrale, LON
-Latisana Lignano Bibione, LTL
-Maratea, MRT
-Milano Centrale, MC_
-Milano Rho Fiera, RRO
-Milano Rogoredo, RG_
-Molfetta, ML_
-Monfalcone, MNF
-Napoli Afragola, NAF
-Napoli Centrale, NAC
-Padova, PD_
-Paola, PAR
-Pesaro, PY_
-Peschiera, PSY
-Pisa, 22187
-Pordenone, PNE
-Portogruaro Caorle, PGR
-Reggio Calabria, RCE
-Reggio Emilia Av, AAV
-Riccione, RO_
-Rimini, J__
-Roma Termini, RMT
-Roma Tiburtina, RTB
-Rosarno, RUT
-Rovereto, RVR
-Rovigo, R__
-Salerno, SAL
-Sapri, SRI
-Scalea, SDC
-Torino Porta Nuova, TOP
-Torino Porta Susa, OUE
-Trani, TR_
-Trento, TCN
-Treviso Centrale, TVC
-Trieste, TSC
-Udine, UDN
-Vallo Lucania, VLH
-Venezia Mestre, VEM
-Venezia Santa Lucia, VSL
-Verona Porta Nuova, VPN
-Vibo Pizzo, VIP
-Vicenza, VIC
-Villa San Giovanni, VSG
+station,code,route,trenitalia,viaggiatreno
+Agropoli,AGR,Agropoli Castellabate,830011705,S11705
+Ancona,FF_,Ancona,830007113,S07113
+Aversa,AVR,Aversa,830009006,S09006
+Bari,BAC,Bari Centrale,830011119,S11119
+Barletta,BLT,Barletta,830011108,S11108
+Benevento,BEN,Benevento,830009311,S09311
+Bergamo,BGM,Bergamo,830001529,S01529
+Bisceglie,BIG,Bisceglie,830011113,S11113
+Bologna,BC_,Bologna centrale,830005043,S05043
+Bolzano,BLZ,Bolzano,830002026,S02026
+Brescia,BSC,Brescia,830001717,S01717
+Caserta,CEA,Caserta,830009211,S09211
+Conegliano,CON,Conegliano,830002706,S02706
+Desenzano,DSG,Desenzano,830002084,S02084
+Ferrara,F__,Ferrara,830005712,S05712
+Firenze Santa Maria Novella,SMN,Firenze Santa Maria Novella,830006421,S06421
+Foggia,FG_,Foggia,830011100,S11100
+Genova Brignole,GB_,Genova Brignole,830004702,S04702
+Genova Piazza Principe,G__,Genova Piazza Principe,830004700,S04700
+Lamezia Terme Centrale,LON,Lamezia Terme C,830011749,S11749
+Latisana Lignano Bibione,LTL,Latisana-Lignano,830003202,S03202
+Maratea,MRT,Maratea,830011723,S11723
+Milano Centrale,MC_,Milano Centrale,830001700,S01700
+Milano Rho Fiera,RRO,Milano Expo Rho,830001039,S01039
+Milano Rogoredo,RG_,Milano Rogoredo,830001820,S01820
+Molfetta,ML_,Molfetta,830011114,S11114
+Monfalcone,MNF,Monfalcone,830003310,S03310
+Napoli Afragola,NAF,Napoli Afragola,830009988,S09988
+Napoli Centrale,NAC,Napoli,830009218,S09218
+Padova,PD_,Padova,830002581,S02581
+Paola,PAR,Paola,830011739,S11739
+Pesaro,PY_,Pesaro,830007104,S07104
+Peschiera,PSY,Peschiera,830002088,S02088
+Pordenone,PNE,Pordenone,830002701,S02701
+Portogruaro Caorle,PGR,Portogruaro,830003200,S03200
+Reggio Calabria,RCE,Reggio Calabria,830011781,S11781
+Reggio Emilia Av,AAV,Mediopadana R.Emilia,830005254,S05254
+Riccione,RO_,Riccione,830007101,S07101
+Rimini,J__,Rimini,830005071,S05071
+Roma Termini,RMT,Roma Termini,830008409,S08409
+Roma Tiburtina,RTB,Roma Tiburtina,830008217,S08217
+Rosarno,RUT,Rosarno,830011765,S11765
+Rovereto,RVR,Rovereto,830002044,S02044
+Rovigo,R__,Rovigo,830005706,S05706
+Salerno,SAL,Salerno,830009818,S09818
+San Dona di Piave,SDP,S.Donà-Jesolo,830002666,S02666
+Sapri,SRI,Sapri,830011721,S11721
+Scalea,SDC,Scalea,830011727,S11727
+Torino Porta Nuova,TOP,Torino Porta Nuova,830000219,S00219
+Torino Porta Susa,OUE,Torino Porta di Susa,830000222,S00035
+Trani,TR_,Trani,830011112,S11112
+Trento,TCN,Trento,830002038,S02038
+Treviso Centrale,TVC,Treviso C.le,830002712,S02712
+Trieste,TSC,Trieste C.le,830003317,S03317
+Trieste Airport,RHA,Trieste Airport,830003213,S03213
+Udine,UDN,Udine,830003026,S03026
+Vallo Lucania,VLH,Vallo d.Lucania,830011709,S11709
+Venezia Mestre,VEM,Venezia Mestre,830002589,S02589
+Venezia Santa Lucia,VSL,Venezia Santa Lucia,830002593,S02593
+Verona Porta Nuova,VPN,Verona Porta Nuova,830002430,S02430
+Vibo Pizzo,VIP,Vibo-Pizzo,830011789,S11789
+Vicenza,VIC,Vicenza,830002446,S02446
+Villa San Giovanni,VSG,Villa S.Giovanni,830011774,S11774

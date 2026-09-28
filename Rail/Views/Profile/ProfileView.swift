@@ -36,7 +36,7 @@ struct ProfileView: View {
                     ProgressView()
                 }
             }
-            .fontDesign(.rounded)
+            .fontDesign(appFontDesign)
             .coordinateSpace(name: "profileRoot")
             .background {
                 if profileImage != nil, !profilePhotoFrame.isEmpty {

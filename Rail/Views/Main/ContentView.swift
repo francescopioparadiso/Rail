@@ -34,6 +34,10 @@ struct ContentView: View {
     @State private var fetchSheetDetent: PresentationDetent = .medium
     @State private var ticketSyncProgresses: [String: EmailTicketSyncProgress] = [:]
     @State private var isFetchingEmailTickets = false
+    /// Whether the running fetch reads the whole mailbox — the first scan, or a
+    /// start-over. Only that one gets the full progress view; looking for what has
+    /// arrived since keeps the list on screen.
+    @State private var isFullEmailScan = false
     @State private var showFetchResultCard = false
 
     /// Set only by previews and screenshot builds: it puts the mail button on the
@@ -72,6 +76,10 @@ struct ContentView: View {
     private var fetchEmailsFound: Int {
         let found = ticketSyncProgresses.values.map(\.emailsFound).reduce(0, +)
         return found > 0 ? found : fetchedTicketsCount
+    }
+
+    private var showsFullEmailScan: Bool {
+        isFetchingEmailTickets && isFullEmailScan
     }
 
     private var showsFetchToolbarButton: Bool {
@@ -319,7 +327,7 @@ struct ContentView: View {
     private var emailImportSheetContent: some View {
         NavigationStack {
             Group {
-                if isFetchingEmailTickets {
+                if showsFullEmailScan {
                     EmailSyncProgressView(
                         isFetching: isFetchingEmailTickets,
                         progressTitle: fetchProgressTitle,
@@ -336,6 +344,7 @@ struct ContentView: View {
                 } else {
                     EmailTrainImportView(
                         autoScanOnAppear: false,
+                        isFetchingNewest: isFetchingEmailTickets,
                         onTrainAdded: { selectedSection = .today },
                         onReloadRequested: {
                             triggerEmailTicketRefresh(reloadAll: true)
@@ -344,16 +353,16 @@ struct ContentView: View {
                     .transition(.opacity.combined(with: .scale(scale: 0.98)))
                 }
             }
-            .animation(.spring(response: 0.4, dampingFraction: 0.8), value: isFetchingEmailTickets)
+            .animation(.spring(response: 0.4, dampingFraction: 0.8), value: showsFullEmailScan)
         }
         .presentationDetents(
-            isFetchingEmailTickets ? [.medium] : [.large],
+            showsFullEmailScan ? [.medium] : [.large],
             selection: $fetchSheetDetent
         )
         .presentationDragIndicator(.hidden)
         .presentationBackground(appBackgroundColor)
-        .onChange(of: isFetchingEmailTickets) { _, isFetching in
-            fetchSheetDetent = isFetching ? .medium : .large
+        .onChange(of: showsFullEmailScan) { _, isFullScan in
+            fetchSheetDetent = isFullScan ? .medium : .large
         }
     }
 
@@ -499,7 +508,10 @@ struct ContentView: View {
 
     private func openEmailFetchSheet() {
         HapticFeedback.tap()
-        fetchSheetDetent = isFetchingEmailTickets ? .medium : .large
+        let opensOnFullScan = isFetchingEmailTickets
+            ? isFullEmailScan
+            : !usesMockMailbox && needsFullEmailScan(reloadAll: false)
+        fetchSheetDetent = opensOnFullScan ? .medium : .large
         emailImportSheet = true
         // Opening the mailbox looks for what has arrived since the last sync and
         // nothing more: stored emails are never read a second time. Starting over
@@ -516,9 +528,17 @@ struct ContentView: View {
         }
     }
 
+    private func needsFullEmailScan(reloadAll: Bool) -> Bool {
+        guard let profile = profiles.primary else { return false }
+        return reloadAll || profile.emails
+            .filter(\.hasConfiguredCredentials)
+            .contains(where: \.needsFullMailboxScan)
+    }
+
     @MainActor
     private func fetchEmailTickets(reloadAll: Bool = false) async {
         guard let profile = profiles.primary else { return }
+        isFullEmailScan = needsFullEmailScan(reloadAll: reloadAll)
         isFetchingEmailTickets = true
         showFetchResultCard = false
         ticketSyncProgresses = [:]

@@ -17,8 +17,11 @@ final class Train {
     var issue: String = ""
     var calendarEventIdentifier: String? = nil
     var sourceEmailTicketID: UUID? = nil
+    /// Shared by the trains saved together from one search result, so the list can
+    /// fold them back into the journey they were picked as. Nil for a train on its own.
+    var journeyID: UUID? = nil
 
-    init(id: UUID, logo: String, number: String, identifier: String, provider: String, last_update_time: Date, delay: Int, direction: String, issue: String, calendarEventIdentifier: String? = nil, sourceEmailTicketID: UUID? = nil) {
+    init(id: UUID, logo: String, number: String, identifier: String, provider: String, last_update_time: Date, delay: Int, direction: String, issue: String, calendarEventIdentifier: String? = nil, sourceEmailTicketID: UUID? = nil, journeyID: UUID? = nil) {
         self.id = id
         self.logo = logo
         self.number = number
@@ -30,6 +33,7 @@ final class Train {
         self.issue = issue
         self.calendarEventIdentifier = calendarEventIdentifier
         self.sourceEmailTicketID = sourceEmailTicketID
+        self.journeyID = journeyID
     }
 }
 

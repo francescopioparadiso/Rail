@@ -9,6 +9,12 @@ struct TodayTrainRow: View, Equatable {
     let isFirst: Bool
     let isLast: Bool
 
+    /// Set on a journey's lead row, folded or not; see `ListView`.
+    var headerTrain: Train? = nil
+    var extraCount: Int = 0
+    var isExpanded: Bool = false
+    var onToggleExpanded: (() -> Void)? = nil
+
     // MARK: - Computed
 
     /// A connected pair already reads as one block, so it gets no rule between its legs.
@@ -25,7 +31,16 @@ struct TodayTrainRow: View, Equatable {
     var body: some View {
         VStack(spacing: 0) {
             ZStack {
-                ListView(train: item.train, stops: item.trainStops, summary: item.summary, now: now)
+                ListView(
+                    train: item.train,
+                    stops: item.trainStops,
+                    summary: item.summary,
+                    now: now,
+                    headerTrain: headerTrain,
+                    extraCount: extraCount,
+                    isExpanded: isExpanded,
+                    onToggleExpanded: onToggleExpanded
+                )
                     .padding(.top, isFirst ? firstRowTopPadding : item.topPadding)
                     .padding(.bottom, isLast ? 4 : item.bottomPadding)
 
@@ -52,6 +67,12 @@ struct TodayTrainRow: View, Equatable {
 
     static func == (lhs: TodayTrainRow, rhs: TodayTrainRow) -> Bool {
         lhs.item.id == rhs.item.id
+            && lhs.item.train.id == rhs.item.train.id
+            && lhs.headerTrain?.id == rhs.headerTrain?.id
+            && lhs.extraCount == rhs.extraCount
+            && lhs.isExpanded == rhs.isExpanded
+            && (lhs.onToggleExpanded == nil) == (rhs.onToggleExpanded == nil)
+            && lhs.item.connection?.totalMinutes == rhs.item.connection?.totalMinutes
             && lhs.isFirst == rhs.isFirst
             && lhs.isLast == rhs.isLast
             && lhs.now == rhs.now

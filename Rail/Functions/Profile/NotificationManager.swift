@@ -186,9 +186,12 @@ final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
             alerts.append(
                 PlannedAlert(
                     identifier: "\(Self.passPrefix)\(pass.id.uuidString)",
-                    title: String(format: NSLocalizedString("%@ expires in %lld days", comment: ""), name, remaining),
+                    title: String.localizedStringWithFormat(
+                        NSLocalizedString("🎫 %1$@: %2$lld days left", comment: "Pass alert title"),
+                        name, remaining
+                    ),
                     body: String(
-                        format: NSLocalizedString("Valid until %@", comment: ""),
+                        format: NSLocalizedString("⏳ Expires %@ · renew it now", comment: "Pass alert body"),
                         expiry.formatted(Date.FormatStyle.dateTime.day().month(.wide))
                     ),
                     trainID: pass.id,
@@ -217,20 +220,28 @@ final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
         let fireDate = eventDate.addingTimeInterval(-lead)
         guard fireDate > now else { return nil }
 
-        let leadText = NotificationSettings.leadDescription(lead)
+        // The title carries the one thing to act on — which train, or which
+        // station — so a banner cut short still says it.
+        let leadText = NotificationSettings.shortLeadDescription(lead)
+        let name = (train.number.isEmpty ? train.logo : "\(train.logo) \(train.number)")
+            .trimmingCharacters(in: .whitespaces)
+        let time = eventDate.formatted(Date.FormatStyle.dateTime.hour().minute())
+
         let title: String
+        var body: String
         switch kind {
         case .departure:
-            title = String(format: NSLocalizedString("Departing in %@", comment: ""), leadText)
+            title = String(format: NSLocalizedString("🚆 %1$@ leaves in %2$@", comment: "Departure alert title"), name, leadText)
+            body = "📍 \(station) · 🕘 \(time)"
         case .arrival:
-            title = String(format: NSLocalizedString("Arriving in %@", comment: ""), leadText)
+            title = String(format: NSLocalizedString("🏁 %1$@ in %2$@", comment: "Arrival alert title"), station, leadText)
+            // a delay takes the nudge's place, so the body stays one line
+            body = delay > 0
+                ? "🧳 \(name) · 🕐 \(time)"
+                : String(format: NSLocalizedString("🧳 Get ready · %1$@ · 🕐 %2$@", comment: "Arrival alert body"), name, time)
         }
-
-        let name = train.number.isEmpty ? train.logo : "\(train.logo) \(train.number)"
-        let time = eventDate.formatted(Date.FormatStyle.dateTime.hour().minute())
-        var body = "\(name.trimmingCharacters(in: .whitespaces)) · \(station) · \(time)"
         if delay > 0 {
-            body += " · " + String(format: NSLocalizedString("%lld min delay", comment: ""), delay)
+            body += " · ⚠️ +\(delay) min"
         }
 
         return PlannedAlert(

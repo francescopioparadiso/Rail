@@ -82,8 +82,37 @@ actor EmailTrainFetcher {
         "UID FETCH \(uid) (BODY.PEEK[])"
     }
 
-    private func fallbackFetchCommand(for uid: String) -> String {
-        "UID FETCH \(uid) (BODY.PEEK[TEXT])"
+    /// How many emails each `UID FETCH` asks for at once.
+    private static let batchSize = 20
+
+    /// How much of each email a scan downloads first. The journey and the check-in
+    /// link live in the text, which comes before the PDF — the bulk of the message —
+    /// so this is usually all of it that is needed.
+    private static let previewBytes = 131_072
+
+    private static let previewItems = "BODY.PEEK[]<0.\(previewBytes)>"
+
+    /// Whether a preview stopped short of the text: it was cut, and before reaching
+    /// any attachment — past one, the text parts ahead of it are already whole.
+    private static func previewMayMissText(_ raw: String) -> Bool {
+        guard (IMAPSession.firstLiteralSize(in: raw) ?? 0) >= previewBytes else { return false }
+        let lower = raw.lowercased()
+        return !lower.contains("content-disposition: attachment")
+            && !lower.contains("content-type: application/")
+    }
+
+    /// The previews of the next batch of emails, by UID. Empty if the batch failed,
+    /// with the connection reopened so each email is then fetched on its own.
+    private func prefetchPreviews(_ uids: [String], folder: String) async throws -> [String: String] {
+        do {
+            return try await session.fetchMessages(uids: uids, items: Self.previewItems)
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            session.close()
+            _ = try? await session.openMailbox(folder: folder)
+            return [:]
+        }
     }
 
     private func extractCheckInID(from body: String) -> String? {
@@ -115,10 +144,12 @@ actor EmailTrainFetcher {
     }
 
     private func parseEmail(_ raw: String, uid: String) -> FetchedEmail? {
-        let searchable = IMAPResponse.messageContent(from: raw) ?? raw
-        let decoded1 = EmailBodyDecoder.decode(body: searchable, headers: searchable)
-        let decoded2 = EmailBodyDecoder.decode(body: raw, headers: raw)
-        let decoded = decoded1.text + "\n" + decoded2.text
+        let content = IMAPResponse.messageContent(from: raw)
+        let searchable = content ?? raw
+        // the whole response only adds to the message itself when that couldn't be cut out
+        let decoded = content == nil
+            ? EmailBodyDecoder.decode(body: raw, headers: raw).text
+            : EmailBodyDecoder.decode(body: searchable, headers: searchable).text
 
         print("[EMAIL-DEBUG] UID \(uid): raw=\(raw.count) chars, searchable=\(searchable.count) chars, decoded=\(decoded.count) chars")
         let snippet = String(decoded.prefix(300)).replacingOccurrences(of: "\n", with: "⏎")
@@ -268,25 +299,31 @@ actor EmailTrainFetcher {
         var failedUIDs: [UInt64] = []
         var rejectedUIDs: [UInt64] = []
         var warnings: [String] = []
+        var previews: [String: String] = [:]
         for (index, uid) in matchingUIDs.enumerated() {
             try Task.checkCancellation()
+            if index % Self.batchSize == 0 {
+                let batch = matchingUIDs[index..<min(index + Self.batchSize, matchingUIDs.count)]
+                previews = try await prefetchPreviews(batch.map(\.raw), folder: openedFolder)
+            }
             var latestWarning: String?
             do {
-                var raw = try await session.withOperationTimeout {
-                    try await self.session.command(self.fetchCommand(for: uid.raw))
+                var parsed: FetchedEmail?
+                var needsFullMessage = true
+                // a preview cut short of the text could have parsed on half a journey
+                if let preview = previews[uid.raw], !Self.previewMayMissText(preview) {
+                    parsed = parseEmail(preview, uid: uid.raw)
+                    needsFullMessage = false
                 }
-                if !IMAPResponse.taggedSuccess(raw) {
-                    throw EmailFetchError.fetchFailed
-                }
-
-                var parsed = parseEmail(raw, uid: uid.raw)
-                if parsed == nil {
-                    raw = try await session.withOperationTimeout {
-                        try await self.session.command(self.fallbackFetchCommand(for: uid.raw))
+                // the whole message, PDF and all, only when the preview can't settle it
+                if needsFullMessage {
+                    let raw = try await session.withOperationTimeout {
+                        try await self.session.command(self.fetchCommand(for: uid.raw))
                     }
-                    if IMAPResponse.taggedSuccess(raw) {
-                        parsed = parseEmail(raw, uid: uid.raw)
+                    if !IMAPResponse.taggedSuccess(raw) {
+                        throw EmailFetchError.fetchFailed
                     }
+                    parsed = parseEmail(raw, uid: uid.raw)
                 }
 
                 await progress?(
@@ -301,7 +338,7 @@ actor EmailTrainFetcher {
                 if let parsed {
                     emails.append(parsed)
                 } else {
-                    // Downloaded in full and not a usable check-in ticket: a settled
+                    // Read through and not a usable check-in ticket: a settled
                     // verdict, so this one is not queued for a retry.
                     rejectedUIDs.append(uid.numeric)
                     let warning = String(localized: "Skipped email \(uid.raw): no check-in ticket found")
@@ -364,7 +401,11 @@ actor EmailTrainFetcher {
     }
 
     func fetchPDFs(forUID uid: String) async throws -> [Data] {
-        _ = try await session.openMailbox()
+        // the UID came from the scan, so it only means something in the mailbox the
+        // scan read — Gmail's All Mail, whose UIDs differ from the inbox's
+        session.useLargeMessageLimits(true)
+        defer { session.useLargeMessageLimits(false) }
+        _ = try await session.openPassMailbox()
         defer { session.close() }
 
         let response = try await session.command("UID FETCH \(uid) (BODY.PEEK[])")

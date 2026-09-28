@@ -178,7 +178,9 @@ enum EmailTrainService {
         reloadWidgetTimelines()
     }
 
-    private static func applyDayOffset(
+    /// A run of a train moved `dayOffset` days on, as the timetable for that day:
+    /// the feed only knows today's run, so it stands in for another day's.
+    static func applyDayOffset(
         to info: [String: Any],
         dayOffset: Int,
         targetDeparture: Date,

@@ -118,6 +118,58 @@ nonisolated final class IMAPSession {
         return out
     }
 
+    /// Fetches `items` for several messages in one `UID FETCH`, so a scan pays one
+    /// round trip per batch rather than one per email. Each message comes back as
+    /// its own untagged response — shaped like `command`'s output, minus the tagged
+    /// line — keyed by UID. A message the server skipped is simply missing.
+    func fetchMessages(uids: [String], items: String) async throws -> [String: String] {
+        guard !uids.isEmpty else { return [:] }
+        // The deadline is per message: a batch as a whole may take far longer than
+        // any one email, but a stall anywhere still times out.
+        var deadline = Date().addingTimeInterval(activeCommandTimeout)
+        let id = "A\(String(format: "%03d", tag))"
+        tag += 1
+        try await send("\(id) UID FETCH \(uids.joined(separator: ",")) (\(items))\r\n".data(using: .utf8)!, deadline: deadline)
+
+        var messages: [String: String] = [:]
+        var current = ""
+        var currentUID: String?
+        func finishMessage() {
+            if let currentUID { messages[currentUID] = current }
+            current = ""
+            currentUID = nil
+        }
+
+        while true {
+            try Task.checkCancellation()
+            if Date() > deadline { throw EmailFetchError.timedOut }
+            let row = try await readLine(deadline: deadline)
+            if row.hasPrefix(id) {
+                finishMessage()
+                guard !row.contains(" BAD ") else { throw EmailFetchError.fetchFailed }
+                return messages
+            }
+            if row.hasPrefix("* "), row.contains(" FETCH (") {
+                finishMessage()
+                deadline = Date().addingTimeInterval(activeCommandTimeout)
+            }
+            current += row + "\r\n"
+            // the UID may come before the body or after it, depending on the server
+            if currentUID == nil, let uid = Self.fetchedUID(in: row) { currentUID = uid }
+            // a literal always closes the line that announces it
+            if let size = Self.firstLiteralSize(in: row) {
+                if size > activeMaxLiteralSize { throw EmailFetchError.fetchFailed }
+                let literal = try await read(size, deadline: deadline)
+                current += String(bytes: literal, encoding: .isoLatin1) ?? String(decoding: literal, as: UTF8.self)
+            }
+        }
+    }
+
+    private static func fetchedUID(in row: String) -> String? {
+        guard let match = row.range(of: #"\bUID \d+"#, options: .regularExpression) else { return nil }
+        return String(row[match].dropFirst(4))
+    }
+
     func readLine(deadline: Date? = nil) async throws -> String {
         let effectiveDeadline = deadline ?? Date().addingTimeInterval(activeCommandTimeout)
         if Date() > effectiveDeadline { throw EmailFetchError.timedOut }
@@ -359,7 +411,12 @@ nonisolated enum IMAPResponse {
     }
 
     static func header(_ name: String, in headers: String) -> String? {
-        let lines = headers.replacingOccurrences(of: "\r\n", with: "\n").components(separatedBy: "\n")
+        // Headers end at the first blank line, so the body — PDF and all, for a whole
+        // message — is never split into lines just to be skipped.
+        let headerEnd = [headers.range(of: "\r\n\r\n"), headers.range(of: "\n\n")]
+            .compactMap { $0?.lowerBound }
+            .min() ?? headers.endIndex
+        let lines = headers[..<headerEnd].replacingOccurrences(of: "\r\n", with: "\n").components(separatedBy: "\n")
         var values: [String] = []
         var capturing = false
         let prefix = "\(name.lowercased()):"

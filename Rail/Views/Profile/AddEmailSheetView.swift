@@ -121,7 +121,7 @@ struct AddEmailSheetView: View {
                     )
                 }
             }
-            .fontDesign(.rounded)
+            .fontDesign(appFontDesign)
             .onAppear {
                 isEmailFocused = true
             }

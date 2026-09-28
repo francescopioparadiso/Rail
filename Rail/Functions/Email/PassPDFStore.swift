@@ -38,6 +38,11 @@ nonisolated enum PassPDFStore {
         return try? Data(contentsOf: directory.appending(path: filename))
     }
 
+    static func exists(_ filename: String?) -> Bool {
+        guard let filename, let directory else { return false }
+        return FileManager.default.fileExists(atPath: directory.appending(path: filename).path)
+    }
+
     static func discard(_ filename: String?) {
         guard let filename, let directory else { return }
         try? FileManager.default.removeItem(at: directory.appending(path: filename))

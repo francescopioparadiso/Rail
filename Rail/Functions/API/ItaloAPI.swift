@@ -1,57 +1,262 @@
 import Foundation
 
-class ItaloAPI {
-    func suggestions() -> [String] {
-        var stationNames: [String] = []
+/// A station Italo calls at: one row of `italo_stations.csv`, tying Italo's own
+/// names and codes to the ids the rest of the app searches and reads boards with.
+struct ItaloStation: Hashable {
+    /// The name Italo's board is asked for, "Milano Centrale".
+    let name: String
+    /// Italo's code, "MC_".
+    let code: String
+    /// How Italo's routes print it, "Mediopadana R.Emilia".
+    let routeName: String
+    /// The lefrecce location id the journey search picks, "830001700".
+    let trenitaliaID: String
+    /// The viaggiatreno code the timetable reads, "S01700".
+    let viaggiatrenoCode: String
+}
 
-        guard let filePath = Bundle.main.path(forResource: "italo_stations", ofType: "csv") else {
+/// A stop an Italo train makes, as the board prints its route.
+struct ItaloCall: Hashable {
+    let name: String
+    let time: Date
+}
+
+/// One train on an Italo station board.
+struct ItaloBoardEntry: Hashable {
+    let number: String
+    /// Where it's bound for on departures, where it comes from on arrivals.
+    let counterpart: String
+    let scheduledTime: Date
+    let delayMinutes: Int
+    let platform: String
+    /// The stops after this station on departures, before it on arrivals. Empty
+    /// when the board leaves the route out, which it does for some trains.
+    let route: [ItaloCall]
+}
+
+class ItaloAPI {
+    private static let baseURL = "https://italoinviaggio.italotreno.com/api"
+
+    // MARK: - Stations
+
+    static let stations: [ItaloStation] = {
+        guard let filePath = Bundle.main.path(forResource: "italo_stations", ofType: "csv"),
+              let content = try? String(contentsOfFile: filePath, encoding: .utf8) else {
             print("❌ Error: italo_stations.csv not found in bundle")
             return []
         }
 
+        return content.components(separatedBy: "\n").dropFirst().compactMap { row in
+            let columns = row.components(separatedBy: ",").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            guard columns.count == 5 else { return nil }
+            return ItaloStation(
+                name: columns[0],
+                code: columns[1],
+                routeName: columns[2],
+                trenitaliaID: columns[3],
+                viaggiatrenoCode: columns[4]
+            )
+        }
+    }()
+
+    static func station(trenitaliaID: String) -> ItaloStation? {
+        stations.first { $0.trenitaliaID == trenitaliaID }
+    }
+
+    static func station(viaggiatrenoCode: String) -> ItaloStation? {
+        stations.first { $0.viaggiatrenoCode == viaggiatrenoCode }
+    }
+
+    // MARK: - Board
+
+    /// Italo's live board for `station`: what is due over roughly the next two
+    /// hours, and nothing further ahead — the board is all Italo publishes.
+    /// Italobus connections are left out, having no route that can be followed.
+    static func board(_ kind: StationBoardKind, at station: ItaloStation) async -> [ItaloBoardEntry] {
+        var components = URLComponents(string: "\(baseURL)/RicercaStazioneService")
+        components?.queryItems = [
+            URLQueryItem(name: "CodiceStazione", value: station.code),
+            URLQueryItem(name: "NomeStazione", value: station.name)
+        ]
+        guard let url = components?.url else { return [] }
+
         do {
-            let content = try String(contentsOfFile: filePath, encoding: .utf8)
-            let rows = content.components(separatedBy: "\n").filter { !$0.isEmpty }
+            let (data, _) = try await URLSession.shared.data(from: url)
+            guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { return [] }
+            let key = kind == .departures ? "ListaTreniPartenza" : "ListaTreniArrivo"
+            let entries = json[key] as? [[String: Any]] ?? []
+            return entries.compactMap { boardEntry(from: $0, kind: kind) }
+        } catch {
+            print("Error fetching Italo board \(station.code): \(error)")
+            return []
+        }
+    }
 
-            for row in rows.dropFirst() {
-                let columns = row.components(separatedBy: ",").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+    private static func boardEntry(from entry: [String: Any], kind: StationBoardKind) -> ItaloBoardEntry? {
+        // trains run on four-digit numbers, Italobus on five
+        guard let number = entry["Numero"] as? String, number.count == 4,
+              let scheduled = clockTime(entry["OraPassaggio"] as? String ?? "", near: Date()) else { return nil }
 
-                let name = columns[0]
-                let code = columns[1]
-                
-                let payload = "\(name),\(code),italo"
-                stationNames.append(payload)
+        // "Milano Expo Rho (10.41) - Torino Porta di Susa (11.24)"
+        let route: [ItaloCall] = (entry["InfoRoute"] as? String ?? "")
+            .components(separatedBy: " - ")
+            .compactMap { part in
+                guard let open = part.lastIndex(of: "(") else { return nil }
+                let name = part[..<open].trimmingCharacters(in: .whitespaces)
+                let clock = part[part.index(after: open)...]
+                    .trimmingCharacters(in: CharacterSet(charactersIn: ") "))
+                    .replacingOccurrences(of: ".", with: ":")
+                // a stop's clock is read on the same side of this one as the route runs
+                guard !name.isEmpty, var time = clockTime(clock, near: scheduled) else { return nil }
+                if kind == .departures, time < scheduled {
+                    time = Calendar.current.date(byAdding: .day, value: 1, to: time) ?? time
+                } else if kind == .arrivals, time > scheduled {
+                    time = Calendar.current.date(byAdding: .day, value: -1, to: time) ?? time
+                }
+                return ItaloCall(name: name, time: time)
+            }
+
+        return ItaloBoardEntry(
+            number: number,
+            counterpart: (entry["DescrizioneLocalita"] as? String ?? "").capitalized,
+            scheduledTime: scheduled,
+            delayMinutes: entry["Ritardo"] as? Int ?? 0,
+            platform: entry["Binario"] as? String ?? "",
+            route: route
+        )
+    }
+
+    // MARK: - Solutions
+
+    /// The direct Italo trains from one station to the other, for a search on
+    /// today. Italo only publishes its live board, so these are the trains leaving
+    /// in the next couple of hours, and none on any other day.
+    func trainSolutions(
+        origin: String,
+        departureLocationId: String,
+        destination: String,
+        arrivalLocationId: String,
+        departureTime: Date
+    ) async -> [Solution] {
+        guard Calendar.current.isDateInToday(departureTime),
+              let from = Self.station(trenitaliaID: departureLocationId),
+              let to = Self.station(trenitaliaID: arrivalLocationId),
+              from != to else { return [] }
+
+        let departures = await Self.board(.departures, at: from)
+
+        let arrivals = await withTaskGroup(of: (ItaloBoardEntry, Date?).self) { group in
+            for entry in departures {
+                group.addTask { (entry, await Self.arrival(of: entry, from: from, at: to)) }
+            }
+
+            var arrivals: [(ItaloBoardEntry, Date)] = []
+            for await (entry, arrival) in group {
+                if let arrival { arrivals.append((entry, arrival)) }
+            }
+            return arrivals
+        }
+
+        let solutions = arrivals.map { entry, arrival in
+            Solution(segments: [
+                SolutionSegment(
+                    origin: origin,
+                    destination: destination,
+                    departureTime: entry.scheduledTime,
+                    arrivalTime: arrival,
+                    logo: "ITALO",
+                    number: entry.number,
+                    stationCode: from.code,
+                    isBus: false
+                )
+            ])
+        }
+        return solutions.sorted { $0.departureTime < $1.departureTime }
+    }
+
+    /// When the train reaches `station` after leaving `origin`, or nil when it
+    /// doesn't call there. The board's route answers it; for the trains the board
+    /// prints no route for, the train's own schedule does.
+    private static func arrival(of entry: ItaloBoardEntry, from origin: ItaloStation, at station: ItaloStation) async -> Date? {
+        if !entry.route.isEmpty {
+            return entry.route.first { matches($0.name, station) }?.time
+        }
+
+        let calls = await schedule(number: entry.number)
+        let start = calls.firstIndex { matches($0.name, origin) }.map { $0 + 1 } ?? 0
+        return calls[start...].first { matches($0.name, station) && $0.time > entry.scheduledTime }?.time
+    }
+
+    /// Every stop on today's run of `number`, at the time it's timetabled there.
+    private static func schedule(number: String) async -> [ItaloCall] {
+        guard let url = URL(string: "\(baseURL)/RicercaTrenoService?TrainNumber=\(number)") else { return [] }
+
+        do {
+            let (data, _) = try await URLSession.shared.data(from: url)
+            guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let schedule = json["TrainSchedule"] as? [String: Any] else { return [] }
+
+            var stops: [[String: Any]] = [schedule["StazionePartenza"] as? [String: Any] ?? [:]]
+            stops.append(contentsOf: schedule["StazioniFerme"] as? [[String: Any]] ?? [])
+            stops.append(contentsOf: schedule["StazioniNonFerme"] as? [[String: Any]] ?? [])
+
+            var previous: Date?
+            return stops.compactMap { stop in
+                // "01:00" is Italo's blank: the origin has no arrival time
+                let arrival = stop["EstimatedArrivalTime"] as? String ?? ""
+                let clock = arrival == "01:00" ? stop["EstimatedDepartureTime"] as? String ?? "" : arrival
+                guard let name = stop["LocationDescription"] as? String,
+                      var time = clockTime(clock, near: previous ?? Date()) else { return nil }
+                if let previous, time < previous {
+                    time = Calendar.current.date(byAdding: .day, value: 1, to: time) ?? time
+                }
+                previous = time
+                return ItaloCall(name: name, time: time)
             }
         } catch {
-            print("❌ Error reading CSV file: \(error)")
+            print("Error fetching Italo schedule \(number): \(error)")
+            return []
         }
-        
-        return stationNames
     }
 
-    func solutions(depStatCode: String, depStatName: String) async throws -> [String] {
-        let urlString = "https://italoinviaggio.italotreno.it/api/RicercaStazioneService?&CodiceStazione=\(depStatCode)&NomeStazione=\(depStatName)"
-        
-        guard let url = URL(string: urlString) else { return [] }
-        let (data, _) = try await URLSession.shared.data(from: url)
-        
-        var solutions: [String] = []
+    // MARK: - Helpers
 
-        if let json = try JSONSerialization.jsonObject(with: data, options: []) as? [String: Any] {
-            let upcomingTrains = json["ListaTreniArrivo"] as? [[String: Any]] ?? []
-            
-            for train in upcomingTrains {
-                if let number = train["Numero"] as? String {
-                     solutions.append(number)
-                }
-            }
-        }
-        
-        return solutions
+    /// Whether a name from an Italo route is `station`, going by either of the
+    /// names Italo gives it.
+    private static func matches(_ name: String, _ station: ItaloStation) -> Bool {
+        let target = comparable(name)
+        return target == comparable(station.routeName) || target == comparable(station.name)
     }
+
+    /// Letters and digits only, accents folded, so "S.Donà-Jesolo" and
+    /// "S. Dona Jesolo" read alike.
+    private static func comparable(_ value: String) -> String {
+        value.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil)
+            .filter { $0.isLetter || $0.isNumber }
+    }
+
+    /// "11:24" on the day that puts it closest to `reference`: a board read just
+    /// before midnight lists the trains just after it as well.
+    private static func clockTime(_ clock: String, near reference: Date) -> Date? {
+        let parts = clock.split(separator: ":").compactMap { Int($0) }
+        guard parts.count == 2 else { return nil }
+
+        let calendar = Calendar.current
+        guard let time = calendar.date(bySettingHour: parts[0], minute: parts[1], second: 0, of: reference) else { return nil }
+        let halfDay: TimeInterval = 12 * 3600
+        if time.timeIntervalSince(reference) > halfDay {
+            return calendar.date(byAdding: .day, value: -1, to: time)
+        }
+        if reference.timeIntervalSince(time) > halfDay {
+            return calendar.date(byAdding: .day, value: 1, to: time)
+        }
+        return time
+    }
+
+    // MARK: - Train
 
     func info(identifier: String, shouldFetchWeather: Bool) async -> [String: Any]? {
-        let urlString = "https://italoinviaggio.italotreno.it/api/RicercaTrenoService?TrainNumber=\(identifier)"
+        let urlString = "\(Self.baseURL)/RicercaTrenoService?TrainNumber=\(identifier)"
         guard let url = URL(string: urlString) else { return nil }
 
         do {

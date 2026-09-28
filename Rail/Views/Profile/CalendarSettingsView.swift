@@ -69,7 +69,7 @@ struct CalendarSettingsView: View {
             }
         }
         .navigationTitle("Calendar")
-        .fontDesign(.rounded)
+        .fontDesign(appFontDesign)
         .onAppear {
             Task {
                 if isAuthorized {

@@ -17,11 +17,17 @@ struct EmailPassImportView: View {
     @Query private var passes: [Pass]
 
     var autoScanOnAppear: Bool = true
+    /// Set while the presenter looks for mail that arrived since the last sync. The
+    /// passes already stored stay listed under a small indicator, and the list is
+    /// reloaded once the fetch is done.
+    var isFetchingNewest: Bool = false
     var onPassAdded: (() -> Void)? = nil
     var onReloadRequested: (() -> Void)? = nil
 
     @State private var preloadedPasses: [PreloadedEmailPassItem] = []
     @State private var isWorking = false
+    /// Whether this view's own scan reads the whole mailbox rather than what's new.
+    @State private var isScanningEverything = false
     @State private var hasStarted = false
     @State private var syncError: String?
     @State private var syncProgress: EmailPassSyncProgress?
@@ -29,6 +35,9 @@ struct EmailPassImportView: View {
     @State private var syncTask: Task<Void, Never>?
     @State private var searchText = ""
     @State private var showSaveAllConfirmation = false
+    /// Set while the chosen pass, or all of them, wait on their PDFs downloading.
+    @State private var addingPassID: UUID?
+    @State private var isSavingAll = false
 
     // MARK: - Computed
 
@@ -45,6 +54,14 @@ struct EmailPassImportView: View {
 
     private var linkedAccounts: [Emails] {
         profiles.primary?.emails ?? []
+    }
+
+    private var isLookingForNewest: Bool {
+        isFetchingNewest || (isWorking && !isScanningEverything)
+    }
+
+    private var isAdding: Bool {
+        addingPassID != nil || isSavingAll
     }
 
     private var filteredPasses: [PreloadedEmailPassItem] {
@@ -112,8 +129,11 @@ struct EmailPassImportView: View {
                     )
                     .foregroundStyle(Color.secondary)
                     .fontDesign(appFontDesign)
-                } else if isWorking && preloadedPasses.isEmpty {
+                } else if isWorking && isScanningEverything && preloadedPasses.isEmpty {
                     progressView
+                } else if isLookingForNewest && preloadedPasses.isEmpty {
+                    newestPassesIndicator
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else if preloadedPasses.isEmpty {
                     ContentUnavailableView {
                         Label("No passes found", systemImage: "envelope")
@@ -151,9 +171,9 @@ struct EmailPassImportView: View {
                         .fontDesign(appFontDesign)
                 } else {
                     List {
-                        if isWorking {
+                        if isWorking || isFetchingNewest {
                             Section {
-                                progressView
+                                newestPassesIndicator
                                     .frame(maxWidth: .infinity)
                                     .listRowBackground(Color.clear)
                             }
@@ -210,7 +230,7 @@ struct EmailPassImportView: View {
                     } label: {
                         Image(systemName: "arrow.clockwise")
                     }
-                    .disabled(isWorking)
+                    .disabled(isWorking || isFetchingNewest || isAdding)
                 }
 
                 ToolbarSpacer(.fixed, placement: .topBarTrailing)
@@ -220,16 +240,20 @@ struct EmailPassImportView: View {
                         HapticFeedback.select()
                         showSaveAllConfirmation = true
                     } label: {
-                        Text("Save all")
+                        if isSavingAll {
+                            ProgressView()
+                        } else {
+                            Text("Save all")
+                        }
                     }
-                    .disabled(isWorking || filteredPasses.isEmpty)
+                    .disabled(isWorking || isAdding || filteredPasses.isEmpty)
                 }
 
                 DefaultToolbarItem(kind: .search, placement: .bottomBar)
             }
             .confirmationDialog("Save all passes", isPresented: $showSaveAllConfirmation, titleVisibility: .visible) {
                 Button("Cancel", role: .cancel) { }
-                Button("Save", role: .none) { saveAllPasses() }
+                Button("Save", role: .none) { Task { await saveAllPasses() } }
             } message: {
                 Text("Are you sure you want to save all fetched passes?")
             }
@@ -245,10 +269,18 @@ struct EmailPassImportView: View {
                 reloadPassesFromProfile()
             }
         }
+        .onChange(of: isFetchingNewest) { _, isFetching in
+            // the presenter's fetch is done: list what it found
+            if !isFetching { reloadPassesFromProfile() }
+        }
         .onDisappear { syncTask?.cancel() }
     }
 
     // MARK: - Subviews
+
+    private var newestPassesIndicator: some View {
+        EmailFetchingNewestIndicator(title: "Fetching newest passes…")
+    }
 
     private var progressView: some View {
         EmailSyncProgressView(
@@ -269,10 +301,10 @@ struct EmailPassImportView: View {
     @ViewBuilder
     private func passRow(_ item: PreloadedEmailPassItem) -> some View {
         let isAdded = isAlreadyAdded(item.pass)
-        let canAdd = !isAdded && !item.pass.qrcode.isEmpty
+        let canAdd = !isAdded && !item.pass.qrcode.isEmpty && !isAdding
 
         Button {
-            addPass(item)
+            Task { await addPass(item) }
         } label: {
             HStack(alignment: .center, spacing: 12) {
                 if let image = UIImage(data: item.pass.qrcode) {
@@ -300,7 +332,9 @@ struct EmailPassImportView: View {
 
                 Spacer()
 
-                if !item.pass.price.isEmpty {
+                if addingPassID == item.id {
+                    ProgressView()
+                } else if !item.pass.price.isEmpty {
                     Text(item.pass.price)
                         .font(.subheadline.weight(.medium))
                         .foregroundStyle(.secondary)
@@ -342,6 +376,8 @@ struct EmailPassImportView: View {
     }
 
     private func refreshMailbox(reloadAll: Bool) async {
+        // the presenter is already looking; its result reloads the list
+        guard !isFetchingNewest else { return }
         if isWorking, let syncTask {
             await syncTask.value
             return
@@ -357,6 +393,9 @@ struct EmailPassImportView: View {
     private func scanMailbox(reloadAll: Bool) async {
         guard let profile = profiles.primary else { return }
 
+        isScanningEverything = reloadAll || profile.emails
+            .filter(\.hasConfiguredCredentials)
+            .contains(where: \.needsFullPassMailboxScan)
         isWorking = true
         defer { isWorking = false }
         syncError = nil
@@ -409,26 +448,35 @@ struct EmailPassImportView: View {
         }
     }
 
-    private func addPass(_ item: PreloadedEmailPassItem) {
-        guard !isAlreadyAdded(item.pass) else { return }
+    private func addPass(_ item: PreloadedEmailPassItem) async {
+        guard !isAlreadyAdded(item.pass), !isAdding else { return }
         HapticFeedback.confirm()
-        // already on the main actor; the Task only crossed a concurrency
-        // boundary with non-Sendable models for no benefit
-        EmailPassSyncService.savePass(item.pass, modelContext: modelContext, existingPasses: passes)
+        addingPassID = item.id
+        defer { addingPassID = nil }
+
+        let pass = await passWithPDF(item)
+        EmailPassSyncService.savePass(pass, modelContext: modelContext, existingPasses: passes)
         onPassAdded?()
         dismiss()
     }
 
-    private func saveAllPasses() {
+    private func saveAllPasses() async {
+        guard !isAdding else { return }
         HapticFeedback.success()
+        isSavingAll = true
+        defer { isSavingAll = false }
+
         var addedCount = 0
         var newlyAdded: [Pass] = []
         for item in filteredPasses where !item.pass.qrcode.isEmpty {
             let alreadyStored = isAlreadyAdded(item.pass, newlyAdded: newlyAdded)
+            // a pass already stored with its PDF has nothing left to download
+            let hasPDF = alreadyStored && storedPass(matching: item.pass)?.pdf?.isEmpty == false
+            let pass = hasPDF ? item.pass : await passWithPDF(item)
             // savePass updates an existing record in place and attaches the PDF,
             // so it handles both the new and the already-imported case
             if let saved = EmailPassSyncService.savePass(
-                item.pass,
+                pass,
                 modelContext: modelContext,
                 existingPasses: passes + newlyAdded
             ), !alreadyStored {
@@ -445,9 +493,20 @@ struct EmailPassImportView: View {
         }
     }
 
+    /// The pass with its PDF on hand, downloaded again from its email if need be.
+    private func passWithPDF(_ item: PreloadedEmailPassItem) async -> EmailPassContent {
+        guard let account = linkedAccounts.first(where: { $0.email == item.accountEmail }) else {
+            return item.pass
+        }
+        return await EmailPassSyncService.withStagedPDF(item.pass, account: account)
+    }
+
     private func isAlreadyAdded(_ emailPass: EmailPassContent, newlyAdded: [Pass] = []) -> Bool {
-        let allPasses = passes + newlyAdded
-        return allPasses.contains {
+        storedPass(matching: emailPass, in: passes + newlyAdded) != nil
+    }
+
+    private func storedPass(matching emailPass: EmailPassContent, in allPasses: [Pass]? = nil) -> Pass? {
+        (allPasses ?? passes).first {
             Calendar.current.isDate($0.start_date, inSameDayAs: emailPass.startDate)
                 && Calendar.current.isDate($0.expiry_date, inSameDayAs: emailPass.endDate)
                 && $0.name.caseInsensitiveCompare(emailPass.name) == .orderedSame

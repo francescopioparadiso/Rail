@@ -79,6 +79,18 @@ struct NotificationSettings: Codable, Identifiable, Sendable, Equatable {
         leadFormatter.string(from: seconds) ?? ""
     }
 
+    /// The same lead in its short form ("30 min"), for alert titles.
+    static func shortLeadDescription(_ seconds: Double) -> String {
+        shortLeadFormatter.string(from: seconds) ?? ""
+    }
+
+    private static let shortLeadFormatter: DateComponentsFormatter = {
+        let formatter = DateComponentsFormatter()
+        formatter.unitsStyle = .short
+        formatter.allowedUnits = [.hour, .minute]
+        return formatter
+    }()
+
     private static let leadFormatter: DateComponentsFormatter = {
         let formatter = DateComponentsFormatter()
         formatter.unitsStyle = .full

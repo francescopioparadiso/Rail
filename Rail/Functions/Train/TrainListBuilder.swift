@@ -125,6 +125,45 @@ enum TrainListBuilder {
         }
     }
 
+    /// The rows in runs of the trains saved as one journey, each train on its own
+    /// otherwise. A return leaves on another day, so it starts a run of its own.
+    static func journeys(in items: [TrainRowItem]) -> [[TrainRowItem]] {
+        var runs: [[TrainRowItem]] = []
+        for item in items {
+            if let last = runs.last?.last, let lead = runs.last?.first,
+               let journeyID = item.train.journeyID, last.train.journeyID == journeyID,
+               Calendar.current.isDate(item.summary.first.dep_time_id, inSameDayAs: lead.summary.first.dep_time_id) {
+                runs[runs.count - 1].append(item)
+            } else {
+                runs.append([item])
+            }
+        }
+        return runs
+    }
+
+    /// A journey's trains folded into one row: from where the first sets off to where
+    /// the last gets in, with the train under way — or the next one due — speaking for
+    /// the delay, the platform and where a tap leads.
+    static func collapsed(_ legs: [TrainRowItem], now: Date = Date()) -> TrainRowItem {
+        guard let lead = legs.first, let tail = legs.last else { preconditionFailure("a journey has a train") }
+        let current = legs.first { now < $0.summary.last.arr_time_eff } ?? tail
+
+        return TrainRowItem(
+            id: lead.id,
+            train: current.train,
+            trainStops: current.trainStops,
+            summary: StopSummary(
+                first: lead.summary.first,
+                last: tail.summary.last,
+                firstNoIssues: lead.summary.firstNoIssues,
+                lastNoIssues: tail.summary.lastNoIssues
+            ),
+            topPadding: lead.topPadding,
+            bottomPadding: tail.bottomPadding,
+            connection: tail.connection
+        )
+    }
+
     private static func hasInterval(
         trains: [Train],
         from sourceIndex: Int,

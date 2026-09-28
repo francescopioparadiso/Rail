@@ -33,6 +33,8 @@ struct TodayView: View {
     @State private var listNow = Date()
     @State private var stopsByTrain: [UUID: [Stop]] = [:]
     @State private var refreshTask: Task<Void, Never>?
+    /// Journeys broken out into their trains; every other one stays folded.
+    @State private var expandedJourneys: Set<UUID> = []
 
     private static let minUpdateInterval: TimeInterval = 25
 
@@ -40,6 +42,28 @@ struct TodayView: View {
 
     private var filteredRowItems: [TrainRowItem] {
         rowItems.filter { TrainListBuilder.matches($0, searchText: searchText) }
+    }
+
+    /// What the list draws: a train on its own, a journey folded into one row, or a
+    /// broken-out journey's trains one after the other.
+    private var rowEntries: [TodayRowEntry] {
+        TrainListBuilder.journeys(in: filteredRowItems).flatMap { legs -> [TodayRowEntry] in
+            guard legs.count > 1, let journeyID = legs.first?.train.journeyID else {
+                return legs.map { TodayRowEntry(item: $0, trains: [$0]) }
+            }
+            guard !expandedJourneys.contains(journeyID) else {
+                return legs.enumerated().map { index, leg in
+                    TodayRowEntry(item: leg, trains: [leg], journeyID: index == 0 ? journeyID : nil, isExpanded: true)
+                }
+            }
+            return [TodayRowEntry(
+                item: TrainListBuilder.collapsed(legs, now: listNow),
+                trains: legs,
+                journeyID: journeyID,
+                headerTrain: legs[0].train,
+                extraCount: legs.count - 1
+            )]
+        }
     }
 
     // MARK: - Body
@@ -67,14 +91,19 @@ struct TodayView: View {
                     .fontDesign(appFontDesign)
                 }
             } else {
+                let entries = rowEntries
                 List {
-                    ForEach(filteredRowItems) { item in
+                    ForEach(entries) { entry in
                         TodayTrainRow(
-                            item: item,
+                            item: entry.item,
                             now: listNow,
                             manualRefreshCounter: manualRefreshCounter,
-                            isFirst: item.id == filteredRowItems.first?.id,
-                            isLast: item.id == filteredRowItems.last?.id
+                            isFirst: entry.id == entries.first?.id,
+                            isLast: entry.id == entries.last?.id,
+                            headerTrain: entry.headerTrain,
+                            extraCount: entry.extraCount,
+                            isExpanded: entry.isExpanded,
+                            onToggleExpanded: entry.journeyID.map { id in { toggleJourney(id) } }
                         )
                         .equatable()
                         .listRowInsets(EdgeInsets())
@@ -156,6 +185,13 @@ struct TodayView: View {
 
     // MARK: - Actions
 
+    private func toggleJourney(_ id: UUID) {
+        HapticFeedback.select()
+        withAnimation(.smooth) {
+            if expandedJourneys.remove(id) == nil { expandedJourneys.insert(id) }
+        }
+    }
+
     private func scheduleRefreshRowItems() {
         refreshTask?.cancel()
         refreshTask = Task { @MainActor in
@@ -215,7 +251,9 @@ struct TodayView: View {
     }
 
     private func deleteTodayTrains(at offsets: IndexSet) {
-        let items = offsets.map { filteredRowItems[$0] }
+        // a folded journey goes as a whole, every train in it
+        let entries = rowEntries
+        let items = offsets.flatMap { entries[$0].trains }
         for item in items {
             let trainID = item.train.id
             Task {
@@ -354,6 +392,21 @@ struct TodayView: View {
     }
 }
 
+/// One row of the Today list.
+private struct TodayRowEntry: Identifiable {
+    /// What the row draws.
+    let item: TrainRowItem
+    /// What deleting the row takes with it: every train in a folded journey.
+    let trains: [TrainRowItem]
+    /// Set on a journey's lead row, folded or not, which carries the chevron.
+    var journeyID: UUID? = nil
+    var headerTrain: Train? = nil
+    var extraCount: Int = 0
+    var isExpanded: Bool = false
+
+    var id: UUID { item.id }
+}
+
 #Preview {
     let config = ModelConfiguration(isStoredInMemoryOnly: true)
     let container = try! ModelContainer(for: Train.self, Stop.self, Seat.self, Favorite.self, Pass.self, configurations: config)
@@ -361,6 +414,9 @@ struct TodayView: View {
     let now = Date()
     let calendar = Calendar.current
     
+    // the three are one journey, so the list folds them into a single row
+    let journeyID = UUID()
+
     // Train 1: Roma -> Milano
     let train1ID = UUID()
     let train1 = Train(
@@ -372,7 +428,8 @@ struct TodayView: View {
         last_update_time: now,
         delay: 5,
         direction: "Milano Centrale",
-        issue: ""
+        issue: "",
+        journeyID: journeyID
     )
     
     let train1Stop1 = Stop(
@@ -422,7 +479,8 @@ struct TodayView: View {
         last_update_time: now,
         delay: 0,
         direction: "Torino Porta Nuova",
-        issue: ""
+        issue: "",
+        journeyID: journeyID
     )
     
     let train2Stop1 = Stop(
@@ -472,7 +530,8 @@ struct TodayView: View {
         last_update_time: now,
         delay: 0,
         direction: "Paris Gare de Lyon",
-        issue: ""
+        issue: "",
+        journeyID: journeyID
     )
     
     let train3Stop1 = Stop(

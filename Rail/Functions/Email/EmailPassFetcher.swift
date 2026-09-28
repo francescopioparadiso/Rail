@@ -113,13 +113,23 @@ actor EmailPassFetcher {
         var warnings: [String] = []
         var seenFingerprints = Set<String>()
         var highestProcessedUID = effectiveLastUID
+        var prefetched: [String: String] = [:]
 
         for (index, uid) in matchingUIDs.enumerated() {
             try Task.checkCancellation()
+            if index % Self.batchSize == 0 {
+                let batch = matchingUIDs[index..<min(index + Self.batchSize, matchingUIDs.count)]
+                prefetched = try await prefetchMessages(batch.map(\.raw), folder: passFolder)
+            }
             var latestWarning: String?
             do {
-                let raw = try await session.command("UID FETCH \(uid.raw) (BODY.PEEK[])")
-                guard IMAPResponse.taggedSuccess(raw) else { throw EmailFetchError.fetchFailed }
+                let raw: String
+                if let message = prefetched.removeValue(forKey: uid.raw) {
+                    raw = message
+                } else {
+                    raw = try await session.command("UID FETCH \(uid.raw) (BODY.PEEK[])")
+                    guard IMAPResponse.taggedSuccess(raw) else { throw EmailFetchError.fetchFailed }
+                }
 
                 let parsedPasses = parsePassEmails(
                     raw,
@@ -208,15 +218,59 @@ actor EmailPassFetcher {
         )
     }
 
+    /// How many emails each `UID FETCH` asks for at once. Pass emails carry their
+    /// PDF, so batches stay small enough to hold in memory.
+    private static let batchSize = 8
+
+    /// The next batch of emails in full, by UID. Empty if the batch failed, with the
+    /// connection reopened so each email is then fetched on its own.
+    private func prefetchMessages(_ uids: [String], folder: String) async throws -> [String: String] {
+        do {
+            return try await session.fetchMessages(uids: uids, items: "BODY.PEEK[]")
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            session.close()
+            _ = try? await session.openMailbox(folder: folder)
+            return [:]
+        }
+    }
+
+    /// Downloads one email again for the PDF of the pass it carried. The staged copy
+    /// from the scan is gone once a pass has been imported — or was never on this
+    /// device, since the scanned list syncs and the staged files don't.
+    func fetchPDF(uid: String, name: String, startDate: Date, endDate: Date) async throws -> Data? {
+        try Task.checkCancellation()
+        session.useLargeMessageLimits(true)
+        defer { session.useLargeMessageLimits(false) }
+
+        _ = try await session.openPassMailbox()
+        defer { session.close() }
+
+        let raw = try await session.command("UID FETCH \(uid) (BODY.PEEK[])")
+        guard IMAPResponse.taggedSuccess(raw) else { throw EmailFetchError.fetchFailed }
+
+        let searchable = IMAPResponse.messageContent(from: raw) ?? raw
+        let pdfs = EmailMIMEExtractor.pdfAttachments(from: searchable)
+            + EmailMIMEExtractor.pdfAttachments(from: raw)
+
+        // an email can carry more than one pass, so pick the PDF that reads as this one
+        let calendar = Calendar.current
+        let match = pdfs.first { pdf in
+            guard let parsed = PassPDFParser.parse(pdfData: pdf) else { return false }
+            return parsed.name.caseInsensitiveCompare(name) == .orderedSame
+                && calendar.isDate(parsed.startDate, inSameDayAs: startDate)
+                && calendar.isDate(parsed.endDate, inSameDayAs: endDate)
+        }
+        return match ?? (Set(pdfs).count == 1 ? pdfs.first : nil)
+    }
+
     private func parsePassEmails(
         _ raw: String,
         uid: String,
         trustAbbonamentoSearch: Bool
     ) -> [FetchedPassEmail] {
         let searchable = IMAPResponse.messageContent(from: raw) ?? raw
-        let decoded = EmailBodyDecoder.unescapeQuotedPrintable(searchable)
-            + "\n"
-            + EmailBodyDecoder.unescapeQuotedPrintable(raw)
 
         guard let from = IMAPResponse.header("From", in: searchable)
                 ?? IMAPResponse.header("From", in: raw)
@@ -235,14 +289,22 @@ actor EmailPassFetcher {
             ?? IMAPResponse.header("Subject", in: raw)
             ?? IMAPResponse.header("SUBJECT", in: searchable)
             ?? ""
-        let haystack = (subject + "\n" + decoded).lowercased()
-        let pdfs = EmailMIMEExtractor.pdfAttachments(from: searchable)
-            + EmailMIMEExtractor.pdfAttachments(from: raw)
-
         // Gmail TEXT "Abbonamento" often matches PDF attachment content that never appears
         // in the HTML part — still try PDFs when the search already required Abbonamento.
-        if !trustAbbonamentoSearch && !haystack.contains("abbonamento") {
-            return []
+        // Only then is the body decoded to look for the word itself.
+        if !trustAbbonamentoSearch {
+            let decoded = EmailBodyDecoder.unescapeQuotedPrintable(searchable)
+                + "\n"
+                + EmailBodyDecoder.unescapeQuotedPrintable(raw)
+            let haystack = (subject + "\n" + decoded).lowercased()
+            guard haystack.contains("abbonamento") else { return [] }
+        }
+
+        // the message cut out of the response holds the same attachments as the
+        // response itself, which is only searched when that finds none
+        var pdfs = EmailMIMEExtractor.pdfAttachments(from: searchable)
+        if pdfs.isEmpty {
+            pdfs = EmailMIMEExtractor.pdfAttachments(from: raw)
         }
 
         let date = IMAPResponse.header("Date", in: searchable).flatMap(IMAPResponse.parseDate)

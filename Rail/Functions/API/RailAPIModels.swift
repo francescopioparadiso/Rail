@@ -43,6 +43,9 @@ struct SolutionSegment: Hashable {
         self.isBus = isBus
         self.isUntracked = isUntracked
     }
+
+    /// Italo's trains are looked up by number on Italo's own feed, not viaggiatreno.
+    var isItalo: Bool { logo == "ITALO" }
 }
 
 // a full journey from departure to arrival; more than one segment means a connection.

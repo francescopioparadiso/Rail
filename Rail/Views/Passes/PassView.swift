@@ -98,6 +98,10 @@ struct PassView: View {
     @State private var fetchSheetDetent: PresentationDetent = .medium
     @State private var passSyncProgresses: [String: EmailPassSyncProgress] = [:]
     @State private var isFetchingEmailPasses = false
+    /// Whether the running fetch reads the whole mailbox — the first scan, or a
+    /// start-over. Only that one gets the full progress view; looking for what has
+    /// arrived since keeps the list on screen.
+    @State private var isFullEmailScan = false
     @State private var showFetchResultCard = false
     @State private var fetchedPassesCount = 0
     @State private var emailFetchTask: Task<Void, Never>?
@@ -112,6 +116,10 @@ struct PassView: View {
 
     private var fetchEmailsFound: Int {
         passSyncProgresses.isEmpty ? fetchedPassesCount : passSyncProgresses.values.map(\.emailsFound).reduce(0, +)
+    }
+
+    private var showsFullEmailScan: Bool {
+        isFetchingEmailPasses && isFullEmailScan
     }
 
     private var showsFetchToolbarButton: Bool {
@@ -466,7 +474,7 @@ struct PassView: View {
             .sheet(isPresented: $emailImportSheet) {
                 NavigationStack {
                     Group {
-                        if isFetchingEmailPasses {
+                        if showsFullEmailScan {
                             EmailSyncProgressView(
                                 isFetching: isFetchingEmailPasses,
                                 progressTitle: fetchProgressTitle,
@@ -484,6 +492,7 @@ struct PassView: View {
                         } else {
                             EmailPassImportView(
                                 autoScanOnAppear: false,
+                                isFetchingNewest: isFetchingEmailPasses,
                                 onPassAdded: { refreshDisplayedPasses() },
                                 onReloadRequested: {
                                     triggerEmailPassRefresh(reloadAll: true)
@@ -492,17 +501,17 @@ struct PassView: View {
                             .transition(.opacity.combined(with: .scale(scale: 0.98)))
                         }
                     }
-                    .animation(.spring(response: 0.4, dampingFraction: 0.8), value: isFetchingEmailPasses)
+                    .animation(.spring(response: 0.4, dampingFraction: 0.8), value: showsFullEmailScan)
                 }
                 .presentationDetents(
-                    isFetchingEmailPasses ? [.medium] : [.large],
+                    showsFullEmailScan ? [.medium] : [.large],
                     selection: $fetchSheetDetent
                 )
                 .presentationDragIndicator(.hidden)
                 .presentationBackground(appBackgroundColor)
-                .onChange(of: isFetchingEmailPasses) { _, isFetching in
+                .onChange(of: showsFullEmailScan) { _, isFullScan in
                     withAnimation(.snappy) {
-                        fetchSheetDetent = isFetching ? .medium : .large
+                        fetchSheetDetent = isFullScan ? .medium : .large
                     }
                 }
             }
@@ -787,7 +796,7 @@ struct PassView: View {
 
     private func openEmailFetchSheet() {
         HapticFeedback.tap()
-        fetchSheetDetent = isFetchingEmailPasses ? .medium : .large
+        fetchSheetDetent = showsFullEmailScan ? .medium : .large
         emailImportSheet = true
     }
 
@@ -801,6 +810,9 @@ struct PassView: View {
     @MainActor
     private func fetchEmailPasses(reloadAll: Bool = false) async {
         guard let profile = profiles.primary else { return }
+        isFullEmailScan = reloadAll || profile.emails
+            .filter(\.hasConfiguredCredentials)
+            .contains(where: \.needsFullPassMailboxScan)
         withAnimation(.snappy) {
             isFetchingEmailPasses = true
             showFetchResultCard = false

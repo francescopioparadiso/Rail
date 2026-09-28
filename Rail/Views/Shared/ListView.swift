@@ -9,27 +9,23 @@ struct ListView: View {
     let summary: StopSummary
     var now: Date = Date()
 
+    /// The train named in the header, when it isn't `train`: a folded journey is
+    /// headed by its first train while the one under way speaks for the rest.
+    var headerTrain: Train? = nil
+    /// The trains after the first in a folded journey, shown as "+2" beside it.
+    var extraCount: Int = 0
+    var isExpanded: Bool = false
+    /// Set on a journey's lead row, which then carries the chevron that folds it.
+    var onToggleExpanded: (() -> Void)? = nil
+
     // MARK: - Body
 
     var body: some View {
         if now < summary.lastNoIssues.arr_time_eff {
             VStack(spacing: 8) {
                 // MARK: - logo + number
-                HStack(spacing: 4) {
-                    Image(train.logo)
-                        .resizable()
-                        .scaledToFit()
-                        .frame(height: UIFont.preferredFont(forTextStyle: .title3).lineHeight * 0.8)
-                    
-                    Text(train.number)
-                        .font(.title3)
-                        .fontDesign(appFontDesign)
-                        .fontWeight(.semibold)
-                        .foregroundStyle(Color.primary)
-                    
-                    Spacer()
-                }
-                .padding(.horizontal, 16).padding(.top, 8)
+                header
+                    .padding(.horizontal, 16).padding(.top, 8)
                 
                 // MARK: - departure and arrival stops
                 VStack(alignment: .leading, spacing: 4) {
@@ -193,21 +189,8 @@ struct ListView: View {
                 
                 VStack(spacing: 8) {
                     // logo + number
-                    HStack(spacing: 4) {
-                        Image(train.logo)
-                            .resizable()
-                            .scaledToFit()
-                            .frame(height: UIFont.preferredFont(forTextStyle: .title3).lineHeight * 0.8)
-                        
-                        Text(train.number)
-                            .font(.title3)
-                            .fontDesign(appFontDesign)
-                            .fontWeight(.semibold)
-                            .foregroundStyle(Color.primary)
-                        
-                        Spacer()
-                    }
-                    .padding(.leading, 4).padding(.trailing, 16).padding(.top, 8)
+                    header
+                        .padding(.leading, 4).padding(.trailing, 16).padding(.top, 8)
                     
                     // departure and arrival stops with time
                     VStack(alignment: .leading, spacing: 4) {
@@ -303,6 +286,56 @@ struct ListView: View {
     }
 
     // MARK: - Subviews
+
+    private var header: some View {
+        let headed = headerTrain ?? train
+
+        return HStack(spacing: 4) {
+            Image(headed.logo)
+                .resizable()
+                .scaledToFit()
+                .frame(height: UIFont.preferredFont(forTextStyle: .title3).lineHeight * 0.8)
+
+            Text(headed.number)
+                .font(.title3)
+                .fontDesign(appFontDesign)
+                .fontWeight(.semibold)
+                .foregroundStyle(Color.primary)
+
+            if extraCount > 0 && !isExpanded {
+                Text("+\(extraCount)")
+                    .font(.body)
+                    .fontDesign(appFontDesign)
+                    .foregroundStyle(.secondary)
+                    .padding(.leading, 4)
+                    .transition(.opacity)
+            }
+
+            Spacer()
+
+            if let onToggleExpanded {
+                // the same chevron as the Choose Train rows, turning down once open
+                Button(action: onToggleExpanded) {
+                    Image(systemName: "chevron.right")
+                        .resizable()
+                        .scaledToFit()
+                        .fontWeight(.semibold)
+                        .foregroundStyle(.secondary)
+                        .frame(width: 13, height: 13)
+                        .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                        .animation(.smooth, value: isExpanded)
+                        .frame(width: 44, alignment: .trailing)
+                        // a target taller than the header line, without making it taller
+                        .padding(.vertical, 10)
+                        .contentShape(Rectangle())
+                        .padding(.vertical, -10)
+                }
+                // its own tap inside the row, which otherwise opens the train
+                .buttonStyle(.borderless)
+                .accessibilityLabel(isExpanded ? "Collapse" : "Expand")
+            }
+        }
+    }
 
     // full-width status bar, with the platform kept alongside it in its own yellow chip
     private func statusBar(

@@ -12,11 +12,30 @@ struct PreparedSolutionSegment {
     let info: [String: Any]
     let fromStation: String
     let toStation: String
+    /// When the journey search has the train leaving `fromStation` and reaching
+    /// `toStation`, which finds those stops when the two sources name them apart.
+    let departureTime: Date
+    let arrivalTime: Date
     let dayOffset: Int
 }
 
 enum SolutionSegmentResolver {
     static func resolve(_ segment: SolutionSegment) async -> PreparedSolutionSegment? {
+        if segment.isItalo {
+            // Italo's solutions only ever come from today's board, so today's run is the one
+            guard let info = await ItaloAPI().info(identifier: segment.number, shouldFetchWeather: false) else {
+                return fromSolution(segment)
+            }
+            return PreparedSolutionSegment(
+                info: info,
+                fromStation: segment.origin,
+                toStation: segment.destination,
+                departureTime: segment.departureTime,
+                arrivalTime: segment.arrivalTime,
+                dayOffset: 0
+            )
+        }
+
         let identifiers = await TrenitaliaAPI().trainList(number: segment.number, code: segment.stationCode)
 
         let segmentDay = Calendar.current.startOfDay(for: segment.departureTime)
@@ -53,6 +72,8 @@ enum SolutionSegmentResolver {
             info: info,
             fromStation: segment.origin,
             toStation: segment.destination,
+            departureTime: segment.departureTime,
+            arrivalTime: segment.arrivalTime,
             dayOffset: dayOffset
         )
     }
@@ -82,8 +103,10 @@ enum SolutionSegmentResolver {
         let info: [String: Any] = [
             "logo": segment.logo,
             "number": segment.number,
-            "identifier": viaggiatrenoIdentifier("\(segment.stationCode)/\(segment.number)/0", on: day),
-            "provider": "trenitalia",
+            "identifier": segment.isItalo
+                ? segment.number
+                : viaggiatrenoIdentifier("\(segment.stationCode)/\(segment.number)/0", on: day),
+            "provider": segment.isItalo ? "italo" : "trenitalia",
             // never updated, so the first refresh on the day goes ahead
             "last_update_time": Date.distantPast,
             "delay": 0,
@@ -99,6 +122,8 @@ enum SolutionSegmentResolver {
             info: info,
             fromStation: segment.origin,
             toStation: segment.destination,
+            departureTime: segment.departureTime,
+            arrivalTime: segment.arrivalTime,
             dayOffset: 0
         )
     }

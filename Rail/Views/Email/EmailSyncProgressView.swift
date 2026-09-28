@@ -7,6 +7,23 @@ struct AccountSyncProgress: Identifiable, Equatable {
     var id: String { email }
 }
 
+/// Shown above the list while mail that arrived since the last sync is fetched —
+/// the full `EmailSyncProgressView` is kept for scans that read the whole mailbox.
+struct EmailFetchingNewestIndicator: View {
+    let title: LocalizedStringKey
+
+    var body: some View {
+        HStack(spacing: 12) {
+            ProgressView()
+            Text(title)
+                .font(.body.weight(.medium))
+                .foregroundStyle(.secondary)
+        }
+        .padding(.vertical, 8)
+        .fontDesign(appFontDesign)
+    }
+}
+
 struct EmailSyncProgressView: View {
     // MARK: - Properties
 

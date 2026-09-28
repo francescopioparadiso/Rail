@@ -76,7 +76,7 @@ struct NotificationSettingsView: View {
             }
         }
         .navigationTitle("Notifications")
-        .fontDesign(.rounded)
+        .fontDesign(appFontDesign)
         .alert("Notification Access Required", isPresented: $showPermissionAlert) {
             Button("Settings") {
                 if let url = URL(string: UIApplication.openSettingsURLString) {

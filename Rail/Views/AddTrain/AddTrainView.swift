@@ -47,6 +47,9 @@ struct AddTrainView: View {
     @ScaledMetric private var stationRowHeight: CGFloat = 52
     @State private var stationSuggestions: [StationSuggestion] = []
     @State private var stationFetchTask: Task<Void, Never>?
+    /// The stations around the user, offered on an empty departure field.
+    @State private var nearbyStations: [StationSuggestion] = []
+    @State private var nearbyStationsTask: Task<Void, Never>?
 
     @State private var solutionsFetched: [Solution] = []
     @State private var solutionID_selected: UUID? = nil
@@ -104,11 +107,17 @@ struct AddTrainView: View {
         return stationText(for: field)
     }
 
+    /// Whether the field being edited is the empty departure, which is offered the
+    /// stations nearby instead of matches.
+    private var showsNearbyStations: Bool {
+        guard let query = activeStationQuery, focusedField == firstStationField else { return false }
+        return query.trimmingCharacters(in: .whitespaces).isEmpty
+    }
+
     private var showsStationSuggestionBar: Bool {
         guard addTrainStep == .addTrain,
-              let query = activeStationQuery,
-              query.count >= 2 else { return false }
-        return true
+              let query = activeStationQuery else { return false }
+        return query.count >= 2 || (showsNearbyStations && !nearbyStations.isEmpty)
     }
 
     private var nextButtonIcon: String {
@@ -370,6 +379,8 @@ struct AddTrainView: View {
         }
         .onDisappear {
             stationFetchTask?.cancel()
+            nearbyStationsTask?.cancel()
+            nearbyStationsTask = nil
             resetFormState()
         }
         .onChange(of: fetchState) { oldValue, newValue in
@@ -409,6 +420,7 @@ struct AddTrainView: View {
             }
             stationSuggestions = []
             scheduleStationFetch(for: newValue)
+            if newValue == firstStationField { loadNearbyStations() }
         }
         .onChange(of: solutionID_selected) { _, newId in
             prefetchTask?.cancel()
@@ -509,6 +521,9 @@ struct AddTrainView: View {
                                 .labelsHidden()
                             Spacer(minLength: 0)
                         }
+                        // picking a date or time is done with the stations, so
+                        // the keyboard goes rather than covering the picker
+                        .simultaneousGesture(TapGesture().onEnded { focusedField = nil })
                         .frame(minHeight: stationRowHeight)
                         .listRowSeparator(.hidden, edges: .top)
                         .listRowInsets(EdgeInsets(top: 0, leading: Self.stationGutter, bottom: 0, trailing: 16))
@@ -728,7 +743,10 @@ struct AddTrainView: View {
 
     // floating bar shown while typing a station: horizontally scrolling suggestions.
     func suggestionsPill(field: FocusField) -> some View {
-        StationSuggestionsBar(suggestions: stationSuggestions) { station in
+        StationSuggestionsBar(
+            suggestions: showsNearbyStations ? nearbyStations : stationSuggestions,
+            isNearby: showsNearbyStations
+        ) { station in
             selectStation(station, field: field)
         }
     }
@@ -1584,6 +1602,7 @@ struct AddTrainView: View {
         guard case .station(let id) = field,
               let (trip, index) = position(of: id),
               trips[trip].count > 2,
+              index > 0, index < trips[trip].count - 1,
               trips[trip][index].name.trimmingCharacters(in: .whitespaces).isEmpty else { return }
         withAnimation(.snappy) { _ = trips[trip].remove(at: index) }
     }
@@ -1651,6 +1670,16 @@ struct AddTrainView: View {
         switch field {
         case .station(let id): return stationBinding(id).wrappedValue
         case .number: return trainNumber
+        }
+    }
+
+    /// Looks the stations nearby up once, the first time the departure is edited.
+    private func loadNearbyStations() {
+        guard nearbyStationsTask == nil, nearbyStations.isEmpty else { return }
+        nearbyStationsTask = Task {
+            nearbyStations = await NearbyStations.suggestions { name in
+                StationBoardAPI.best(for: name, among: await TrenitaliaAPI().stationAutocomplete(name: name))
+            }
         }
     }
 
@@ -1729,11 +1758,7 @@ struct AddTrainView: View {
                 await MainActor.run { fetchState = .failure }
                 return
             }
-            let results = await TrenitaliaAPI().trainSolutions(
-                departureLocationId: leg.originCode,
-                arrivalLocationId: leg.destinationCode,
-                departureTime: leg.date
-            )
+            let results = await Self.solutions(for: leg)
 
             await MainActor.run {
                 solutionsFetched = results
@@ -1746,14 +1771,7 @@ struct AddTrainView: View {
         // catchable once the train before them is picked
         let results = await withTaskGroup(of: (Int, [Solution]).self) { group in
             for (index, leg) in legs.enumerated() {
-                group.addTask {
-                    let solutions = await TrenitaliaAPI().trainSolutions(
-                        departureLocationId: leg.originCode,
-                        arrivalLocationId: leg.destinationCode,
-                        departureTime: leg.date
-                    )
-                    return (index, solutions)
-                }
+                group.addTask { (index, await Self.solutions(for: leg)) }
             }
             var byIndex: [Int: [Solution]] = [:]
             for await (index, solutions) in group { byIndex[index] = solutions }
@@ -1767,6 +1785,24 @@ struct AddTrainView: View {
             legsFetched = results
             fetchState = results.contains(where: \.isEmpty) ? .failure : .success
         }
+    }
+
+    /// Trenitalia's journeys for one leg, with Italo's direct trains among them
+    /// when Italo serves both ends.
+    private static func solutions(for leg: JourneyLeg) async -> [Solution] {
+        async let trenitalia = TrenitaliaAPI().trainSolutions(
+            departureLocationId: leg.originCode,
+            arrivalLocationId: leg.destinationCode,
+            departureTime: leg.date
+        )
+        async let italo = ItaloAPI().trainSolutions(
+            origin: leg.origin,
+            departureLocationId: leg.originCode,
+            destination: leg.destination,
+            arrivalLocationId: leg.destinationCode,
+            departureTime: leg.date
+        )
+        return (await trenitalia + italo).sorted { $0.departureTime < $1.departureTime }
     }
 
     // saves the selected solution: each leg becomes its own train, so connected
@@ -1790,13 +1826,9 @@ struct AddTrainView: View {
         }
 
         await MainActor.run {
+            let journeyID = preparedSegments.count > 1 ? UUID() : nil
             for prepared in preparedSegments {
-                saveSegment(
-                    info: prepared.info,
-                    fromStation: prepared.fromStation,
-                    toStation: prepared.toStation,
-                    dayOffset: prepared.dayOffset
-                )
+                saveSegment(prepared, journeyID: journeyID)
             }
             try? modelContext.save()
             reloadWidgetTimelines()
@@ -1804,9 +1836,11 @@ struct AddTrainView: View {
         }
     }
 
-    private func saveSegment(info: [String: Any], fromStation: String, toStation: String, dayOffset: Int = 0) {
+    private func saveSegment(_ prepared: PreparedSolutionSegment, journeyID: UUID?) {
         let id = UUID()
-        
+        let info = prepared.info
+        let dayOffset = prepared.dayOffset
+
         func offsetDate(_ date: Date) -> Date {
             if dayOffset == 0 { return date }
             return Calendar.current.date(byAdding: .day, value: dayOffset, to: date) ?? date
@@ -1821,14 +1855,24 @@ struct AddTrainView: View {
             last_update_time: offsetDate(info["last_update_time"] as? Date ?? Date()),
             delay: dayOffset != 0 ? 0 : (info["delay"] as? Int ?? 0),
             direction: info["direction"] as? String ?? "",
-            issue: info["issue"] as? String ?? ""
+            issue: info["issue"] as? String ?? "",
+            journeyID: journeyID
         )
         modelContext.insert(train)
 
         let stops = info["stops"] as? [[String: Any]] ?? []
         let names = stops.map { $0["name"] as? String ?? "" }
-        let fromIdx = names.firstIndex(of: fromStation)
-        let toIdx = names.firstIndex(of: toStation)
+        // lefrecce and viaggiatreno don't always name a station alike ("Firenze
+        // S. M. Novella" against "Firenze Santa Maria Novella"), so a stop the name
+        // can't find is the one the train leaves, or reaches, at the searched time
+        func index(of time: Date, _ key: String) -> Int? {
+            stops.firstIndex { stop in
+                guard let scheduled = stop[key] as? Date else { return false }
+                return abs(offsetDate(scheduled).timeIntervalSince(time)) < 60
+            }
+        }
+        let fromIdx = names.firstIndex(of: prepared.fromStation) ?? index(of: prepared.departureTime, "dep_time_id")
+        let toIdx = names.firstIndex(of: prepared.toStation) ?? index(of: prepared.arrivalTime, "arr_time_id")
 
         for (i, stop) in stops.enumerated() {
             // mark only the stops on the ridden segment (origin → destination) as selected

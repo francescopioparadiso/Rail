@@ -25,6 +25,22 @@ struct BoardTrainDetailView: View {
     /// throwaway store can fill the real one if it is asked for.
     @State private var prepared: PreparedFavoriteTrain?
 
+    // MARK: - Computed
+
+    /// The day this run sets out from its origin, as the board's identifier has it.
+    private var runDay: Date? {
+        guard !boardTrain.isItalo else { return nil }
+        return boardTrain.id.split(separator: "/").last
+            .flatMap { Double($0) }
+            .map { Date(timeIntervalSince1970: $0 / 1000) }
+    }
+
+    /// Whether the run sets out after today — the board reaches into tomorrow.
+    private var isLaterDay: Bool {
+        guard let runDay else { return false }
+        return runDay > Calendar.current.startOfDay(for: Date())
+    }
+
     // MARK: - Body
 
     var body: some View {
@@ -57,7 +73,9 @@ struct BoardTrainDetailView: View {
                 ContentUnavailableView(
                     "Train unavailable",
                     systemImage: "exclamationmark.triangle.fill",
-                    description: Text("This train's route couldn't be loaded. Check your connection and try again.")
+                    description: Text(isLaterDay
+                        ? "This train doesn't run today, so its route isn't published yet. Try again on the day."
+                        : "This train's route couldn't be loaded. Check your connection and try again.")
                 )
                 .foregroundStyle(Color.secondary)
                 .fontDesign(appFontDesign)
@@ -69,27 +87,24 @@ struct BoardTrainDetailView: View {
         }
     }
 
+    /// A full-width prominent button resting just above the home indicator, the
+    /// way the system places a screen's one primary action.
     private var addButton: some View {
         Button {
             HapticFeedback.confirm()
             save()
         } label: {
-            HStack(spacing: 8) {
-                Image(systemName: "plus")
-                    .font(.headline)
-
-                Text("Add to my journeys")
-                    .font(.subheadline)
-                    .fontWeight(.semibold)
-            }
-            .fontDesign(appFontDesign)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
+            Label("Add to my journeys", systemImage: "plus")
+                .font(.headline)
+                .fontDesign(appFontDesign)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 4)
         }
         .buttonStyle(.glassProminent)
-        .tint(Color.blue.opacity(0.15))
-        .foregroundStyle(Color.blue)
-        .padding(.bottom, 24)
+        .controlSize(.large)
+        .tint(Color.blue)
+        .padding(.horizontal, 20)
+        .padding(.bottom, 8)
     }
 
     // MARK: - Actions
@@ -100,13 +115,40 @@ struct BoardTrainDetailView: View {
     private func resolve() async {
         guard journey == nil, !didFail else { return }
 
-        guard let info = await TrenitaliaAPI().info(identifier: boardTrain.id, shouldFetchWeather: false),
-              let staged = stage(info) else {
+        guard let info = await routeInfo(), let staged = stage(info) else {
             didFail = true
             return
         }
 
         journey = staged
+    }
+
+    /// The run the board lists, or — for a run on a later day, which the feed won't
+    /// publish until that day — today's run of the same train, moved onto its day.
+    private func routeInfo() async -> [String: Any]? {
+        // Italo's board only lists today's trains, which its feed has by number
+        if boardTrain.isItalo {
+            return await ItaloAPI().info(identifier: boardTrain.number, shouldFetchWeather: false)
+        }
+        if let info = await TrenitaliaAPI().info(identifier: boardTrain.id, shouldFetchWeather: false) {
+            return info
+        }
+        guard isLaterDay, let runDay else { return nil }
+
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: Date())
+        let todayMilliseconds = Int(today.timeIntervalSince1970 * 1000)
+        let todayID = (boardTrain.id.split(separator: "/").dropLast().map(String.init) + [String(todayMilliseconds)])
+            .joined(separator: "/")
+        guard let info = await TrenitaliaAPI().info(identifier: todayID, shouldFetchWeather: false) else { return nil }
+
+        let dayOffset = calendar.dateComponents([.day], from: today, to: calendar.startOfDay(for: runDay)).day ?? 0
+        return EmailTrainService.applyDayOffset(
+            to: info,
+            dayOffset: dayOffset,
+            targetDeparture: runDay,
+            calendar: calendar
+        )
     }
 
     /// Moves the journey out of the throwaway store and into the app, with the

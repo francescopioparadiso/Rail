@@ -56,7 +56,7 @@ struct EmailSettingsView: View {
         }
         .background(appBackgroundColor.ignoresSafeArea())
         .navigationTitle("Email")
-        .fontDesign(.rounded)
+        .fontDesign(appFontDesign)
         .searchable(text: $searchText, prompt: "Search")
         .toolbar {
             DefaultToolbarItem(kind: .search, placement: .bottomBar)

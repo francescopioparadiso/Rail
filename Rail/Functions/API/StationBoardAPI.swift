@@ -24,7 +24,8 @@ enum StationBoardKind: String, CaseIterable, Identifiable {
 struct BoardTrain: Identifiable, Hashable {
     /// The viaggiatreno identifier, "S01700/2239/1788300000000". It is exactly what
     /// `TrenitaliaAPI.info` takes, so opening a row resolves the whole journey
-    /// without a second lookup.
+    /// without a second lookup. Italo's trains, which viaggiatreno doesn't list,
+    /// go by "italo/9932" instead.
     let id: String
 
     let logo: String
@@ -38,6 +39,9 @@ struct BoardTrain: Identifiable, Hashable {
     let delayMinutes: Int
     let platform: String
     let isCancelled: Bool
+    var provider = "trenitalia"
+
+    var isItalo: Bool { provider == "italo" }
 
     /// When the train is actually expected here.
     var effectiveTime: Date {
@@ -98,7 +102,7 @@ enum StationBoardAPI {
         return best(for: name, among: await stations(matching: String(lead)))
     }
 
-    /// Everything due at `code` around `date`, in the order it will actually
+    /// Everything still due at `code` from `date` on, in the order it will actually
     /// call — a train running late takes its delayed place in the queue.
     static func board(_ kind: StationBoardKind, at code: String, on date: Date = Date()) async -> [BoardTrain] {
         let path = kind == .departures ? "partenze" : "arrivi"
@@ -110,7 +114,12 @@ enum StationBoardAPI {
         do {
             let (data, _) = try await URLSession.shared.data(from: url)
             guard let entries = try JSONSerialization.jsonObject(with: data) as? [[String: Any]] else { return [] }
+            // The feed also lists trains already gone, so only those still due —
+            // delay included — are kept. Times are to the minute, so a train due
+            // this very minute still counts.
+            let cutoff = Calendar.current.dateInterval(of: .minute, for: date)?.start ?? date
             return entries.compactMap { boardTrain(from: $0, kind: kind) }
+                .filter { $0.effectiveTime >= cutoff }
                 .sorted { $0.effectiveTime < $1.effectiveTime }
         } catch {
             print("Error fetching station board: \(error)")
@@ -118,9 +127,35 @@ enum StationBoardAPI {
         }
     }
 
+    /// Italo's trains due at the viaggiatreno station `code` from `date` on, when
+    /// Italo calls there. Italo publishes only its live board, so these reach no
+    /// further than the next couple of hours.
+    static func italoBoard(_ kind: StationBoardKind, at code: String, on date: Date = Date()) async -> [BoardTrain] {
+        guard let station = ItaloAPI.station(viaggiatrenoCode: code) else { return [] }
+
+        let cutoff = Calendar.current.dateInterval(of: .minute, for: date)?.start ?? date
+        return await ItaloAPI.board(kind, at: station)
+            .map { entry in
+                BoardTrain(
+                    id: "italo/\(entry.number)",
+                    logo: "ITALO",
+                    number: entry.number,
+                    counterpart: entry.counterpart,
+                    scheduledTime: entry.scheduledTime,
+                    delayMinutes: entry.delayMinutes,
+                    platform: entry.platform,
+                    isCancelled: false,
+                    provider: "italo"
+                )
+            }
+            .filter { $0.effectiveTime >= cutoff }
+    }
+
     // MARK: - Helpers
 
-    private static func best(for name: String, among candidates: [StationSuggestion]) -> StationSuggestion? {
+    /// The candidate that is `name`, or failing that the shortest one that contains
+    /// it or is contained by it.
+    static func best(for name: String, among candidates: [StationSuggestion]) -> StationSuggestion? {
         if let exact = candidates.first(where: { $0.name.caseInsensitiveCompare(name) == .orderedSame }) {
             return exact
         }

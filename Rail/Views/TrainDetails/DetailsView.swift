@@ -185,7 +185,7 @@ struct DetailsView: View {
                     .font(.title3)
                     .fontDesign(appFontDesign)
                     .fontWeight(.semibold)
-                    .fontDesign(.rounded)
+                    .fontDesign(appFontDesign)
                     .foregroundStyle(Color.primary)
                 
                 Spacer()
@@ -880,7 +880,13 @@ struct DetailsView: View {
                                     HapticFeedback.tap()
                                     // The first stop has nothing to arrive from, so its
                                     // own board reads as of its departure instead.
-                                    let referenceDate = routeIndex == firstIndex ? stop.dep_time_eff : stop.arr_time_eff
+                                    // A run that hasn't set out yet has no live times,
+                                    // only its timetable: a train days away opens the
+                                    // board at its scheduled call, the same one shown here.
+                                    let isLive = Date() >= firstStopNoIssues.dep_time_id || Calendar.current.isDateInToday(firstStopNoIssues.dep_time_id)
+                                    let referenceDate = routeIndex == firstIndex
+                                        ? (isLive && stop.dep_time_eff != .distantPast ? stop.dep_time_eff : stop.dep_time_id)
+                                        : (isLive && stop.arr_time_eff != .distantPast ? stop.arr_time_eff : stop.arr_time_id)
                                     boardStation = StopBoardRequest(name: stop.name, referenceDate: referenceDate)
                                 }
                             
