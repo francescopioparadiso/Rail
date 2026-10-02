@@ -41,6 +41,10 @@ struct BoardTrainDetailView: View {
         return runDay > Calendar.current.startOfDay(for: Date())
     }
 
+    private var italoUnavailableMessage: LocalizedStringKey {
+        "This isn't a problem with the app: Italo's servers don't allow tracking or getting information about a train until shortly before it leaves its first station."
+    }
+
     // MARK: - Body
 
     var body: some View {
@@ -73,7 +77,9 @@ struct BoardTrainDetailView: View {
                 ContentUnavailableView(
                     "Train unavailable",
                     systemImage: "exclamationmark.triangle.fill",
-                    description: Text(isLaterDay
+                    description: Text(boardTrain.isItalo
+                        ? italoUnavailableMessage
+                        : isLaterDay
                         ? "This train doesn't run today, so its route isn't published yet. Try again on the day."
                         : "This train's route couldn't be loaded. Check your connection and try again.")
                 )
@@ -132,9 +138,16 @@ struct BoardTrainDetailView: View {
     /// The run the board lists, or — for a run on a later day, which the feed won't
     /// publish until that day — today's run of the same train, moved onto its day.
     private func routeInfo() async -> [String: Any]? {
-        // Italo's board only lists today's trains, which its feed has by number
+        // Italo's feed has a train by number only shortly before it leaves; until
+        // then its booking timetable, searched between here and the other end
         if boardTrain.isItalo {
-            return await ItaloAPI().info(identifier: boardTrain.number, shouldFetchWeather: false)
+            if let info = await ItaloAPI().info(identifier: boardTrain.number, shouldFetchWeather: false) {
+                return info
+            }
+            guard let here = ItaloAPI.station(named: station),
+                  let other = ItaloAPI.station(named: boardTrain.counterpart) else { return nil }
+            let (from, to) = kind == .departures ? (here, other) : (other, here)
+            return await ItaloAPI.scheduledInfo(number: boardTrain.number, from: from, to: to, on: boardTrain.scheduledTime)
         }
         if let info = await TrenitaliaAPI().info(identifier: boardTrain.id, shouldFetchWeather: false) {
             return info

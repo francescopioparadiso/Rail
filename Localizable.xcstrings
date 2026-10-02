@@ -3268,6 +3268,16 @@
         }
       }
     },
+    "This isn't a problem with the app: Italo's servers don't allow tracking or getting information about a train until shortly before it leaves its first station." : {
+      "localizations" : {
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Non è un problema dell'app: i server di Italo non permettono di seguire o ottenere informazioni su un treno finché non manca poco alla partenza dalla sua prima stazione."
+          }
+        }
+      }
+    },
     "Train unavailable" : {
       "localizations" : {
         "it" : {

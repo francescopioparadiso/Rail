@@ -22,10 +22,18 @@ struct PreparedSolutionSegment {
 enum SolutionSegmentResolver {
     static func resolve(_ segment: SolutionSegment) async -> PreparedSolutionSegment? {
         if segment.isItalo {
-            // Italo's solutions only ever come from today's board, so today's run is the one
-            guard let info = await ItaloAPI().info(identifier: segment.number, shouldFetchWeather: false) else {
-                return fromSolution(segment)
+            // the live feed knows today's run once it is close; any other day, or
+            // a train not yet in the feed, comes from the booking timetable
+            var info: [String: Any]?
+            if Calendar.current.isDateInToday(segment.departureTime) {
+                info = await ItaloAPI().info(identifier: segment.number, shouldFetchWeather: false)
             }
+            if info == nil,
+               let from = ItaloAPI.station(code: segment.stationCode),
+               let to = ItaloAPI.station(named: segment.destination) {
+                info = await ItaloAPI.scheduledInfo(number: segment.number, from: from, to: to, on: segment.departureTime)
+            }
+            guard let info else { return fromSolution(segment) }
             return PreparedSolutionSegment(
                 info: info,
                 fromStation: segment.origin,

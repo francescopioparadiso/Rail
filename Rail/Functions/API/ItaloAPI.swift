@@ -128,9 +128,9 @@ class ItaloAPI {
 
     // MARK: - Solutions
 
-    /// The direct Italo trains from one station to the other, for a search on
-    /// today. Italo only publishes its live board, so these are the trains leaving
-    /// in the next couple of hours, and none on any other day.
+    /// The direct Italo trains from one station to the other. Italo's booking
+    /// site timetables them on any day; when it can't be reached, today's live
+    /// board still gives the trains leaving in the next couple of hours.
     func trainSolutions(
         origin: String,
         departureLocationId: String,
@@ -138,10 +138,31 @@ class ItaloAPI {
         arrivalLocationId: String,
         departureTime: Date
     ) async -> [Solution] {
-        guard Calendar.current.isDateInToday(departureTime),
-              let from = Self.station(trenitaliaID: departureLocationId),
+        guard let from = Self.station(trenitaliaID: departureLocationId),
               let to = Self.station(trenitaliaID: arrivalLocationId),
               from != to else { return [] }
+
+        let runs = await Self.scheduledRuns(from: from, to: to, on: departureTime)
+        if !runs.isEmpty {
+            let cutoff = Calendar.current.dateInterval(of: .minute, for: departureTime)?.start ?? departureTime
+            return runs.compactMap { run in
+                guard let first = run.calls.first, let last = run.calls.last, first.departure >= cutoff else { return nil }
+                return Solution(segments: [
+                    SolutionSegment(
+                        origin: origin,
+                        destination: destination,
+                        departureTime: first.departure,
+                        arrivalTime: last.arrival,
+                        logo: "ITALO",
+                        number: run.number,
+                        stationCode: from.code,
+                        isBus: false
+                    )
+                ])
+            }
+        }
+
+        guard Calendar.current.isDateInToday(departureTime) else { return [] }
 
         let departures = await Self.board(.departures, at: from)
 
@@ -223,14 +244,14 @@ class ItaloAPI {
 
     /// Whether a name from an Italo route is `station`, going by either of the
     /// names Italo gives it.
-    private static func matches(_ name: String, _ station: ItaloStation) -> Bool {
+    static func matches(_ name: String, _ station: ItaloStation) -> Bool {
         let target = comparable(name)
         return target == comparable(station.routeName) || target == comparable(station.name)
     }
 
     /// Letters and digits only, accents folded, so "S.Donà-Jesolo" and
     /// "S. Dona Jesolo" read alike.
-    private static func comparable(_ value: String) -> String {
+    static func comparable(_ value: String) -> String {
         value.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil)
             .filter { $0.isLetter || $0.isNumber }
     }
