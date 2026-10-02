@@ -3020,6 +3020,9 @@
         }
       }
     },
+    "Tap the QR code to show it full screen." : {
+
+    },
     "The email server took too long to respond." : {
       "localizations" : {
         "it" : {

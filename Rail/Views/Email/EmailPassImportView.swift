@@ -198,6 +198,7 @@ struct EmailPassImportView: View {
                             .fontDesign(appFontDesign)
                         }
                     }
+                    .scrollEdgeEffectStyle(.soft, for: .all)
                     .listStyle(.insetGrouped)
                     .listSectionSpacing(32)
                     .scrollIndicators(.visible)
@@ -247,15 +248,17 @@ struct EmailPassImportView: View {
                         }
                     }
                     .disabled(isWorking || isAdding || filteredPasses.isEmpty)
+                    // On the button itself, not the view: that is what lets the
+                    // dialog open out of it instead of in the middle of the screen.
+                    .confirmationDialog("Save all passes", isPresented: $showSaveAllConfirmation, titleVisibility: .visible) {
+                        Button("Cancel", role: .cancel) { }
+                        Button("Save", role: .none) { Task { await saveAllPasses() } }
+                    } message: {
+                        Text("Are you sure you want to save all fetched passes?")
+                    }
                 }
 
                 DefaultToolbarItem(kind: .search, placement: .bottomBar)
-            }
-            .confirmationDialog("Save all passes", isPresented: $showSaveAllConfirmation, titleVisibility: .visible) {
-                Button("Cancel", role: .cancel) { }
-                Button("Save", role: .none) { Task { await saveAllPasses() } }
-            } message: {
-                Text("Are you sure you want to save all fetched passes?")
             }
         .searchable(text: $searchText, prompt: "Search")
         .background(appBackgroundColor.ignoresSafeArea())

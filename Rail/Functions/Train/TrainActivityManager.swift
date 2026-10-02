@@ -28,7 +28,8 @@ final class TrainActivityManager {
 
     /// Scheduled activities count against the system's ceiling just as running ones
     /// do, so a day of connections does not get to book the whole allowance. Two
-    /// covers the usual case: one leg running while the next waits its turn.
+    /// covers the usual case: one leg running while the next waits its turn. Only
+    /// the first is ever on screen: the next is scheduled to start when it ends.
     private static let maximumConcurrent = 2
 
     /// The store lives in the App Group beside everything else this app shares.
@@ -117,13 +118,20 @@ final class TrainActivityManager {
             await end(tripID: record.tripID)
         }
 
+        // One journey on the Lock Screen at a time. A leg that follows another does
+        // not come up before the one ahead of it has ended, however near its own
+        // boarding is; after that it comes up an hour before boarding, or at once
+        // if that hour has already begun.
+        var previousEnd: Date?
         for candidate in candidates {
             await apply(
                 state: candidate.state,
                 train: candidate.train,
                 stops: candidate.stops,
+                notBefore: previousEnd,
                 now: now
             )
+            previousEnd = candidate.state.journeyEnd
         }
     }
 
@@ -139,7 +147,14 @@ final class TrainActivityManager {
               let candidate = candidate(train: train, stops: stops, seats: seats, now: now)
         else { return }
 
-        await apply(state: candidate.state, train: candidate.train, stops: candidate.stops, now: now)
+        // Another journey still running ahead of this one keeps the Lock Screen
+        // until it ends, the same as in `sync`.
+        let ahead = records()
+            .filter { $0.tripID != train.id && $0.journeyEnd > now && $0.startDate <= candidate.state.departure.effective }
+            .map(\.journeyEnd)
+            .max()
+
+        await apply(state: candidate.state, train: candidate.train, stops: candidate.stops, notBefore: ahead, now: now)
     }
 
     /// A journey worth a place on the Lock Screen, if there is one: not cancelled,
@@ -165,6 +180,7 @@ final class TrainActivityManager {
         state: TrainActivityAttributes.ContentState,
         train: Train,
         stops: [Stop],
+        notBefore: Date? = nil,
         now: Date
     ) async {
         let attributes = TrainActivityAttributes(train: train, stops: stops)
@@ -197,6 +213,12 @@ final class TrainActivityManager {
                 store(record.withContentHash(state.hashValue))
                 return
 
+            case .notYetStarted where notBefore.map({ record.startDate < $0.addingTimeInterval(-60) }) ?? false:
+                // Booked to start while the journey ahead of it is still running,
+                // which is what a delay there or a newer sync has just made wrong.
+                Self.logger.info("Rescheduling a live journey to follow the one ahead of it")
+                await end(tripID: train.id)
+
             case .notYetStarted:
                 // Scheduled but not running, so there is nothing to update and
                 // certainly nothing to replace — tearing it down here would cancel
@@ -212,13 +234,14 @@ final class TrainActivityManager {
         }
 
         let boarding = state.departure.effective
-        if TrainActivitySchedule.shouldStartImmediately(boarding: boarding, now: now) {
+        let ownStart = TrainActivitySchedule.shouldStartImmediately(boarding: boarding, now: now)
+            ? now
+            : TrainActivitySchedule.start(boarding: boarding, journeyEnd: state.journeyEnd, now: now) ?? now
+        let start = max(ownStart, notBefore ?? now)
+
+        if start <= now {
             await request(attributes: attributes, content: content, start: nil, tripID: train.id, state: state, now: now)
-        } else if let start = TrainActivitySchedule.start(
-            boarding: boarding,
-            journeyEnd: state.journeyEnd,
-            now: now
-        ) {
+        } else {
             await request(attributes: attributes, content: content, start: start, tripID: train.id, state: state, now: now)
         }
     }

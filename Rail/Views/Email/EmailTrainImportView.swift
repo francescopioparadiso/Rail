@@ -258,6 +258,7 @@ struct EmailTrainImportView: View {
                             .fontDesign(appFontDesign)
                         }
                     }
+                    .scrollEdgeEffectStyle(.soft, for: .all)
                     .listStyle(.insetGrouped)
                     .listSectionSpacing(32)
                     .scrollIndicators(.visible)

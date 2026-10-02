@@ -2,7 +2,7 @@ import Foundation
 
 extension Pass {
     /// Names the PDF after the period it covers, so a folder of them sorts by date:
-    /// a whole calendar month is `2026_07`, anything else `2026_07_01-2026_07_15`.
+    /// a whole calendar month is `2026-07`, anything else `2026-07-01 - 2026-07-15`.
     var documentBaseName: String {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(identifier: "Europe/Rome") ?? .current
@@ -18,14 +18,14 @@ extension Pass {
            calendar.component(.day, from: start) == 1,
            let daysInMonth = calendar.range(of: .day, in: .month, for: start),
            calendar.component(.day, from: end) == daysInMonth.count {
-            formatter.dateFormat = "yyyy_MM"
+            formatter.dateFormat = "yyyy-MM"
             return formatter.string(from: start)
         }
 
-        formatter.dateFormat = "yyyy_MM_dd"
+        formatter.dateFormat = "yyyy-MM-dd"
         let from = formatter.string(from: start)
         let to = formatter.string(from: end)
-        return from == to ? from : "\(from)-\(to)"
+        return from == to ? from : "\(from) - \(to)"
     }
 
     var documentFilename: String { documentBaseName + ".pdf" }

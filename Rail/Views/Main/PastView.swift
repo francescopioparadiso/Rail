@@ -100,6 +100,7 @@ struct PastView: View {
                         }
                     }
                 }
+                .scrollEdgeEffectStyle(.soft, for: .all)
                 .scrollIndicators(.hidden)
                 .listStyle(.insetGrouped)
             }

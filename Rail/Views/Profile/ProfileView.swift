@@ -197,6 +197,8 @@ struct ProfileView: View {
                     }
                 }
                 .padding(.horizontal, -16)
+                // closer to the section header than the row's own inset puts it
+                .padding(.top, -12)
             }
             .listRowBackground(Color.clear)
 
@@ -217,6 +219,8 @@ struct ProfileView: View {
                     )
                 }
                 .padding(.horizontal, -16)
+                // closer to the section header than the row's own inset puts it
+                .padding(.top, -12)
             }
             .listRowBackground(Color.clear)
 
@@ -244,6 +248,7 @@ struct ProfileView: View {
             }
 
         }
+        .scrollEdgeEffectStyle(.soft, for: .all)
         .scrollContentBackground(.hidden)
     }
 

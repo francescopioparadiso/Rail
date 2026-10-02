@@ -38,7 +38,19 @@ struct SeatsView: View {
     let initialSeatID: UUID?
 
     @State private var searchText = ""
-    @State private var seatFormPresentation: SeatFormPresentation? = nil
+    @State private var seatFormPresentation: SeatFormPresentation?
+
+    /// With `addsSeatIfEmpty`, a train with no seat yet — added by hand, with no
+    /// ticket — opens straight on the form for its first one. It is set here, in
+    /// the first state, rather than in `onAppear`: the form is then part of the
+    /// sheet's first frame instead of waiting for the sheet to finish appearing.
+    init(train: Train, seats: [Seat], initialSeatID: UUID?, addsSeatIfEmpty: Bool = false) {
+        self.train = train
+        self.seats = seats
+        self.initialSeatID = initialSeatID
+        let asksForFirstSeat = addsSeatIfEmpty && seats.isEmpty && initialSeatID == nil
+        _seatFormPresentation = State(initialValue: asksForFirstSeat ? .new : nil)
+    }
 
     // MARK: - Computed
 
@@ -102,6 +114,7 @@ struct SeatsView: View {
                         }
                         .fontDesign(appFontDesign)
                     }
+                    .scrollEdgeEffectStyle(.soft, for: .all)
                     .listStyle(.insetGrouped)
                     .listSectionSpacing(32)
                     .scrollIndicators(.hidden)

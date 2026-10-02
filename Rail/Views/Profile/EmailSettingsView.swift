@@ -49,6 +49,7 @@ struct EmailSettingsView: View {
                     }
                     .onDelete(perform: deleteAccounts)
                 }
+                .scrollEdgeEffectStyle(.soft, for: .all)
                 .listStyle(.insetGrouped)
                 // the standard grouped background: `appBackgroundColor` matches the
                 // row fill in dark mode, which left the rows invisible

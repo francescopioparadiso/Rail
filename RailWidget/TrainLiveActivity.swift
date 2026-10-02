@@ -282,6 +282,9 @@ struct TrainActivityIslandExpanded: View {
     let region: Region
 
     private let horizontalInset: CGFloat = 4
+    /// The logo's own, on top of the inset: the island's curve at the top corner
+    /// takes more of its left edge than the rows below.
+    private let logoLeadingInset: CGFloat = 8
     /// The top row already clears the camera, so the bottom needs little more.
     private let topInset: CGFloat = 4
     private let bottomInset: CGFloat = 4
@@ -318,8 +321,11 @@ struct TrainActivityIslandExpanded: View {
                 .foregroundStyle(Color.primary)
                 .lineLimit(1)
         }
-        .padding(.leading, horizontalInset)
-        .frame(maxHeight: .infinity, alignment: .center)
+        .padding(.leading, horizontalInset + logoLeadingInset)
+        // Offered the whole row rather than what it asks for: with no seat in the
+        // trailing region the island hands this one too little, and the logo, which
+        // has no width of its own to give up, was the part cut off.
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
     }
 
     /// Top right: the seat, with a seatbelt rather than a seat, on a darker chip
@@ -449,7 +455,7 @@ struct TrainActivityIslandMinimal: View {
     var body: some View {
         let drawn = context.state.advanced(ifStale: context.isStale)
 
-        CountdownText(target: drawn.state.targetDate, isStale: drawn.isStale)
+        CountdownText(target: drawn.state.targetDate, isStale: drawn.isStale, alignment: .center)
             .font(font).fontWeight(.semibold)
             .foregroundStyle(JourneyPalette.target)
     }
@@ -596,6 +602,11 @@ struct StationRow: View {
 struct CountdownText: View {
     let target: Date
     let isStale: Bool
+    /// Where the digits sit in the room made for them. The width is fixed when the
+    /// view is drawn, so once the time drops a digit it can be left a little wide;
+    /// centred, that slack is split across both sides instead of piling up on the
+    /// right.
+    var alignment: Alignment = .leading
 
     /// Held at least a moment ahead of now: a backwards range traps rather than draws.
     private var interval: ClosedRange<Date> {
@@ -623,9 +634,9 @@ struct CountdownText: View {
             } else {
                 Text(widest)
                     .hidden()
-                    .overlay(alignment: .leading) {
+                    .overlay(alignment: alignment) {
                         Text(timerInterval: interval, countsDown: true, showsHours: false)
-                            .multilineTextAlignment(.leading)
+                            .multilineTextAlignment(alignment == .center ? .center : .leading)
                     }
             }
         }

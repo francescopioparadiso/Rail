@@ -75,6 +75,7 @@ struct NotificationSettingsView: View {
                 }
             }
         }
+        .scrollEdgeEffectStyle(.soft, for: .all)
         .navigationTitle("Notifications")
         .fontDesign(appFontDesign)
         .alert("Notification Access Required", isPresented: $showPermissionAlert) {

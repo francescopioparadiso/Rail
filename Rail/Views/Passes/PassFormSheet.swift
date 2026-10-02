@@ -23,6 +23,8 @@ struct PassFormSheet: View {
     @State private var imageStatus: ImageStatus = .empty
     @State private var isProcessingImage = false
     @State private var isEditing: Bool
+    /// View mode only: the QR code on a sheet of its own, to be scanned from.
+    @State private var showsFullScreenQR = false
 
     init(passToEdit: Pass?, onSave: @escaping () -> Void) {
         self.passToEdit = passToEdit
@@ -134,13 +136,20 @@ struct PassFormSheet: View {
                             }
                         } else {
                             qrCodePreview
+                                .contentShape(Rectangle())
+                                .onTapGesture {
+                                    HapticFeedback.tap()
+                                    showsFullScreenQR = true
+                                }
                         }
                     }
                     .listRowSeparator(.hidden)
                 } header: {
                     Text("QR Code")
                 } footer: {
-                    if isFormEditable {
+                    if !isFormEditable {
+                        Text("Tap the QR code to show it full screen.")
+                    } else {
                         if imageStatus == .error {
                             Text("Couldn't detect a QR code in that photo. Try another image.")
                                 .foregroundStyle(.red)
@@ -181,6 +190,7 @@ struct PassFormSheet: View {
                     }
                 }
             }
+            .scrollEdgeEffectStyle(.soft, for: .all)
             .listStyle(.insetGrouped)
             .fontDesign(appFontDesign)
             .navigationTitle(passToEdit == nil ? String(localized: "New Pass") : String(localized: "Edit Pass"))
@@ -219,6 +229,11 @@ struct PassFormSheet: View {
             }
         }
         .background(appBackgroundColor)
+        .sheet(isPresented: $showsFullScreenQR) {
+            if let previewImage {
+                FullScreenQRView(image: previewImage)
+            }
+        }
         .sheet(item: $previewedDocument) { document in
             PassDocumentView(data: document.data, filename: document.filename)
         }
@@ -241,11 +256,15 @@ struct PassFormSheet: View {
                     .resizable()
                     .interpolation(.none)
                     .scaledToFit()
-                    .frame(maxWidth: 200, maxHeight: 200)
-                    .padding(8)
+                    .frame(maxWidth: 200)
+                    // One padding, applied after the image is sized, so the white
+                    // margin is the same on every side rather than whatever stacked
+                    // frames left over.
+                    .padding(16)
                     .frame(maxWidth: .infinity)
                     .background(Color.white)
-                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    // follows the list row's own curve inset by the padding above
+                    .clipShape(ConcentricRectangle(corners: .concentric(minimum: .fixed(20)), isUniform: true))
             } else {
                 VStack(spacing: 10) {
                     Image(systemName: "photo.on.rectangle.angled")
@@ -346,6 +365,37 @@ struct PassFormSheet: View {
                 try? await Task.sleep(nanoseconds: 1_000_000_000)
                 await MainActor.run { imageStatus = .empty }
             }
+        }
+    }
+}
+
+
+/// Only the QR code, as large as the screen allows, on white so it scans.
+private struct FullScreenQRView: View {
+    let image: UIImage
+
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            Image(uiImage: image)
+                .resizable()
+                .interpolation(.none)
+                .scaledToFit()
+                .padding(24)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(Color.white.ignoresSafeArea())
+                .toolbar {
+                    ToolbarItem(placement: .navigationBarLeading) {
+                        Button {
+                            HapticFeedback.tap()
+                            dismiss()
+                        } label: {
+                            Image(systemName: "xmark")
+                        }
+                    }
+                }
+                .toolbarColorScheme(.light, for: .navigationBar)
         }
     }
 }

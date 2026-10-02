@@ -312,16 +312,7 @@ struct ContentView: View {
     }
 
     private var emailFetchToolbarLabel: some View {
-        Group {
-            if isFetchingEmailTickets {
-                Image(systemName: "progress.indicator")
-                    .symbolEffect(.rotate.byLayer, options: .repeat(.continuous))
-            } else {
-                Image(systemName: "envelope")
-            }
-        }
-        .contentTransition(.symbolEffect(.replace.downUp.wholeSymbol, options: .nonRepeating))
-        .foregroundStyle(Color.primary)
+        EmailFetchIcon(isFetching: showsFullEmailScan)
     }
 
     private var emailImportSheetContent: some View {
@@ -849,4 +840,30 @@ fileprivate let previewContainer: ModelContainer = {
     ContentView(usesMockMailbox: true, previewNow: previewMoment)
         .modelContainer(previewContainer)
         .environment(\.locale, Locale(identifier: "it"))
+}
+
+/// The toolbar's mail icon: an envelope at rest, a turning spinner while fetching.
+///
+/// They are two views, both always there, faded one into the other. As one view
+/// whose symbol changed, the spinner's turn in progress carried on after the
+/// envelope had taken its place, so the envelope was seen to spin.
+struct EmailFetchIcon: View {
+    let isFetching: Bool
+
+    var body: some View {
+        ZStack {
+            Image(systemName: "envelope")
+                .opacity(isFetching ? 0 : 1)
+                .scaleEffect(isFetching ? 0.6 : 1)
+                .blur(radius: isFetching ? 2 : 0)
+
+            Image(systemName: "progress.indicator")
+                .symbolEffect(.rotate.byLayer, options: .repeat(.continuous), isActive: isFetching)
+                .opacity(isFetching ? 1 : 0)
+                .scaleEffect(isFetching ? 1 : 0.6)
+                .blur(radius: isFetching ? 0 : 2)
+        }
+        .foregroundStyle(Color.primary)
+        .animation(.smooth, value: isFetching)
+    }
 }

@@ -183,6 +183,7 @@ struct EditEmailView: View {
                 Text("Account not found")
             }
         }
+        .scrollEdgeEffectStyle(.soft, for: .all)
         // keeps the standard grouped background so the sections stay legible in
         // dark mode, where `appBackgroundColor` matches the row fill
         .background(appBackgroundColor.ignoresSafeArea())

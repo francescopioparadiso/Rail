@@ -98,14 +98,12 @@ struct PassView: View {
     @State private var fetchSheetDetent: PresentationDetent = .medium
     @State private var passSyncProgresses: [String: EmailPassSyncProgress] = [:]
     @State private var isFetchingEmailPasses = false
-    /// Whether the running fetch reads the whole mailbox — the first scan, or a
-    /// start-over. Only that one gets the full progress view; looking for what has
-    /// arrived since keeps the list on screen.
+    /// Whether the running fetch is a start-over of the whole mailbox. Only that
+    /// one gets the full progress view; anything else keeps the list on screen.
     @State private var isFullEmailScan = false
     @State private var showFetchResultCard = false
     @State private var fetchedPassesCount = 0
     @State private var emailFetchTask: Task<Void, Never>?
-    @State private var hasStartedAutoFetch = false
     @State private var fetchingAccountEmails: [String] = []
 
     // MARK: - Computed
@@ -120,10 +118,6 @@ struct PassView: View {
 
     private var showsFullEmailScan: Bool {
         isFetchingEmailPasses && isFullEmailScan
-    }
-
-    private var showsFetchToolbarButton: Bool {
-        isFetchingEmailPasses || showFetchResultCard
     }
 
     private var filteredPasses: [Pass] {
@@ -267,6 +261,7 @@ struct PassView: View {
                             .fontDesign(appFontDesign)
                         }
                     }
+                    .scrollEdgeEffectStyle(.soft, for: .all)
                     .listStyle(.insetGrouped)
                     .listSectionSpacing(32)
                     .scrollIndicators(.hidden)
@@ -313,9 +308,7 @@ struct PassView: View {
                     .disabled(isSelecting && filteredPasses.isEmpty)
                 }
 
-                if !isSelecting, showsFetchToolbarButton {
-                    // inside the condition: with no mail button to separate, the
-                    // spacer would only strand the select button on its own
+                if !isSelecting {
                     ToolbarSpacer(.fixed, placement: .primaryAction)
 
                     ToolbarItem(placement: .primaryAction) {
@@ -521,10 +514,6 @@ struct PassView: View {
             // seed so the first insert is the only thing treated as new
             knownPassIDs = Set(passes.map(\.persistentModelID))
             refreshDisplayedPasses()
-            if !hasStartedAutoFetch {
-                hasStartedAutoFetch = true
-                triggerEmailPassRefresh()
-            }
             if openPrincipalPassQR, let principal = passes.first(where: \.is_principal) {
                 passFormPresentation = .edit(principal)
             }
@@ -561,6 +550,9 @@ struct PassView: View {
         HStack(spacing: 12) {
             Image(systemName: statusIcon)
                 .font(.largeTitle)
+                // The star is wider than the check and the cross, so the room is
+                // kept at the star's width and they sit in the middle of it.
+                .frame(width: 44)
                 .foregroundStyle(statusColor)
                 .contentTransition(.symbolEffect(.replace.downUp.wholeSymbol, options: .nonRepeating))
 
@@ -649,20 +641,8 @@ struct PassView: View {
     /// in the toolbar just crowded the navigation bar.
     @ViewBuilder
     private var emailFetchToolbarLabel: some View {
-        let isFetching = isFetchingEmailPasses
-
-        Group {
-            if isFetching {
-                Image(systemName: "progress.indicator")
-                    .symbolEffect(.rotate.byLayer, options: .repeat(.continuous))
-            } else {
-                Image(systemName: "envelope")
-            }
-        }
-        .contentTransition(.symbolEffect(.replace.downUp.wholeSymbol, options: .nonRepeating))
-        .foregroundStyle(Color.primary)
-        .font(.callout).fontWeight(.medium).fontDesign(appFontDesign)
-        .animation(.snappy, value: isFetching)
+        EmailFetchIcon(isFetching: showsFullEmailScan)
+            .font(.callout).fontWeight(.medium).fontDesign(appFontDesign)
     }
 
     // MARK: - Actions
@@ -682,6 +662,33 @@ struct PassView: View {
             withAnimation(.snappy) { passFilter = .all }
         }
         refreshDisplayedPasses()
+        makeOnlyActivePassPrincipal(among: added)
+    }
+
+    /// A pass that has just arrived and is the only one still valid is the one the
+    /// widget should show, so it is starred without waiting to be swiped. A brief
+    /// wait first, so the star is seen to arrive rather than being there on the row's
+    /// first frame.
+    private func makeOnlyActivePassPrincipal(among added: Set<PersistentIdentifier>) {
+        let startOfToday = Calendar.current.startOfDay(for: Date())
+        let active = passes.filter { $0.expiry_date >= startOfToday }
+        guard active.count == 1, let pass = active.first,
+              added.contains(pass.persistentModelID), !pass.is_principal else { return }
+        let id = pass.persistentModelID
+
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(300))
+            guard let pass = passes.first(where: { $0.persistentModelID == id }),
+                  !pass.is_principal else { return }
+            HapticFeedback.impactHeavy()
+            withAnimation(.snappy) {
+                for other in passes { other.is_principal = false }
+                pass.is_principal = true
+                try? modelContext.save()
+            }
+            try? await Task.sleep(for: .milliseconds(500))
+            WidgetCenter.shared.reloadAllTimelines()
+        }
     }
 
     private func matchesStatusFilter(_ pass: Pass) -> Bool {
@@ -798,6 +805,10 @@ struct PassView: View {
         HapticFeedback.tap()
         fetchSheetDetent = showsFullEmailScan ? .medium : .large
         emailImportSheet = true
+        // Opening the mailbox looks for what has arrived since the last sync and
+        // nothing more, the way the trains' one does; starting over is what the
+        // refresh button inside the sheet is for.
+        triggerEmailPassRefresh()
     }
 
     private func triggerEmailPassRefresh(reloadAll: Bool = false) {
@@ -810,9 +821,10 @@ struct PassView: View {
     @MainActor
     private func fetchEmailPasses(reloadAll: Bool = false) async {
         guard let profile = profiles.primary else { return }
-        isFullEmailScan = reloadAll || profile.emails
-            .filter(\.hasConfiguredCredentials)
-            .contains(where: \.needsFullPassMailboxScan)
+        // Only a start-over is shown as a scan of the whole mailbox. Opening the
+        // sheet always lands on the passes already fetched, with the newest being
+        // looked for above them, even when the account has never finished a sync.
+        isFullEmailScan = reloadAll
         withAnimation(.snappy) {
             isFetchingEmailPasses = true
             showFetchResultCard = false

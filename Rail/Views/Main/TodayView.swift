@@ -111,6 +111,7 @@ struct TodayView: View {
                     }
                     .onDelete(perform: deleteTodayTrains)
                 }
+                .scrollEdgeEffectStyle(.soft, for: .all)
                 .scrollIndicators(.hidden)
                 .listStyle(.insetGrouped)
                 .refreshable {

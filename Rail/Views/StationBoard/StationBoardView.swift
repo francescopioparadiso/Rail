@@ -270,6 +270,7 @@ struct StationBoardView: View {
                         .task(id: loadedPages) { loadMore() }
                 }
             }
+            .scrollEdgeEffectStyle(.soft, for: .all)
             .listStyle(.insetGrouped)
             .scrollIndicators(.hidden)
             .contentMargins(.bottom, 24, for: .scrollContent)

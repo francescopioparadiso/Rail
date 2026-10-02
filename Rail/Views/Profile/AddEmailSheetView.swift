@@ -98,6 +98,7 @@ struct AddEmailSheetView: View {
                     }
                 }
             }
+            .scrollEdgeEffectStyle(.soft, for: .all)
             .navigationTitle("Add Email")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

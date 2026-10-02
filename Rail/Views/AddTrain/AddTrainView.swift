@@ -294,6 +294,7 @@ struct AddTrainView: View {
                             Color.clear
                                 .frame(height: 80)
                         }
+                        .scrollEdgeEffectStyle(.soft, for: .all)
                         .padding(.horizontal, 8)
                     }
                 }
@@ -548,6 +549,7 @@ struct AddTrainView: View {
                 }
             }
         }
+        .scrollEdgeEffectStyle(.soft, for: .all)
         .formStyle(.grouped)
         .contentMargins(.top, 8, for: .scrollContent)
         .scrollIndicators(.hidden)
@@ -590,6 +592,11 @@ struct AddTrainView: View {
                     .transition(.opacity)
             }
         }
+        // Pinned to the top at the height its rows add up to. Left to size itself,
+        // the row is resized by the list ahead of the rows' own animation and the
+        // content is centred in it meanwhile, which carried departure down and
+        // back up; this way only the rows below the new one move.
+        .frame(height: CGFloat(stations.count) * stationRowHeight, alignment: .top)
         // the line down to the date, drawn the same as the ones between stations
         .overlay(alignment: .bottom) {
             separatorLine.padding(.leading, Self.stationGutter)
@@ -821,6 +828,7 @@ struct AddTrainView: View {
                 .listRowBackground(isSelected ? Color.accentColor.opacity(0.06) : nil)
             }
         }
+        .scrollEdgeEffectStyle(.soft, for: .all)
         .listStyle(.insetGrouped)
         .contentMargins(.bottom, 80, for: .scrollContent)
         .scrollIndicators(.hidden)
@@ -1035,6 +1043,7 @@ struct AddTrainView: View {
         @ViewBuilder content: () -> Content
     ) -> some View {
         List(content: content)
+            .scrollEdgeEffectStyle(.soft, for: .all)
             .listStyle(.insetGrouped)
             // as scroll padding rather than a trailing row, so the last solution
             // keeps the section's rounded bottom corners
@@ -1241,6 +1250,7 @@ struct AddTrainView: View {
                     .listRowSeparator(index == 0 ? .hidden : .visible, edges: .top)
                 }
             }
+            .scrollEdgeEffectStyle(.soft, for: .all)
             .listStyle(.insetGrouped)
             .scrollIndicators(.hidden)
             .contentMargins(.bottom, 120, for: .scrollContent)
@@ -1630,11 +1640,20 @@ struct AddTrainView: View {
             selectStation(first, field: .station(id))
         } else {
             adoptFirstSuggestion(for: .station(id))
-            focusedField = field(after: id)
+            moveFocus(to: field(after: id))
         }
         // every station resolved: go straight on rather than
         // making the user reach for the toolbar button
         if focusedField == nil, buttonIsActive { nextButtonAction() }
+    }
+
+    /// Return hands the focus on to the next station. Done without an animation, so
+    /// the rows are not moving while the keyboard is switching fields; a nil focus
+    /// (the last station) is the only thing that lowers the keyboard.
+    private func moveFocus(to field: FocusField?) {
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) { focusedField = field }
     }
 
     /// The row below, running on into the return; nil after the last.
@@ -1746,7 +1765,7 @@ struct AddTrainView: View {
         guard case .station(let id) = field, let (trip, index) = position(of: id) else { return }
         trips[trip][index].name = station.name
         trips[trip][index].code = station.code
-        focusedField = self.field(after: id)
+        moveFocus(to: self.field(after: id))
     }
 
     private func fetchSolutions() async {

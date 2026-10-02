@@ -68,6 +68,7 @@ struct CalendarSettingsView: View {
                 .disabled(!isAuthorized)
             }
         }
+        .scrollEdgeEffectStyle(.soft, for: .all)
         .navigationTitle("Calendar")
         .fontDesign(appFontDesign)
         .onAppear {

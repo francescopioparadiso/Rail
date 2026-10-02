@@ -42,6 +42,9 @@ struct DetailsView: View {
     let isPreview: Bool
 
     @State private var seatsSheet: Bool = false
+    /// Set by the toolbar's seat button: with nothing in the list yet, the sheet
+    /// goes straight on to asking for a seat.
+    @State private var seatsSheetAddsSeat = false
     @State private var pendingSeatID: UUID?
     @State private var showAllStops: Bool = false
     @State private var searchText = ""
@@ -499,6 +502,7 @@ struct DetailsView: View {
             
             stopsSection
         }
+        .scrollEdgeEffectStyle(.soft, for: .all)
         .refreshable {
             await updateTrainDetails(isManual: true)
         }
@@ -525,7 +529,7 @@ struct DetailsView: View {
             StationBoardView(initialStation: request.name, referenceDate: request.referenceDate)
         }
         .sheet(isPresented: $seatsSheet) {
-            SeatsView(train: train, seats: seats, initialSeatID: pendingSeatID)
+            SeatsView(train: train, seats: seats, initialSeatID: pendingSeatID, addsSeatIfEmpty: seatsSheetAddsSeat)
                 .presentationDetents([.large])
         }
         .background(appBackgroundColor)
@@ -574,6 +578,10 @@ struct DetailsView: View {
             routeDistanceKm = distanceBetweenStations(from: summary.first.name, to: summary.last.name)
             isFavorite = computeIsFavorite()
         }
+        .onChange(of: seatsSheet) { _, isShown in
+            // the other ways in, a ticket link among them, never ask for a seat
+            if !isShown { seatsSheetAddsSeat = false }
+        }
         .onChange(of: showAllStops) { _, _ in
             stopSummary = StopSummary.calculate(in: stops)
         }
@@ -611,6 +619,7 @@ struct DetailsView: View {
         ToolbarItem(placement: .topBarTrailing) {
             Button {
                 HapticFeedback.confirm()
+                seatsSheetAddsSeat = true
                 seatsSheet = true
             } label: {
                 HStack {
@@ -686,6 +695,7 @@ struct DetailsView: View {
                 }
             } label: {
                 Image(systemName: isFavorite ? "heart.fill" : "heart")
+                    .contentTransition(.symbolEffect(.replace))
             }
             .tint(isFavorite ? Color.red : Color.primary)
             .padding(.trailing, -8)

@@ -54,6 +54,7 @@ struct FavoriteTrainsView: View {
                             favoriteRow(favorite)
                         }
                     }
+                    .scrollEdgeEffectStyle(.soft, for: .all)
                     .listStyle(.insetGrouped)
                     .contentMargins(.bottom, 80, for: .scrollContent)
                     .scrollIndicators(.visible)

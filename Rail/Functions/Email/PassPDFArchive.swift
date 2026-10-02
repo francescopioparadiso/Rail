@@ -64,7 +64,7 @@ enum PassPDFArchive {
         }
     }
 
-    /// "2026_07.pdf" or "2026_07_01-2026_07_15.pdf", de-duplicated.
+    /// "2026-07.pdf" or "2026-07-01 - 2026-07-15.pdf", de-duplicated.
     private static func uniqueName(for pass: Pass, taken: inout Set<String>) -> String {
         let base = pass.documentBaseName
         var candidate = base + ".pdf"

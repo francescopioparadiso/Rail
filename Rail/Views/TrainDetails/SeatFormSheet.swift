@@ -102,6 +102,14 @@ struct SeatFormSheet: View {
         return String(first).uppercased() + clean.dropFirst().lowercased()
     }
 
+    /// Return hands the focus on to the next field. Done without an animation, so
+    /// nothing in the form is moving while the keyboard is switching fields.
+    private func moveFocus(to field: FocusField) {
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) { focusedField = field }
+    }
+
     // MARK: - Body
 
     var body: some View {
@@ -116,7 +124,7 @@ struct SeatFormSheet: View {
                                 .focused($focusedField, equals: .name)
                                 .submitLabel(.next)
                                 .onSubmit {
-                                    focusedField = .carriage
+                                    moveFocus(to: .carriage)
                                 }
                                 .onChange(of: name) { _, newValue in
                                     if newValue.count >= 15 {
@@ -139,7 +147,7 @@ struct SeatFormSheet: View {
                                 .focused($focusedField, equals: .carriage)
                                 .submitLabel(.next)
                                 .onSubmit {
-                                    focusedField = .number
+                                    moveFocus(to: .number)
                                 }
                                 .onChange(of: carriage) { _, newValue in
                                     if newValue.count >= 2 {
@@ -210,6 +218,7 @@ struct SeatFormSheet: View {
                     }
                 }
             }
+            .scrollEdgeEffectStyle(.soft, for: .all)
             .listStyle(.insetGrouped)
             .fontDesign(appFontDesign)
             .navigationTitle(seatToEdit == nil ? String(localized: "New Seat") : String(localized: "Edit Seat"))

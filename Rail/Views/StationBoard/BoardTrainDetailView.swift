@@ -100,11 +100,17 @@ struct BoardTrainDetailView: View {
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 4)
         }
+        // the same tinted glass as the Choose Stops tip
         .buttonStyle(.glassProminent)
         .controlSize(.large)
-        .tint(Color.blue)
-        .padding(.horizontal, 20)
-        .padding(.bottom, 8)
+        .tint(Color.blue.opacity(0.3))
+        .foregroundStyle(Color.blue)
+        // the same margins as the Choose Stops tip
+        .padding(.horizontal, 24)
+        .padding(.bottom, 24)
+        // Measured from the screen's edge rather than the home indicator, so the
+        // gap to the bezel is the same all round and the capsule follows its curve.
+        .ignoresSafeArea(.container, edges: .bottom)
     }
 
     // MARK: - Actions
