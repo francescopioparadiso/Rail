@@ -9,14 +9,10 @@ import os
 /// boarding whether or not Rail is running, and it is brought up to date whenever
 /// the app next gets a moment.
 ///
-/// KNOWN LIMITATION — with the app closed, nothing recomputes which stop is next, but
-/// the Lock Screen still moves on once. Every state carries the stop after its target,
-/// and at the target's time the system flips the activity to stale and draws that stop
-/// in the target's place (`ContentState.advanced(ifStale:)`), with no help from the app.
-/// The stop after that one is not known until the app next runs, so a journey with
-/// several stops between boarding and alighting stalls on the second. Carrying it
-/// further needs background execution or a push from a server, and this app has neither
-/// by design.
+/// With the app closed, nothing recomputes which stop is next, but every state carries
+/// all the stops after its target. Whenever the system draws the activity again — at the
+/// target's time, when it flips to stale, and as the screen wakes — stops already passed
+/// are skipped and the next one ahead is shown (`ContentState.advanced(ifStale:)`).
 @MainActor
 final class TrainActivityManager {
 
@@ -58,6 +54,10 @@ final class TrainActivityManager {
         /// than pushed again: every update is a fresh render, and a re-render is
         /// exactly the moment the Lock Screen has nothing to draw.
         var contentHash: Int?
+        /// The arrival the activity was ended against, once it has been handed over to
+        /// the system to remove (see `finaliseIfDue`). An ended activity takes no more
+        /// updates, so a different arrival means it has to be replaced.
+        var finalisedFor: Date?
 
         func withContentHash(_ hash: Int) -> Record {
             var copy = self
@@ -199,37 +199,51 @@ final class TrainActivityManager {
                 Self.logger.info("Restarting a live journey that is near the eight-hour limit")
                 await end(tripID: train.id)
                 await request(attributes: attributes, content: content, start: nil, tripID: train.id, state: state, now: now)
+                await finaliseIfDue(tripID: train.id, content: content, state: state, now: now)
                 return
             }
 
-            // Nothing has moved, so there is nothing to say. Pushing identical
-            // content would only cost another render.
-            if record.contentHash == state.hashValue {
-                return
-            }
-
-            switch await updateActivity(id: record.activityID, content: content, expectedStart: record.startDate, now: now) {
-            case .updated:
-                store(record.withContentHash(state.hashValue))
-                return
-
-            case .notYetStarted where notBefore.map({ record.startDate < $0.addingTimeInterval(-60) }) ?? false:
-                // Booked to start while the journey ahead of it is still running,
-                // which is what a delay there or a newer sync has just made wrong.
-                Self.logger.info("Rescheduling a live journey to follow the one ahead of it")
+            // Already handed to the system to remove at arrival, and it takes no more
+            // updates. If the arrival has moved it is replaced by a new one further
+            // down; if not, there is nothing to do.
+            if let finalisedFor = record.finalisedFor {
+                if abs(finalisedFor.timeIntervalSince(state.journeyEnd)) < Self.arrivalTolerance {
+                    return
+                }
+                Self.logger.info("Arrival moved after a live journey was ended; replacing it")
                 await end(tripID: train.id)
+            } else {
+                // Nothing has moved, so there is nothing to say. Pushing identical
+                // content would only cost another render.
+                if record.contentHash == state.hashValue {
+                    await finaliseIfDue(tripID: train.id, content: content, state: state, now: now)
+                    return
+                }
 
-            case .notYetStarted:
-                // Scheduled but not running, so there is nothing to update and
-                // certainly nothing to replace — tearing it down here would cancel
-                // the very thing that is meant to appear an hour before boarding,
-                // and do it again on every refresh.
-                Self.logger.info("Live journey is still pending; leaving it be")
-                return
+                switch await updateActivity(id: record.activityID, content: content, expectedStart: record.startDate, now: now) {
+                case .updated:
+                    store(record.withContentHash(state.hashValue))
+                    await finaliseIfDue(tripID: train.id, content: content, state: state, now: now)
+                    return
 
-            case .gone:
-                Self.logger.info("Live journey has gone; asking for a new one")
-                forget(tripID: train.id)
+                case .notYetStarted where notBefore.map({ record.startDate < $0.addingTimeInterval(-60) }) ?? false:
+                    // Booked to start while the journey ahead of it is still running,
+                    // which is what a delay there or a newer sync has just made wrong.
+                    Self.logger.info("Rescheduling a live journey to follow the one ahead of it")
+                    await end(tripID: train.id)
+
+                case .notYetStarted:
+                    // Scheduled but not running, so there is nothing to update and
+                    // certainly nothing to replace — tearing it down here would cancel
+                    // the very thing that is meant to appear an hour before boarding,
+                    // and do it again on every refresh.
+                    Self.logger.info("Live journey is still pending; leaving it be")
+                    return
+
+                case .gone:
+                    Self.logger.info("Live journey has gone; asking for a new one")
+                    forget(tripID: train.id)
+                }
             }
         }
 
@@ -241,6 +255,7 @@ final class TrainActivityManager {
 
         if start <= now {
             await request(attributes: attributes, content: content, start: nil, tripID: train.id, state: state, now: now)
+            await finaliseIfDue(tripID: train.id, content: content, state: state, now: now)
         } else {
             await request(attributes: attributes, content: content, start: start, tripID: train.id, state: state, now: now)
         }
@@ -355,6 +370,46 @@ final class TrainActivityManager {
     }
 
     // MARK: - Ending
+
+    /// How close to arrival an activity must be before it is handed over to the
+    /// system to remove. The system keeps an ended activity on the Lock Screen for at
+    /// most four hours, so this stays inside that with room to spare.
+    private static let finaliseWindow: TimeInterval = 3.5 * 60 * 60
+
+    /// How long the card lingers after arrival before the system takes it down.
+    private static let lingerAfterArrival: TimeInterval = 5 * 60
+
+    /// Arrival times closer than this are the same arrival.
+    private static let arrivalTolerance: TimeInterval = 60
+
+    /// Once the journey is near enough its end, ends the activity with a dismissal
+    /// date at the arrival, so the system removes it then with the app closed.
+    ///
+    /// Nothing can end an activity at a chosen moment otherwise: only the running app
+    /// or a push can. An ended activity takes no further updates, but it is still
+    /// drawn, and the view moves through the stops it was handed by itself. If the
+    /// arrival later moves, the next sync sees `finalisedFor` no longer matches and
+    /// replaces it.
+    private func finaliseIfDue(
+        tripID: UUID,
+        content: ActivityContent<TrainActivityAttributes.ContentState>,
+        state: TrainActivityAttributes.ContentState,
+        now: Date
+    ) async {
+        guard let record = record(for: tripID), record.finalisedFor == nil,
+              state.journeyEnd > now,
+              state.journeyEnd.timeIntervalSince(now) <= Self.finaliseWindow,
+              let activity = Activity<TrainActivityAttributes>.activities.first(where: { $0.id == record.activityID }),
+              activity.activityState == .active || activity.activityState == .stale
+        else { return }
+
+        var finished = record
+        finished.finalisedFor = state.journeyEnd
+        store(finished)
+
+        Self.logger.info("Ending a live journey so the system removes it at arrival")
+        await activity.end(content, dismissalPolicy: .after(state.journeyEnd.addingTimeInterval(Self.lingerAfterArrival)))
+    }
 
     func end(tripID: UUID) async {
         guard let record = record(for: tripID) else { return }

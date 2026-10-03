@@ -104,17 +104,19 @@ nonisolated struct TrainActivityAttributes: ActivityAttributes {
         /// in afterwards.
         var ticket: Ticket? = nil
 
-        /// The stop after the one the countdown is aimed at, worked out from the times
-        /// the app knew when it last ran; nil when the countdown is already on the end
-        /// of the journey.
+        /// Every stop after the one the countdown is aimed at, in running order, worked
+        /// out from the times the app knew when it last ran. Nil when the countdown is
+        /// already on the end of the journey.
         ///
         /// This is what lets the Lock Screen move on with the app closed. Nothing runs
-        /// to update an activity then, but the system does one thing by itself: at
-        /// `staleDate` it flips the activity to stale. The view draws this stop in the
-        /// target's place when that happens (see `advanced(ifStale:)`), so passing a
-        /// stop no longer strands the countdown on it. Once. The stop after that one is
-        /// not known here, and only the app running, or a push, can carry it further.
-        var following: Target? = nil
+        /// to update an activity then, but the view is drawn again when the system flips
+        /// the activity to stale at `staleDate`, and whenever the screen wakes. Each
+        /// time, `advanced(ifStale:)` drops every stop whose time has passed and draws
+        /// the first one still ahead in the target's place.
+        var upcoming: [Target]? = nil
+
+        /// The stop straight after the target, or nil at the end of the journey.
+        var following: Target? { upcoming?.first }
 
         /// Whether the platform shown is one to leave from rather than one the train
         /// is pulling into.
@@ -128,21 +130,29 @@ nonisolated struct TrainActivityAttributes: ActivityAttributes {
 
         /// The state as it should be drawn.
         ///
-        /// A stale activity has passed the stop it was counting to. When the next one
-        /// is known it takes the target's place — its name, its platform, its time and
-        /// the arrow that goes with its role — and the activity is drawn as live again,
-        /// counting to it. With nothing after it, this is the end of the journey and
-        /// stays stale, which reads "Now".
-        func advanced(ifStale isStale: Bool) -> (state: ContentState, isStale: Bool) {
-            guard isStale, let next = following else { return (self, isStale) }
+        /// A stop whose time has passed is skipped, so a long run of stops is walked
+        /// through in one go: the first one still ahead takes the target's place — its
+        /// name, its platform, its time and the arrow that goes with its role — and the
+        /// activity is drawn as live again, counting to it. With nothing left ahead,
+        /// this is the end of the journey and stays stale, which reads "Now".
+        func advanced(
+            ifStale isStale: Bool,
+            now: Date = Date()
+        ) -> (state: ContentState, isStale: Bool) {
+            var passed = isStale || targetDate <= now
+            guard passed, var rest = upcoming, !rest.isEmpty else { return (self, isStale) }
 
             var moved = self
-            moved.targetName = next.name
-            moved.targetDate = next.date
-            moved.platform = next.platform
-            moved.targetRole = next.role
-            moved.following = nil
-            return (moved, false)
+            while passed, !rest.isEmpty {
+                let next = rest.removeFirst()
+                moved.targetName = next.name
+                moved.targetDate = next.date
+                moved.platform = next.platform
+                moved.targetRole = next.role
+                passed = next.date <= now
+            }
+            moved.upcoming = rest.isEmpty ? nil : rest
+            return (moved, passed)
         }
     }
 }
@@ -210,18 +220,24 @@ enum TrainActivityState {
     static func resolve(_ journey: TrainJourney, now: Date = Date()) -> TrainActivityAttributes.ContentState? {
         guard var state = resolveTarget(journey, now: now) else { return nil }
 
-        // The same rules asked a second later than the target, when it will have been
+        // The same rules asked a second after each target, when it will have been
         // reached: whatever they aim at then is the stop after it. Anything that is not
         // strictly later is the end of the journey, and there is nothing after that.
-        if let later = resolveTarget(journey, now: state.targetDate.addingTimeInterval(1)),
-           later.targetDate > state.targetDate {
-            state.following = .init(
+        // Bounded, because every stop sent counts against the activity's size budget.
+        var chain: [TrainActivityAttributes.ContentState.Target] = []
+        var cursor = state.targetDate
+        while chain.count < 12,
+              let later = resolveTarget(journey, now: cursor.addingTimeInterval(1)),
+              later.targetDate > cursor {
+            chain.append(.init(
                 name: later.targetName,
                 date: later.targetDate,
                 platform: later.platform,
                 role: later.targetRole
-            )
+            ))
+            cursor = later.targetDate
         }
+        state.upcoming = chain.isEmpty ? nil : chain
 
         return state
     }

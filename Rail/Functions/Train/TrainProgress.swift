@@ -50,6 +50,35 @@ enum TrainProgress {
         return changed
     }
 
+    // MARK: - Fetching
+
+    /// How long after its last stop a run is still asked about. The operators keep
+    /// reporting a little past arrival, and a late train needs its final delay.
+    private static let fetchGrace: TimeInterval = 2 * 60 * 60
+
+    /// Whether the operator's feed can still be describing this very run.
+    ///
+    /// The feeds answer for the train as it runs *today*, not for a particular date:
+    /// asked the next day about yesterday's run, they return today's, whose delays
+    /// and platforms would overwrite what really happened. So a run is fetched only
+    /// while it is under way or about to be — it departs today, or it left earlier
+    /// and has not finished (a night train) — and for a short while after arrival.
+    /// Once outside that window the stored values are the final record, completed
+    /// up to the last update by `advance`.
+    static func canFetch(stops: [Stop], now: Date = Date(), calendar: Calendar = .current) -> Bool {
+        guard let first = stops.map(\.ref_time).min() else { return false }
+
+        // The latest moment any stop is due, delays included.
+        let end = stops
+            .flatMap { [$0.arr_time_eff, $0.arr_time_id, $0.dep_time_eff, $0.dep_time_id] }
+            .compactMap(usable)
+            .max() ?? first
+
+        if now > end.addingTimeInterval(fetchGrace) { return false }
+        // Departs today, or left on an earlier day and is still running.
+        return calendar.isDate(first, inSameDayAs: now) || (first <= now && end >= now)
+    }
+
     // MARK: - Helpers
 
     /// When the train is due at this stop. Origins often carry no arrival, so the

@@ -1059,11 +1059,9 @@ struct DetailsView: View {
     private func updateTrainDetails(isManual: Bool = false) async {
         guard !isRefreshing else { return }
 
-        let firstStop_refTime = stops
-            .sorted(by: { $0.ref_time < $1.ref_time })
-            .first?.ref_time ?? .distantPast
-
-        guard Calendar.current.isDateInToday(firstStop_refTime) else { return }
+        // Only a run that can still be today's is asked about; an older one keeps what
+        // it was last told, completed by the clock in `TrainProgress.advance`.
+        guard TrainProgress.canFetch(stops: stops) else { return }
 
         if !isManual, Date().timeIntervalSince(train.last_update_time) < 25 {
             return

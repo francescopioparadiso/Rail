@@ -56,6 +56,17 @@ struct TrainActivityStateTests {
         #expect(drawn.isStale == false)
     }
 
+    @Test("Several passed stops are skipped, landing on the first one still ahead")
+    func skipsSeveralPassedStops() throws {
+        let state = try #require(TrainActivityState.resolve(TrainActivitySample.notDeparted, now: now))
+        let later = state.targetDate.addingTimeInterval(130 * 60)
+
+        let drawn = state.advanced(ifStale: false, now: later)
+
+        #expect(drawn.state.targetName == "Bologna Centrale")
+        #expect(drawn.isStale == false)
+    }
+
     @Test("While it is not stale, nothing moves")
     func staysWhenLive() throws {
         let state = try #require(TrainActivityState.resolve(TrainActivitySample.enRoute, now: now))

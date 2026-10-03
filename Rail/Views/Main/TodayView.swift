@@ -292,8 +292,7 @@ struct TodayView: View {
         await withTaskGroup(of: Bool.self) { group in
             for train in trainsToUpdate {
                 let trainStops = currentStopsByTrain[train.id] ?? []
-                let firstStop_refTime = trainStops.min(by: { $0.ref_time < $1.ref_time })?.ref_time ?? .distantPast
-                guard Calendar.current.isDateInToday(firstStop_refTime) else { continue }
+                guard TrainProgress.canFetch(stops: trainStops) else { continue }
 
                 if !isManual, Date().timeIntervalSince(train.last_update_time) < Self.minUpdateInterval {
                     continue
