@@ -23,25 +23,26 @@
 
 Rail si evolve. Di nuovo.
 
-Un aggiornamento che tocca praticamente ogni schermata dell'app, dalla ricerca di un treno alla scadenza di un abbonamento.
+Un aggiornamento che porta il viaggio direttamente sulla Schermata di Blocco e rende la ricerca dei treni ancora più completa.
 
-* **Redesign in ogni schermata** — abbonamenti più curati, tabelloni stazione ridisegnati, profilo finalmente distinto dallo sfondo
-* **Importazione email più intelligente** — biglietti e abbonamenti importati insieme in un'unica scansione della posta, raggruppati per mese
-* **Ricerca viaggi con prezzi reali** — soluzioni classificate per costo con codice colore, filtri per durata, prezzo e numero di cambi
-* **Profilo con statistiche di viaggio** — treni presi, distanza, ritardi e cancellazioni calcolati sui soli viaggi conclusi, più foto personalizzata
-* **Tabelloni stazione in tempo reale** — partenze e arrivi di qualsiasi stazione, con aggiunta ai propri viaggi in un tocco
-* **Notifiche intelligenti** — avvisi prima di partenza, arrivo o scadenza abbonamento, che seguono i ritardi e aprono il viaggio al tocco
+* **Live Activity** — il viaggio in corso resta sulla Schermata di Blocco e nella Dynamic Island con conto alla rovescia, binario, ritardi e posto a sedere; un solo viaggio attivo alla volta, che si avvia da solo
+* **Ricerca con fermata intermedia o ritorno** — aggiungi una stazione intermedia al percorso, oppure cerca andata e ritorno, scegliendo ogni treno in sequenza
+* **Italo integrato** — Italo entra nella ricerca e nei tabelloni; l'orario viene letto dal suo sito di prenotazione, così anche i treni di date lontane si possono cercare e aggiungere (e, quando un treno non è ancora caricabile, l'app lo spiega)
+* **QR code a schermo intero** — il codice dell'abbonamento si apre a tutto schermo per essere letto più facilmente
+* **Email più fluida** — alla riapertura della casella vengono lette solo le email nuove e l'elenco resta visibile durante l'aggiornamento
+* **Tabelloni e design rifiniti** — arrivi prima delle partenze, treni aggiungibili finché la corsa non è conclusa, toolbar, campi di ricerca e bordi di scorrimento più morbidi
 
 ## ✨ Funzionalità
 
 * **Gestione Abbonamenti (Pass):** Sistema integrato per digitalizzare abbonamenti settimanali, mensili o annuali, con importazione automatica dalla propria casella email.
-* **Ricerca Intelligente per Tratta:** Ricerca stazione-stazione con soluzioni multiple, prezzo comparato a colpo d'occhio, filtri per durata/costo/cambi e gestione di coincidenze e bus sostitutivi.
+* **Ricerca Intelligente per Tratta:** Ricerca stazione-stazione con fermata intermedia opzionale o ritorno, soluzioni multiple, prezzo comparato a colpo d'occhio, filtri per durata/costo/cambi e gestione di coincidenze e bus sostitutivi.
 * **Tabellone Stazione Live:** Consultazione di partenze e arrivi in tempo reale per qualsiasi stazione, con possibilità di salvare un treno trovato direttamente nei propri viaggi.
 * **Notifiche di Viaggio:** Promemoria locali configurabili prima di partenza, arrivo o scadenza di un abbonamento, con apertura diretta del viaggio al tocco della notifica.
 * **Statistiche di Viaggio:** Riepilogo personale nel profilo con treni presi, distanza percorsa, ritardi e cancellazioni, calcolati sui viaggi effettivamente conclusi.
 * **Scanner Intelligente:** Sfrutta il framework Vision per estrarre i QR code direttamente dalle immagini della galleria e monitorare i giorni rimanenti alla scadenza.
 * **Widget "Liquid Glass":** Widget per la Home Screen con design in vetro smerigliato per mostrare lo stato dell'abbonamento, i biglietti imminenti o il prossimo viaggio a colpo d'occhio.
 * **Treni Preferiti:** Salvataggio delle tratte frequenti per aggiungere i viaggi alla propria routine con un solo tocco.
+* **Live Activity:** Il viaggio in corso sulla Schermata di Blocco e nella Dynamic Island, con conto alla rovescia, binario, ritardi e posto; un solo viaggio attivo alla volta.
 * **Monitoraggio Live:** Tracking in tempo reale di orari, ritardi, binari e cancellazioni con calcolo dinamico dei tempi effettivi.
 * **Gestione Gruppi ("I tuoi Posti"):** Organizzazione e visualizzazione delle carrozze e dei posti a sedere per tutti i compagni di viaggio.
 * **Contesto Meteorologico:** Integrazione con servizi meteo per visualizzare le condizioni atmosferiche previste ad ogni singola fermata del tragitto.
@@ -56,6 +57,7 @@ Il progetto adotta un approccio pragmatico che combina le più recenti API Apple
 * **Persistenza Dati:** **SwiftData** per una gestione moderna e performante del database locale (Treni, Stop, Sedili, Favoriti e Pass).
 * **Architettura:** MVVM (Model-View-ViewModel).
 * **Concurrency:** Adozione di **Async/Await** per l'integrazione asincrona e **Grand Central Dispatch (DispatchGroup)** per la sincronizzazione di provider multipli (Italo/Trenitalia).
+* **ActivityKit:** Live Activity per il viaggio in corso, avviata e aggiornata automaticamente.
 * **Vision Framework:** Utilizzato per la scansione automatica e l'estrazione di dati dai QR code dei biglietti digitali.
 
 ### Sfide Tecniche Risolte
