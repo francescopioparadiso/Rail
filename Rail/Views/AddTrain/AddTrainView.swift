@@ -279,12 +279,21 @@ struct AddTrainView: View {
                     switch addTrainStep {
                     case .addTrain:
                         addTrainView
+                            // it only ever leaves forward; set here rather than
+                            // left to the direction it came back in from, which
+                            // had it sliding out to the right after a back
+                            .transition(.asymmetric(
+                                insertion: stepTransition,
+                                removal: .move(edge: .leading).combined(with: .opacity)
+                            ))
                         
                     case .chooseTrain:
                         chooseTrainView
+                            .transition(stepTransition)
                         
                     case .chooseStops:
                         chooseStopsView
+                            .transition(stepTransition)
                         
                     case .chooseDate:
                         ScrollView {
@@ -296,10 +305,9 @@ struct AddTrainView: View {
                         }
                         .scrollEdgeEffectStyle(.soft, for: .all)
                         .padding(.horizontal, 8)
+                        .transition(stepTransition)
                     }
                 }
-                // every step slides in like the Choose Train pages
-                .transition(stepTransition)
             }
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 if showsStationSuggestionBar,
@@ -1349,6 +1357,13 @@ struct AddTrainView: View {
                 prefetchedSegments = [:]
                 isSaving = false
                 fetchState = .idle
+            }
+
+            /// pick up where the search was typed, once the step has slid back in
+            let field = searchType == .number ? FocusField.number : trips.first?.last.map { .station($0.id) }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                guard addTrainStep == .addTrain else { return }
+                focusedField = field
             }
             
         case .chooseStops:

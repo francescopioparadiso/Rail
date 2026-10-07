@@ -314,7 +314,7 @@ class ItaloAPI {
                     let dep_time_id = Calendar.current.date(bySetting: .second, value: 0, of: timeToDate(timeString: each["EstimatedDepartureTime"] as? String ?? "")!)!
                     let arr_time_id = Calendar.current.date(bySetting: .second, value: 0, of: timeToDate(timeString: each["EstimatedArrivalTime"] as? String ?? "")!)!
                     var dep_time_eff = Calendar.current.date(bySetting: .second, value: 0, of: timeToDate(timeString: each["ActualDepartureTime"] as? String ?? "")!)!
-                    let arr_time_eff = Calendar.current.date(bySetting: .second, value: 0, of: timeToDate(timeString: each["ActualArrivalTime"] as? String ?? "")!)!
+                    var arr_time_eff = Calendar.current.date(bySetting: .second, value: 0, of: timeToDate(timeString: each["ActualArrivalTime"] as? String ?? "")!)!
                     let ref_time = i == 0 ? dep_time_id : arr_time_id
                     
                     let weather: String = await {
@@ -350,6 +350,14 @@ class ItaloAPI {
                     } else {
                         // middle stations
                         dep_time_eff = Calendar.current.date(byAdding: .minute, value: mainDelay, to: dep_time_id)!
+                        if timeToDate(timeString: each["ActualArrivalTime"] as? String ?? "")! == .distantPast {
+                            arr_time_eff = Calendar.current.date(byAdding: .minute, value: mainDelay, to: arr_time_id)!
+                        }
+                        
+                        // stops still ahead carry the expected delay too, so a segment
+                        // that starts or ends here shows the train as late
+                        arr_delay = Calendar.current.dateComponents([.minute], from: arr_time_id, to: arr_time_eff).minute!
+                        dep_delay = mainDelay
                         
                         if Date() < arr_time_eff {
                             is_completed = false

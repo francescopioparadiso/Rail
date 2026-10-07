@@ -8,6 +8,7 @@ struct ProfileView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
     @Environment(\.locale) private var locale
+    @Environment(\.openURL) private var openURL
     @Query private var profiles: [UserProfile]
 
     @State private var showImagePicker = false
@@ -24,6 +25,9 @@ struct ProfileView: View {
     // MARK: - Computed
 
     private var profile: UserProfile? { profiles.primary }
+
+    /// Opens Rail's App Store page straight on the write-a-review sheet.
+    private let appStoreReviewURL = URL(string: "itms-apps://apps.apple.com/app/id6755895103?action=write-review")!
 
     // MARK: - Body
 
@@ -244,6 +248,22 @@ struct ProfileView: View {
                 } label: {
                     Label("Notifications", systemImage: "bell")
                         .labelReservedIconWidth(24)
+                }
+            }
+
+            Section(header: Text("App Store")) {
+                Button {
+                    HapticFeedback.tap()
+                    openURL(appStoreReviewURL)
+                } label: {
+                    // text in primary like the rows above, the icon keeping the tint
+                    Label {
+                        Text("Rate Rail")
+                            .foregroundStyle(Color.primary)
+                    } icon: {
+                        Image(systemName: "star")
+                    }
+                    .labelReservedIconWidth(24)
                 }
             }
 
