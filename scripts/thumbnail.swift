@@ -2,11 +2,11 @@
 // App Store thumbnail: a two-line title over the device's bezel holding the screenshot.
 //
 // thumbnail <device> <screenshot.png> <out.png> "<line 1>" "<line 2>" [bezel color]
-//   device: "iPhone 18 Pro" (1206 × 2622), "iPhone Duo" (folded, 1398 × 2034), or
+//   device: "iPhone 18 Pro" (1206 × 2622) or
 //           "iPhone Duo Open" (opened out, landscape screenshot, 1080 × 1350 LinkedIn post)
 //   lines:  SF Pro; a part between *stars* is New York semibold italic
 //   colors: iPhone 18 Pro Black, Burgundy, Glacier, Silver (default);
-//           iPhone Duo Night Sky (default), Star White (Images/Resources/Bezels)
+//           iPhone Duo Open Night Sky (default), Star White (Images/Resources/Bezels)
 import AppKit
 
 let args = CommandLine.arguments
@@ -18,7 +18,6 @@ let device = args[1]
 let canvas: CGSize, defaultColor: String
 switch device {
 case "iPhone 18 Pro": canvas = CGSize(width: 1206, height: 2622); defaultColor = "Silver"
-case "iPhone Duo": canvas = CGSize(width: 1398, height: 2034); defaultColor = "Night Sky"
 // opened out, landscape, for a LinkedIn post: 4:5 portrait, 1080 × 1350
 case "iPhone Duo Open": canvas = CGSize(width: 1080, height: 1350); defaultColor = "Night Sky"
 default: print("unknown device \(device)"); exit(1)

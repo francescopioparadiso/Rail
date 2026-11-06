@@ -1,13 +1,13 @@
-Hello, iPhone Duo 👋
+Ciao, iPhone Duo 👋
 
-Rail 2.4 is out, and it now feels right at home on Apple's first foldable.
+È uscito Rail 2.4, e ora si sente davvero a casa sul primo pieghevole di Apple.
 
-📱 Folded, all the buttons slide into the strip next to the bezel, so the whole screen is yours for your trains.
-📖 Open it up, and your journeys sit on the left while the train you pick opens on the right: stops, delays, platforms and seats, all at a glance.
+📱 Da chiuso, i pulsanti si spostano nella barra accanto al bordo e lo schermo resta tutto per i tuoi treni.
+📖 Da aperto, a sinistra hai i tuoi viaggi e a destra il treno che scegli: fermate, ritardi, binari e posti, tutto sotto gli occhi.
 
-A few more things I've been working on:
-• Live Activities now move on to the next stop by themselves and stay in the Dynamic Island until you arrive
-• Tickets from your email come in even when there's no seat assigned
-• A new "Send a Report" button, so you can tell me what's not working in one tap
+E già che c'ero, qualche altra novità:
+• Le Live Activity passano da sole alla fermata successiva e restano nella Dynamic Island fino all'arrivo
+• I biglietti dalle email arrivano anche quando non c'è un posto assegnato
+• C'è un nuovo pulsante "Invia una segnalazione": se qualcosa non va, me lo dici con un tocco
 
-Give it a shot 👉 https://apps.apple.com/app/rail/id6755895103
+Provalo 👉 https://apps.apple.com/app/rail/id6755895103
