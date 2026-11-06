@@ -23,6 +23,8 @@ struct EmailPassImportView: View {
     var isFetchingNewest: Bool = false
     var onPassAdded: (() -> Void)? = nil
     var onReloadRequested: (() -> Void)? = nil
+    /// Shortcut shown when no mailbox is linked: leaves the sheet for Email settings.
+    var onOpenEmailSettings: (() -> Void)? = nil
 
     @State private var preloadedPasses: [PreloadedEmailPassItem] = []
     @State private var isWorking = false
@@ -122,11 +124,21 @@ struct EmailPassImportView: View {
     var body: some View {
         Group {
                 if linkedAccounts.isEmpty {
-                    ContentUnavailableView(
-                        "No email linked",
-                        systemImage: "bell.slash",
-                        description: Text("Add an email account in Profile → Email to import Trenitalia passes.")
-                    )
+                    ContentUnavailableView {
+                        Label("No email linked", systemImage: "bell.slash")
+                    } description: {
+                        Text("Add an email account in Profile → Email to import Trenitalia passes.")
+                    } actions: {
+                        if let onOpenEmailSettings {
+                            Button {
+                                HapticFeedback.confirm()
+                                onOpenEmailSettings()
+                            } label: {
+                                Label("Open Email Settings", systemImage: "envelope")
+                            }
+                            .buttonStyle(.glass)
+                        }
+                    }
                     .foregroundStyle(Color.secondary)
                     .fontDesign(appFontDesign)
                 } else if isWorking && isScanningEverything && preloadedPasses.isEmpty {
@@ -220,21 +232,24 @@ struct EmailPassImportView: View {
                     }
                 }
 
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        HapticFeedback.confirm()
-                        if let onReloadRequested {
-                            onReloadRequested()
-                        } else {
-                            beginScan(reloadAll: true)
+                // nothing to refresh until a mailbox is linked
+                if !linkedAccounts.isEmpty {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button {
+                            HapticFeedback.confirm()
+                            if let onReloadRequested {
+                                onReloadRequested()
+                            } else {
+                                beginScan(reloadAll: true)
+                            }
+                        } label: {
+                            Image(systemName: "arrow.clockwise")
                         }
-                    } label: {
-                        Image(systemName: "arrow.clockwise")
+                        .disabled(isWorking || isFetchingNewest || isAdding)
                     }
-                    .disabled(isWorking || isFetchingNewest || isAdding)
-                }
 
-                ToolbarSpacer(.fixed, placement: .topBarTrailing)
+                    ToolbarSpacer(.fixed, placement: .topBarTrailing)
+                }
 
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {

@@ -26,7 +26,14 @@ struct TodayTrainRow: View, Equatable {
         now >= item.summary.last.arr_time_eff ? 4 : 8
     }
 
+    /// Space either side of the rule between rows, held inside the rows it separates
+    /// so each row's cell begins and ends on the rule itself. A connected pair (2pt
+    /// paddings) has no rule and keeps its own spacing.
+    private static let ruleGap: CGFloat = 6
+
     // MARK: - Body
+
+    @Environment(\.selectTrain) private var selectTrain
 
     var body: some View {
         VStack(spacing: 0) {
@@ -41,24 +48,25 @@ struct TodayTrainRow: View, Equatable {
                     isExpanded: isExpanded,
                     onToggleExpanded: onToggleExpanded
                 )
-                    .padding(.top, isFirst ? firstRowTopPadding : item.topPadding)
-                    .padding(.bottom, isLast ? 4 : item.bottomPadding)
+                    .padding(.top, isFirst ? firstRowTopPadding : item.topPadding + (item.topPadding > 2 ? Self.ruleGap : 0))
+                    .padding(.bottom, isLast ? 4 : item.bottomPadding + (showsDivider ? Self.ruleGap : 0))
 
-                NavigationLink(value: item.train) {
-                    EmptyView()
+                if selectTrain == nil {
+                    NavigationLink(value: item.train) {
+                        EmptyView()
+                    }
+                    .buttonStyle(.plain)
+                    .opacity(0)
                 }
-                .buttonStyle(.plain)
-                .opacity(0)
             }
-
-            if let connection = item.connection {
-                ConnectionDivider(minutes: connection.totalMinutes)
-                    .padding(.horizontal, 12)
+            .applyingIf(selectTrain != nil) { row in
+                row.contentShape(Rectangle())
+                    .onTapGesture { selectTrain?(item.train) }
             }
 
             if showsDivider {
+                // last line of the row, so a row's background ends exactly on it
                 Divider()
-                    .padding(.vertical, 6)
             }
         }
     }

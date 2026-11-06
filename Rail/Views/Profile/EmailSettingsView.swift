@@ -62,7 +62,8 @@ struct EmailSettingsView: View {
         .toolbar {
             DefaultToolbarItem(kind: .search, placement: .bottomBar)
 
-            ToolbarSpacer(.flexible, placement: .bottomBar)
+            // fixed, not flexible, so the search field grows up to the plus button
+            ToolbarSpacer(.fixed, placement: .bottomBar)
 
             ToolbarItem(placement: .bottomBar) {
                 Button {

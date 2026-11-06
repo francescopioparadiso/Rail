@@ -168,7 +168,7 @@ struct PassWidgetEntryView : View {
     private func expiryDateView(for date: Date) -> some View {
         let isActive = date >= Date()
         let color: Color = isActive ? .green : .red
-        let text = isActive ? "Active" : "Expired"
+        let text: LocalizedStringKey = isActive ? "Active" : "Expired"
         
         VStack(alignment: .leading, spacing: 4) {
             Text(text)

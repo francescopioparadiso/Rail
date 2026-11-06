@@ -8,6 +8,7 @@ class ReviewManager {
     private init() {}
 
     func requestReviewIfAppropriate(action: RequestReviewAction) {
+        guard !ScreenshotMode.isActive else { return }
         let currentCount = UserDefaults.standard.integer(forKey: "appLaunchCount")
         let newCount = currentCount + 1
         UserDefaults.standard.set(newCount, forKey: "appLaunchCount")

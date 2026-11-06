@@ -11,6 +11,7 @@ struct PastView: View {
     @Binding var ticketSeatID: UUID?
     @Binding var showTicketView: Bool
     @Binding var searchText: String
+    @Environment(\.sidebarBackground) private var sidebarBackground
     @Binding var navigationPath: [Train]
     var isActive: Bool = true
 
@@ -93,6 +94,7 @@ struct PastView: View {
                                 .equatable()
                                 .listRowInsets(EdgeInsets())
                                 .listRowSeparator(.hidden)
+                        .listRowBackground(trainRowBackground(isSelected: sidebarBackground != nil && navigationPath.last?.id == item.train.id))
                             }
                             .onDelete { offsets in
                                 deletePastTrains(at: offsets, in: section.items)
@@ -103,10 +105,11 @@ struct PastView: View {
                 .scrollEdgeEffectStyle(.soft, for: .all)
                 .scrollIndicators(.hidden)
                 .listStyle(.insetGrouped)
+                .scrollContentBackground(sidebarBackground == nil ? .automatic : .hidden)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(appBackgroundColor)
+        .background(sidebarBackground ?? appBackgroundColor)
         .onAppear {
             ReviewManager.shared.requestReviewIfAppropriate(action: requestReview)
             if rowItems.isEmpty {

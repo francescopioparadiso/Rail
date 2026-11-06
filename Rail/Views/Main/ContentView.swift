@@ -11,6 +11,7 @@ struct ContentView: View {
     // MARK: - Properties
 
     @Environment(\.requestReview) var requestReview
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.modelContext) private var modelContext
 
     @State private var selectedSection: MainTab = .today
@@ -25,6 +26,8 @@ struct ContentView: View {
     @Query private var stops: [Stop]
     @Query private var seats: [Seat]
     @State private var profileSheet = false
+    /// Set by the mail sheet's shortcut: Profile opens already on Email settings.
+    @State private var profileOpensEmail = false
     @State private var addTrainSheet = false
     @State private var addPassSheet = false
     @State private var openPrincipalPassQR = false
@@ -34,9 +37,9 @@ struct ContentView: View {
     @State private var fetchSheetDetent: PresentationDetent = .medium
     @State private var ticketSyncProgresses: [String: EmailTicketSyncProgress] = [:]
     @State private var isFetchingEmailTickets = false
-    /// Whether the running fetch reads the whole mailbox — the first scan, or a
-    /// start-over. Only that one gets the full progress view; looking for what has
-    /// arrived since keeps the list on screen.
+    /// Whether the running fetch gets the full progress view: it reads the whole
+    /// mailbox (the first scan, or a start-over), or there is no list yet to keep on
+    /// screen. Looking for what has arrived since, above a list, keeps the list.
     @State private var isFullEmailScan = false
     @State private var showFetchResultCard = false
 
@@ -70,6 +73,11 @@ struct ContentView: View {
     @State private var ticketSeatID: UUID? = nil
     @State private var showTicketView = false
     @State private var scrollToNextStation = false
+    /// The Duo reserves a strip down the right bezel, folded or opened out, and the
+    /// system moves the toolbar's buttons into it, one above the other. Other
+    /// iPhones have no such inset, so the toolbar keeps its top and bottom bars.
+    @State private var hasBezelStrip = false
+    private let cloudSync = CloudSyncMonitor.shared
 
     // MARK: - Computed
 
@@ -87,12 +95,7 @@ struct ContentView: View {
     }
 
     @ToolbarContentBuilder
-    private var mainToolbar: some ToolbarContent {
-        ToolbarItem(placement: .topBarLeading) {
-            sectionMenu
-        }
-        .blendedToolbarItemBackground()
-        
+    private var boardToolbarItem: some ToolbarContent {
         ToolbarItem(placement: .topBarTrailing) {
             Button {
                 HapticFeedback.tap()
@@ -102,27 +105,158 @@ struct ContentView: View {
             }
             .fontDesign(appFontDesign)
         }
-        
-        if showsFetchToolbarButton {
-            // inside the condition: with no mail button to separate, the spacer
-            // would only strand the board button away from the profile
-            ToolbarSpacer(.fixed, placement: .topBarTrailing)
+    }
 
+    @ToolbarContentBuilder
+    private var mailToolbarItem: some ToolbarContent {
+        if showsFetchToolbarButton {
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
                     openEmailFetchSheet()
                 } label: {
-                    emailFetchToolbarLabel
+                    // One plain symbol: a label built from several views is not
+                    // taken into the strip's capsule and is left out on its own.
+                    mailSymbol
                 }
                 .fontDesign(appFontDesign)
-                .padding(.trailing, -8)
             }
         }
+    }
 
+    @ToolbarContentBuilder
+    private var profileToolbarItem: some ToolbarContent {
         ToolbarItem(placement: .topBarTrailing) {
-            ProfileToolbarButton(profileSheet: $profileSheet)
+            ProfileToolbarButton(profileSheet: $profileSheet, trailingInset: 0)
+        }
+    }
+
+    @ToolbarContentBuilder
+    private var mainToolbar: some ToolbarContent {
+        ToolbarItem(placement: .topBarLeading) {
+            sectionMenu
+        }
+        .blendedToolbarItemBackground()
+        
+        if hasBezelStrip {
+            // In the strip the buttons stack in the order they are declared. No negative
+            // padding, which would push an icon off the middle of its button.
+            if horizontalSizeClass == .regular {
+                // Opened out: timetables on their own, one spacer, then mail and profile.
+                boardToolbarItem
+
+                ToolbarSpacer(.fixed, placement: .topBarTrailing)
+
+                mailToolbarItem
+
+                profileToolbarItem
+            } else {
+                // Folded: profile and mail together, one spacer, then timetables.
+                profileToolbarItem
+
+                mailToolbarItem
+
+                ToolbarSpacer(.fixed, placement: .topBarTrailing)
+
+                boardToolbarItem
+            }
+
+            if horizontalSizeClass == .regular {
+                // Opened out, the bottom bar runs along the list's column as on any
+                // iPhone: pass, search, then favorites and add.
+                passToolbarItem
+
+                ToolbarSpacer(.fixed, placement: .bottomBar)
+
+                DefaultToolbarItem(kind: .search, placement: .bottomBar)
+
+                ToolbarSpacer(.fixed, placement: .bottomBar)
+
+                favoritesToolbarItem(tightened: true)
+                addToolbarItem
+            } else {
+                // The system shrinks the search field to a magnifier in the strip. It
+                // sits above the pass button, with the one spacer of the strip between.
+                DefaultToolbarItem(kind: .search, placement: .bottomBar)
+
+                ToolbarSpacer(.fixed, placement: .bottomBar)
+
+                passToolbarItem
+                favoritesToolbarItem(tightened: false)
+                addToolbarItem
+            }
+        } else {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    HapticFeedback.tap()
+                    stationBoardSheet = true
+                } label: {
+                    Image(systemName: "tablecells")
+                }
+                .fontDesign(appFontDesign)
+            }
+
+            if showsFetchToolbarButton {
+                // inside the condition: with no mail button to separate, the spacer
+                // would only strand the board button away from the profile
+                ToolbarSpacer(.fixed, placement: .topBarTrailing)
+
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        openEmailFetchSheet()
+                    } label: {
+                        emailFetchToolbarLabel
+                    }
+                    .fontDesign(appFontDesign)
+                    .padding(.trailing, -8)
+                }
+            }
+
+            ToolbarItem(placement: .topBarTrailing) {
+                ProfileToolbarButton(profileSheet: $profileSheet)
+            }
+
+            ToolbarItem(placement: .bottomBar) {
+                Button {
+                    HapticFeedback.confirm()
+                    addPassSheet = true
+                } label: {
+                    Image(systemName: "ticket")
+                }
+            }
+
+            ToolbarSpacer(.fixed, placement: .bottomBar)
         }
 
+        if !hasBezelStrip {
+            DefaultToolbarItem(kind: .search, placement: .bottomBar)
+        }
+
+        if !hasBezelStrip {
+            ToolbarSpacer(.fixed, placement: .bottomBar)
+
+            ToolbarItem(placement: .bottomBar) {
+                Button {
+                    HapticFeedback.confirm()
+                    favoriteTrainsSheet = true
+                } label: {
+                    Label("Favorites", systemImage: "heart")
+                }
+                .padding(.trailing, -8)
+            }
+
+            ToolbarItem(placement: .bottomBar) {
+                Button {
+                    HapticFeedback.confirm()
+                    addTrainSheet = true
+                } label: {
+                    Image(systemName: "plus")
+                }
+            }
+        }
+    }
+
+    @ToolbarContentBuilder
+    private var passToolbarItem: some ToolbarContent {
         ToolbarItem(placement: .bottomBar) {
             Button {
                 HapticFeedback.confirm()
@@ -131,13 +265,10 @@ struct ContentView: View {
                 Image(systemName: "ticket")
             }
         }
+    }
 
-        ToolbarSpacer(.fixed, placement: .bottomBar)
-
-        DefaultToolbarItem(kind: .search, placement: .bottomBar)
-
-        ToolbarSpacer(.fixed, placement: .bottomBar)
-
+    @ToolbarContentBuilder
+    private func favoritesToolbarItem(tightened: Bool) -> some ToolbarContent {
         ToolbarItem(placement: .bottomBar) {
             Button {
                 HapticFeedback.confirm()
@@ -145,9 +276,12 @@ struct ContentView: View {
             } label: {
                 Label("Favorites", systemImage: "heart")
             }
-            .padding(.trailing, -8)
+            .padding(.trailing, tightened ? -8 : 0)
         }
+    }
 
+    @ToolbarContentBuilder
+    private var addToolbarItem: some ToolbarContent {
         ToolbarItem(placement: .bottomBar) {
             Button {
                 HapticFeedback.confirm()
@@ -213,6 +347,17 @@ struct ContentView: View {
                 navigationPath = []
             }
             .onAppear(perform: handleAppear)
+            .alert(
+                "Fetching iCloud Data",
+                isPresented: Binding(
+                    get: { cloudSync.showsFetchAlert },
+                    set: { if !$0 { cloudSync.dismissAlert() } }
+                )
+            ) {
+                Button("OK", role: .cancel) { }
+            } message: {
+                Text("Your trains and passes are being downloaded from iCloud. They will appear in a moment.")
+            }
             .task {
                 await UserProfile.maintainSyncedProfile(in: modelContext)
             }
@@ -233,8 +378,8 @@ struct ContentView: View {
                 favoritePreloadTask?.cancel()
                 emailFetchTask?.cancel()
             }
-            .sheet(isPresented: $profileSheet) {
-                ProfileView()
+            .sheet(isPresented: $profileSheet, onDismiss: { profileOpensEmail = false }) {
+                ProfileView(opensEmail: profileOpensEmail)
             }
             .sheet(isPresented: $addTrainSheet) {
                 AddTrainView(focusInitially: true)
@@ -266,22 +411,77 @@ struct ContentView: View {
 
     // MARK: - Subviews
 
+    /// A wide window, like the iPhone Duo opened out or an iPad, gets the list on the
+    /// left and the journey on the right; a narrow one pushes the journey over the list.
+    @ViewBuilder
     private var navigationRoot: some View {
+        Group {
+            if horizontalSizeClass == .regular {
+                splitRoot
+            } else {
+                stackRoot
+            }
+        }
+        .onGeometryChange(for: Bool.self) { proxy in
+            proxy.safeAreaInsets.trailing > 40
+        } action: { hasStrip in
+            hasBezelStrip = hasStrip && UIDevice.current.userInterfaceIdiom == .phone
+        }
+    }
+
+    private var stackRoot: some View {
         NavigationStack(path: $navigationPath) {
             sectionContent
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(appBackgroundColor)
                 .navigationDestination(for: Train.self) { train in
-                    DetailsView(
-                        train: train,
-                        showTicketInitially: $showTicketView,
-                        ticketSeatID: $ticketSeatID,
-                        scrollToNextStation: $scrollToNextStation
-                    )
+                    journeyDetails(train)
                 }
                 .toolbar { mainToolbar }
                 .searchable(text: $searchText, prompt: "Search")
         }
+    }
+
+    /// Deeper than the journey's background, so the list reads as its own column.
+    private static let sidebarBackground = Color(.systemGray5)
+
+    private var splitRoot: some View {
+        NavigationSplitView(columnVisibility: .constant(.all)) {
+            sectionContent
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(Self.sidebarBackground)
+                .environment(\.sidebarBackground, Self.sidebarBackground)
+                // A row opens its journey in the right-hand column, not on top of the list.
+                .environment(\.selectTrain) { train in navigationPath = [train] }
+                // The list is always there, so there is nothing to show or hide.
+                .toolbar(removing: .sidebarToggle)
+                .toolbar { mainToolbar }
+                .searchable(text: $searchText, prompt: "Search")
+                .navigationSplitViewColumnWidth(min: 380, ideal: 420, max: 480)
+        } detail: {
+            NavigationStack {
+                if let train = navigationPath.last {
+                    journeyDetails(train)
+                        .id(train.id)
+                } else {
+                    Image(systemName: "tram.fill")
+                        .font(.system(size: 64))
+                        .foregroundStyle(.quaternary)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .background(appBackgroundColor)
+                }
+            }
+        }
+    }
+
+    private func journeyDetails(_ train: Train) -> some View {
+        DetailsView(
+            train: train,
+            showTicketInitially: $showTicketView,
+            ticketSeatID: $ticketSeatID,
+            scrollToNextStation: $scrollToNextStation
+        )
+        .environment(\.hasBezelStrip, hasBezelStrip)
     }
 
     private var sectionContent: some View {
@@ -308,6 +508,18 @@ struct ContentView: View {
             )
             .opacity(selectedSection == .today ? 1 : 0)
             .allowsHitTesting(selectedSection == .today)
+        }
+    }
+
+    /// Two different views, not one symbol swapped: the rotation would carry over to
+    /// the envelope. Only the progress indicator turns.
+    @ViewBuilder
+    private var mailSymbol: some View {
+        if showsFullEmailScan {
+            Image(systemName: "progress.indicator")
+                .symbolEffect(.rotate.byLayer, options: .repeat(.continuous), isActive: true)
+        } else {
+            Image(systemName: "envelope")
         }
     }
 
@@ -339,7 +551,8 @@ struct ContentView: View {
                         onTrainAdded: { selectedSection = .today },
                         onReloadRequested: {
                             triggerEmailTicketRefresh(reloadAll: true)
-                        }
+                        },
+                        onOpenEmailSettings: openEmailSettings
                     )
                     .transition(.opacity.combined(with: .scale(scale: 0.98)))
                 }
@@ -497,11 +710,24 @@ struct ContentView: View {
         }
     }
 
+    /// The shortcut in the mail sheet when no mailbox is linked: close it, then open
+    /// Profile on Email settings once the sheet is gone (two sheets can't swap in one turn).
+    private func openEmailSettings() {
+        emailImportSheet = false
+        pendingRouteTask?.cancel()
+        pendingRouteTask = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(400))
+            guard !Task.isCancelled else { return }
+            profileOpensEmail = true
+            profileSheet = true
+        }
+    }
+
     private func openEmailFetchSheet() {
         HapticFeedback.tap()
         let opensOnFullScan = isFetchingEmailTickets
             ? isFullEmailScan
-            : !usesMockMailbox && needsFullEmailScan(reloadAll: false)
+            : !usesMockMailbox && showsProgressLayout(reloadAll: false)
         fetchSheetDetent = opensOnFullScan ? .medium : .large
         emailImportSheet = true
         // Opening the mailbox looks for what has arrived since the last sync and
@@ -519,6 +745,13 @@ struct ContentView: View {
         }
     }
 
+    /// A single, already-synced mailbox with nothing found yet would otherwise show
+    /// only a spinner: with no list to keep on screen, it gets the progress layout.
+    private func showsProgressLayout(reloadAll: Bool) -> Bool {
+        guard let profile = profiles.primary else { return false }
+        return needsFullEmailScan(reloadAll: reloadAll) || EmailTicketSyncService.tickets(from: profile).isEmpty
+    }
+
     private func needsFullEmailScan(reloadAll: Bool) -> Bool {
         guard let profile = profiles.primary else { return false }
         return reloadAll || profile.emails
@@ -529,7 +762,7 @@ struct ContentView: View {
     @MainActor
     private func fetchEmailTickets(reloadAll: Bool = false) async {
         guard let profile = profiles.primary else { return }
-        isFullEmailScan = needsFullEmailScan(reloadAll: reloadAll)
+        isFullEmailScan = showsProgressLayout(reloadAll: reloadAll)
         isFetchingEmailTickets = true
         showFetchResultCard = false
         ticketSyncProgresses = [:]
@@ -627,6 +860,8 @@ private struct ProfileToolbarButton: View {
 
     @Query private var profiles: [UserProfile]
     @Binding var profileSheet: Bool
+    /// The toolbar pulls the button in; a column of its own does not.
+    var trailingInset: CGFloat = -4
     @State private var profileImage: UIImage?
 
     // MARK: - Body
@@ -653,7 +888,7 @@ private struct ProfileToolbarButton: View {
         }
         .onAppear { refreshImage() }
         .onChange(of: profiles.primary?.photo) { _, _ in refreshImage() }
-        .padding(.trailing, -4)
+        .padding(.trailing, trailingInset)
     }
 
     // MARK: - Actions
@@ -671,174 +906,9 @@ private struct ProfileToolbarButton: View {
     }
 }
 
-/// The moment the mock journeys are staged around: 9904 is long in, 3223 is
-/// pulling into Savigliano, and 3224 has not left yet.
-@MainActor
-fileprivate let previewMoment: Date = Calendar.current.date(
-    bySettingHour: 9, minute: 30, second: 0, of: Date()
-) ?? Date()
-
-@MainActor
-fileprivate let previewContainer: ModelContainer = {
-    let schema = Schema([Train.self, Stop.self, Seat.self, Favorite.self, Pass.self, UserProfile.self])
-    let config = ModelConfiguration(isStoredInMemoryOnly: true)
-    let container = try! ModelContainer(for: schema, configurations: config)
-    let context = container.mainContext
-    
-    container.mainContext.insert(
-        UserProfile(
-            name: "Francesco",
-            photo: PreviewMockData.profilePhoto(),
-            emails: [
-                PreviewMockData.appleAccount(),
-                PreviewMockData.googleAccount()
-            ]
-        )
-    )
-    
-    func time(_ hour: Int, _ min: Int) -> Date {
-        Calendar.current.date(bySettingHour: hour, minute: min, second: 0, of: Date()) ?? .distantPast
-    }
-    
-    let mockImageData = UIImage(named: "sample_code")?.pngData()
-    
-    let train1 = Train(id: UUID(), logo: "ITALO", number: "9904", identifier: "IT9904", provider: "italo", last_update_time: Date(), delay: -2, direction: "Milano Centrale", issue: "")
-    let train2 = Train(id: UUID(), logo: "REG", number: "3224", identifier: "REG3224", provider: "trenitalia", last_update_time: Date(), delay: 5, direction: "Carmagnola", issue: "Corsa terminata a Carmagnola per un guasto sulla linea.")
-    let train3 = Train(id: UUID(), logo: "REG", number: "3223", identifier: "REG3223", provider: "trenitalia", last_update_time: Date(), delay: 3, direction: "Savigliano", issue: "")
-    
-    [train1, train2, train3].forEach { context.insert($0) }
-    
-    let stopData2: [(String, Int, Int, String, Int, Int, Int, String)] = [
-        ("Cuneo", 9, 24, "☀️ 10°C", 0, 0, 0, "3"),
-        ("Centallo", 9, 34, "☀️ 10°C", 0, -2, -1, "1"),
-        ("Fossano", 9, 43, "🌤️ 11°C", 0, 0, 0, "4"),
-        ("Savigliano", 9, 51, "🌤️ 11°C", 2, 0, 0, "2"),
-        ("Cavallermaggiore", 9, 57, "🌥️ 12°C", 0, 3, 4, "1"),
-        ("Carmagnola", 10, 9, "🌥️ 12°C", 0, 5, 0, "3"),
-        ("Torino Lingotto", 10, 28, "☁️ 9°C", 3, 0, 0, "--"),
-        ("Torino Porta Nuova", 10, 35, "☁️ 9°C", 3, 0, 0, "--")
-    ]
-    
-    let selectedStations = ["Savigliano", "Cavallermaggiore", "Carmagnola", "Torino Lingotto", "Torino Porta Nuova"]
-    
-    for (name, h, m, weatherStr, statusValue, aDelay, dDelay, plat) in stopData2 {
-        let isLastValid = name == "Carmagnola"
-        let isFirst = name == "Cuneo"
-        let scheduledArr = time(h, m)
-        let scheduledDep = time(h, m + 1)
-        
-        context.insert(Stop(
-            id: train2.id, name: name, platform: plat, weather: weatherStr,
-            is_selected: selectedStations.contains(name), status: statusValue,
-            is_completed: name != "Torino Lingotto" && name != "Torino Porta Nuova",
-            is_in_station: isLastValid, dep_delay: dDelay, arr_delay: aDelay,
-            dep_time_id: isLastValid ? .distantPast : scheduledDep,
-            arr_time_id: isFirst ? .distantPast : scheduledArr,
-            dep_time_eff: isLastValid ? .distantPast : scheduledDep.addingTimeInterval(TimeInterval(dDelay * 60)),
-            arr_time_eff: isFirst ? .distantPast : scheduledArr.addingTimeInterval(TimeInterval(aDelay * 60)),
-            ref_time: scheduledArr
-        ))
-    }
-    
-    context.insert(Stop(id: train1.id, name: "Roma Termini", platform: "24", weather: "☀️ 14°C", is_selected: true, status: 0, is_completed: true, is_in_station: false, dep_delay: 0, arr_delay: 0, dep_time_id: time(6, 20), arr_time_id: .distantPast, dep_time_eff: time(6, 20), arr_time_eff: .distantPast, ref_time: time(6, 20)))
-    context.insert(Stop(id: train1.id, name: "Milano Centrale", platform: "5", weather: "🌫️ 6°C", is_selected: true, status: 0, is_completed: false, is_in_station: true, dep_delay: 0, arr_delay: -2, dep_time_id: .distantPast, arr_time_id: time(8, 46), dep_time_eff: .distantPast, arr_time_eff: time(8, 44), ref_time: time(8, 46)))
-    // The first leg of the day: it hands the journey over to 3224 at Savigliano,
-    // so it has to arrive there before 3224 leaves at 9:51.
-    context.insert(Stop(id: train3.id, name: "Saluzzo", platform: "1", weather: "🌧️ 7°C", is_selected: true, status: 0, is_completed: true, is_in_station: false, dep_delay: 0, arr_delay: 0, dep_time_id: time(9, 10), arr_time_id: .distantPast, dep_time_eff: time(9, 10), arr_time_eff: .distantPast, ref_time: time(9, 10)))
-    context.insert(Stop(id: train3.id, name: "Savigliano", platform: "1AF", weather: "🌦️ 8°C", is_selected: true, status: 0, is_completed: false, is_in_station: true, dep_delay: 0, arr_delay: 3, dep_time_id: .distantPast, arr_time_id: time(9, 32), dep_time_eff: .distantPast, arr_time_eff: time(9, 35), ref_time: time(9, 32)))
-
-    let seats = [
-        Seat(id: UUID(), trainID: train2.id, name: "Pierpaolo", carriage: "1", number: "2D", image: mockImageData),
-        Seat(id: UUID(), trainID: train2.id, name: "Davide", carriage: "1", number: "7B", image: mockImageData),
-        Seat(id: UUID(), trainID: train2.id, name: "Andrea", carriage: "2", number: "8C", image: mockImageData),
-        Seat(id: UUID(), trainID: train2.id, name: "Marco", carriage: "4", number: "10C", image: mockImageData),
-        Seat(id: UUID(), trainID: train2.id, name: "Luca", carriage: "8", number: "10D", image: mockImageData),
-        Seat(id: UUID(), trainID: train2.id, name: "Riccardo", carriage: "11", number: "11A", image: mockImageData),
-        Seat(id: UUID(), trainID: train2.id, name: "Fabio", carriage: "12", number: "14B", image: mockImageData)
-    ]
-    seats.forEach { context.insert($0) }
-    
-    let fav1 = Favorite(
-        id: UUID(), index: 0, identifier: train1.identifier, provider: train1.provider, logo: train1.logo, number: train1.number,
-        stop_names: ["Roma Termini", "Milano Centrale"], stop_ref_times: [time(6, 20), time(8, 46)]
-    )
-    let fav2 = Favorite(
-        id: UUID(), index: 1, identifier: train2.identifier, provider: train2.provider, logo: train2.logo, number: train2.number,
-        stop_names: ["Cuneo", "Carmagnola"], stop_ref_times: [time(9, 24), time(10, 9)]
-    )
-    [fav1, fav2].forEach { context.insert($0) }
-
-    // Journeys already travelled, so the Past list has something in it and the
-    // profile's stat cards add up to something.
-    func insertPastJourney(
-        logo: String,
-        number: String,
-        from: String,
-        to: String,
-        daysAgo: Int,
-        departure: (Int, Int),
-        arrival: (Int, Int),
-        arrivalDelay: Int,
-        issue: String = ""
-    ) {
-        let calendar = Calendar.current
-        let day = calendar.date(byAdding: .day, value: -daysAgo, to: Date()) ?? Date()
-        func at(_ hourMinute: (Int, Int)) -> Date {
-            calendar.date(bySettingHour: hourMinute.0, minute: hourMinute.1, second: 0, of: day) ?? day
-        }
-
-        let isCancelled = !issue.isEmpty
-        let train = Train(
-            id: UUID(), logo: logo, number: number, identifier: "\(logo)\(number)",
-            provider: "trenitalia", last_update_time: at(arrival),
-            delay: isCancelled ? 0 : arrivalDelay, direction: to, issue: issue
-        )
-        context.insert(train)
-
-        context.insert(Stop(
-            id: train.id, name: from, platform: "", weather: "",
-            is_selected: true, status: isCancelled ? 3 : 0,
-            is_completed: !isCancelled, is_in_station: false,
-            dep_delay: 0, arr_delay: 0,
-            dep_time_id: at(departure), arr_time_id: .distantPast,
-            dep_time_eff: at(departure), arr_time_eff: .distantPast,
-            ref_time: at(departure)
-        ))
-        context.insert(Stop(
-            id: train.id, name: to, platform: "", weather: "",
-            is_selected: true, status: isCancelled ? 3 : 0,
-            is_completed: !isCancelled, is_in_station: false,
-            dep_delay: 0, arr_delay: isCancelled ? 0 : arrivalDelay,
-            dep_time_id: .distantPast, arr_time_id: at(arrival),
-            dep_time_eff: .distantPast,
-            arr_time_eff: at(arrival).addingTimeInterval(TimeInterval(arrivalDelay * 60)),
-            ref_time: at(arrival)
-        ))
-    }
-
-    insertPastJourney(logo: "FR", number: "9640", from: "Torino Porta Nuova", to: "Milano Centrale",
-                      daysAgo: 2, departure: (17, 0), arrival: (17, 55), arrivalDelay: 7)
-    insertPastJourney(logo: "FR", number: "9512", from: "Milano Centrale", to: "Roma Termini",
-                      daysAgo: 5, departure: (8, 10), arrival: (11, 15), arrivalDelay: 0)
-    insertPastJourney(logo: "IC", number: "553", from: "Roma Termini", to: "Napoli Centrale",
-                      daysAgo: 9, departure: (15, 35), arrival: (17, 25), arrivalDelay: 12)
-    insertPastJourney(logo: "REG", number: "4021", from: "Torino Porta Nuova", to: "Cuneo",
-                      daysAgo: 3, departure: (7, 20), arrival: (9, 5), arrivalDelay: 0,
-                      issue: "Treno cancellato")
-
-    let passes = [
-        Pass(id: UUID(), name: "Abbonamento Mensile", start_date: Calendar.current.date(byAdding: .day, value: -15, to: Date())!, expiry_date: Calendar.current.date(byAdding: .day, value: 15, to: Date())!, is_principal: false, price: "62,00 €", image: mockImageData),
-        Pass(id: UUID(), name: "Settimanale Studenti", start_date: Calendar.current.date(byAdding: .day, value: -9, to: Date())!, expiry_date: Calendar.current.date(byAdding: .day, value: -2, to: Date())!, is_principal: false, price: "19,50 €", image: mockImageData),
-        Pass(id: UUID(), name: "Pass Regionale", start_date: Calendar.current.date(byAdding: .month, value: -1, to: Date())!, expiry_date: Calendar.current.date(byAdding: .month, value: 3, to: Date())!, is_principal: true, price: "540,00 €", image: mockImageData)
-    ]
-    passes.forEach { context.insert($0) }
-
-    return container
-}()
-
 #Preview("Content View") {
-    ContentView(usesMockMailbox: true, previewNow: previewMoment)
-        .modelContainer(previewContainer)
+    ContentView(usesMockMailbox: true, previewNow: PreviewMockData.moment)
+        .modelContainer(PreviewMockData.makeContainer())
         .environment(\.locale, Locale(identifier: "it"))
 }
 

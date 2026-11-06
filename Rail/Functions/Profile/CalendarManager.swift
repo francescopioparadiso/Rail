@@ -19,6 +19,11 @@ class CalendarManager {
         }
     }
 
+    /// The colour of the calendar new events go to when none is chosen.
+    var defaultCalendarColor: CGColor? {
+        eventStore.defaultCalendarForNewEvents?.cgColor
+    }
+
     // MARK: - Methods
 
     func requestAccess() async -> Bool {

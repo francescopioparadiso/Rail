@@ -49,3 +49,6 @@ build/
 !*.xcodeproj/project.xcworkspace/contents.xcworkspacedata
 !*.xcodeproj/xcshareddata/
 !*.xcodeproj/xcshareddata/**
+
+# Apple Design Resources bezels: licensed, not redistributed (scripts/screenshots.sh downloads them)
+Thumbnails/Bezels/

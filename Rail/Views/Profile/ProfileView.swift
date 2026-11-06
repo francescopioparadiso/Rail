@@ -2,6 +2,10 @@ import SwiftUI
 import SwiftData
 import PhotosUI
 
+private enum ProfileDestination: Hashable {
+    case email
+}
+
 struct ProfileView: View {
     // MARK: - Properties
 
@@ -11,6 +15,7 @@ struct ProfileView: View {
     @Environment(\.openURL) private var openURL
     @Query private var profiles: [UserProfile]
 
+    @State private var path: [ProfileDestination] = []
     @State private var showImagePicker = false
     @State private var profileImage: UIImage?
     @State private var profileAccentColor: Color = .gray
@@ -22,6 +27,11 @@ struct ProfileView: View {
     @State private var formattedPasses = "—"
     @State private var formattedPassSpend = "—"
 
+    /// `opensEmail` lands straight on Email settings, for the shortcut in the mail sheets.
+    init(opensEmail: Bool = false) {
+        _path = State(initialValue: opensEmail ? [.email] : [])
+    }
+
     // MARK: - Computed
 
     private var profile: UserProfile? { profiles.primary }
@@ -32,7 +42,7 @@ struct ProfileView: View {
     // MARK: - Body
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $path) {
             Group {
                 if let profile {
                     profileForm(for: profile)
@@ -64,6 +74,9 @@ struct ProfileView: View {
                 }
             }
             .onPreferenceChange(ProfilePhotoFrameKey.self) { profilePhotoFrame = $0 }
+            .navigationDestination(for: ProfileDestination.self) { _ in
+                if let profile { EmailSettingsView(profile: profile) }
+            }
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button {
@@ -236,9 +249,7 @@ struct ProfileView: View {
                         .labelReservedIconWidth(24)
                 }
 
-                NavigationLink {
-                    EmailSettingsView(profile: profile)
-                } label: {
+                NavigationLink(value: ProfileDestination.email) {
                     Label("Email", systemImage: "envelope")
                         .labelReservedIconWidth(24)
                 }
@@ -251,7 +262,7 @@ struct ProfileView: View {
                 }
             }
 
-            Section(header: Text("App Store")) {
+            Section(header: Text("About")) {
                 Button {
                     HapticFeedback.tap()
                     openURL(appStoreReviewURL)
@@ -262,6 +273,19 @@ struct ProfileView: View {
                             .foregroundStyle(Color.primary)
                     } icon: {
                         Image(systemName: "star")
+                    }
+                    .labelReservedIconWidth(24)
+                }
+
+                Button {
+                    HapticFeedback.tap()
+                    if let url = ReportEmail.url { openURL(url) }
+                } label: {
+                    Label {
+                        Text("Send a Report")
+                            .foregroundStyle(Color.primary)
+                    } icon: {
+                        Image(systemName: "exclamationmark.bubble")
                     }
                     .labelReservedIconWidth(24)
                 }

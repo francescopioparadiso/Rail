@@ -230,7 +230,7 @@ final class TicketScraper: NSObject, WKNavigationDelegate {
                 } else if lower.hasPrefix("passenger ") || lower.hasPrefix("passeggero ") {
                     if let trainIndex = currentTrainIndex {
                         journeys[trainIndex].passengers.append(
-                            ScrapedPassenger(name: "Unknown", coach: "N/A", seat: "N/A", qrData: nil)
+                            ScrapedPassenger(name: "Unknown", coach: "", seat: "", qrData: nil)
                         )
                         currentPassengerIndex = journeys[trainIndex].passengers.count - 1
 
@@ -303,7 +303,8 @@ func fetchTicketDetails(checkInID: String) async throws -> EmailContent {
         EmailContentPassenger(
             name: passenger.name,
             carriage: Int(passenger.coach.filter(\.isNumber)) ?? 0,
-            seat: passenger.seat,
+            // a ticket with no seat leaves it empty; only a real value is kept
+            seat: passenger.seat.trimmingCharacters(in: .whitespaces).uppercased() == "N/A" ? "" : passenger.seat,
             qrcode: passenger.qrData ?? Data()
         )
     }
@@ -352,9 +353,9 @@ enum TicketScrapeError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .noJourneyFound:
-            return "Could not read ticket details from the check-in page."
+            return String(localized: "Could not read ticket details from the check-in page.")
         case .loginPageShown:
-            return "The check-in page did not load correctly."
+            return String(localized: "The check-in page did not load correctly.")
         }
     }
 }

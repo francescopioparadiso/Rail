@@ -95,11 +95,13 @@ struct PassView: View {
     @State private var passFilter: PassFilter = .all
     @State private var passFormPresentation: PassFormPresentation? = nil
     @State private var emailImportSheet = false
+    /// Set by the mail sheet's shortcut: Profile opens on Email settings.
+    @State private var profileEmailSheet = false
     @State private var fetchSheetDetent: PresentationDetent = .medium
     @State private var passSyncProgresses: [String: EmailPassSyncProgress] = [:]
     @State private var isFetchingEmailPasses = false
-    /// Whether the running fetch is a start-over of the whole mailbox. Only that
-    /// one gets the full progress view; anything else keeps the list on screen.
+    /// Whether the running fetch gets the full progress view: a start-over of the
+    /// whole mailbox, or no passes yet to keep on screen. Anything else keeps the list.
     @State private var isFullEmailScan = false
     @State private var showFetchResultCard = false
     @State private var fetchedPassesCount = 0
@@ -332,7 +334,7 @@ struct PassView: View {
                         .tint(.red)
                         .disabled(selectedPassIDs.isEmpty)
                         .confirmationDialog(
-                            "Delete \(selectedPassIDs.count) \(selectedPassIDs.count == 1 ? "pass" : "passes")?",
+                            selectedPassIDs.count == 1 ? "Delete 1 pass?" : "Delete \(selectedPassIDs.count) passes?",
                             isPresented: $confirmingDelete,
                             titleVisibility: .visible
                         ) {
@@ -432,7 +434,9 @@ struct PassView: View {
 
                 DefaultToolbarItem(kind: .search, placement: .bottomBar)
 
-                ToolbarSpacer(.flexible, placement: .bottomBar)
+                // fixed, not flexible: a flexible one takes the room the search field
+                // would otherwise grow into, up to the plus button
+                ToolbarSpacer(.fixed, placement: .bottomBar)
 
                 ToolbarItem(placement: .bottomBar) {
                     Button {
@@ -464,6 +468,9 @@ struct PassView: View {
                     refreshDisplayedPasses()
                 }
             }
+            .sheet(isPresented: $profileEmailSheet) {
+                ProfileView(opensEmail: true)
+            }
             .sheet(isPresented: $emailImportSheet) {
                 NavigationStack {
                     Group {
@@ -489,6 +496,13 @@ struct PassView: View {
                                 onPassAdded: { refreshDisplayedPasses() },
                                 onReloadRequested: {
                                     triggerEmailPassRefresh(reloadAll: true)
+                                },
+                                onOpenEmailSettings: {
+                                    emailImportSheet = false
+                                    Task { @MainActor in
+                                        try? await Task.sleep(for: .milliseconds(400))
+                                        profileEmailSheet = true
+                                    }
                                 }
                             )
                             .transition(.opacity.combined(with: .scale(scale: 0.98)))
@@ -821,10 +835,10 @@ struct PassView: View {
     @MainActor
     private func fetchEmailPasses(reloadAll: Bool = false) async {
         guard let profile = profiles.primary else { return }
-        // Only a start-over is shown as a scan of the whole mailbox. Opening the
-        // sheet always lands on the passes already fetched, with the newest being
-        // looked for above them, even when the account has never finished a sync.
-        isFullEmailScan = reloadAll
+        // A start-over, or a mailbox with no passes yet, is shown as a scan of the
+        // whole mailbox. Otherwise the sheet lands on the passes already fetched,
+        // with the newest being looked for above them.
+        isFullEmailScan = reloadAll || EmailPassSyncService.passes(from: profile).isEmpty
         withAnimation(.snappy) {
             isFetchingEmailPasses = true
             showFetchResultCard = false

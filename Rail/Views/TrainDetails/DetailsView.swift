@@ -23,6 +23,7 @@ struct DetailsView: View {
 
     @Environment(\.colorScheme) var colorScheme
     @Environment(\.requestReview) var requestReview
+    @Environment(\.hasBezelStrip) private var hasBezelStrip
     @Environment(\.modelContext) private var modelContext
     @Query private var profiles: [UserProfile]
 
@@ -507,17 +508,21 @@ struct DetailsView: View {
             await updateTrainDetails(isManual: true)
         }
         .toolbar {
-            // speed button
-            if showSpeed {
-                ToolbarItem {
-                    SpeedGaugeView()
+            if hasBezelStrip {
+                stripActions
+            } else {
+                // speed button
+                if showSpeed {
+                    ToolbarItem {
+                        SpeedGaugeView()
+                    }
                 }
-            }
-            
-            ToolbarSpacer(.flexible)
-            
-            if !isPreview {
-                journeyActions
+
+                ToolbarSpacer(.flexible)
+
+                if !isPreview {
+                    journeyActions
+                }
             }
 
             if !isPreview {
@@ -615,13 +620,55 @@ struct DetailsView: View {
     /// its place among the favourites, and the link that shares it.
     @ToolbarContentBuilder
     private var journeyActions: some ToolbarContent {
-        // add seat button
+        seatItem
+
+        ToolbarSpacer(.fixed, placement: .topBarTrailing)
+
+        favoriteItem
+
+        shareItem
+    }
+
+    /// On the Duo the system gathers the buttons in the strip down the right bezel, in
+    /// the order they are declared, one spacer between each: share, favourite, seat,
+    /// speed gauge.
+    @ToolbarContentBuilder
+    private var stripActions: some ToolbarContent {
+        if !isPreview {
+            shareItem
+
+            favoriteItem
+
+            ToolbarSpacer(.fixed, placement: .topBarTrailing)
+
+            seatItem
+        }
+
+        if showSpeed {
+            if !isPreview {
+                ToolbarSpacer(.fixed, placement: .topBarTrailing)
+            }
+
+            ToolbarItem(placement: .topBarTrailing) {
+                SpeedGaugeView(iconOnly: true)
+            }
+        }
+    }
+
+    // add seat button
+    @ToolbarContentBuilder
+    private var seatItem: some ToolbarContent {
         ToolbarItem(placement: .topBarTrailing) {
             Button {
                 HapticFeedback.confirm()
                 seatsSheetAddsSeat = true
                 seatsSheet = true
             } label: {
+                if hasBezelStrip {
+                    // one plain symbol: a label of several views is left out of the strip's capsule
+                    Image(systemName: "figure.seated.seatbelt")
+                        .fontWeight(.semibold)
+                } else {
                 HStack {
                     Image(systemName: "figure.seated.seatbelt")
                         .fontWeight(.semibold)
@@ -643,12 +690,14 @@ struct DetailsView: View {
                 }
                 .fontDesign(appFontDesign)
                 .foregroundStyle(Color.primary)
+                }
             }
         }
+    }
 
-        ToolbarSpacer(.fixed, placement: .topBarTrailing)
-
-        // favorite button, paired with share
+    // favorite button, paired with share
+    @ToolbarContentBuilder
+    private var favoriteItem: some ToolbarContent {
         ToolbarItem(placement: .topBarTrailing) {
             Button {
                 HapticFeedback.confirm()
@@ -698,9 +747,12 @@ struct DetailsView: View {
                     .contentTransition(.symbolEffect(.replace))
             }
             .tint(isFavorite ? Color.red : Color.primary)
-            .padding(.trailing, -8)
+            .padding(.trailing, hasBezelStrip ? 0 : -8)
         }
+    }
 
+    @ToolbarContentBuilder
+    private var shareItem: some ToolbarContent {
         ToolbarItem(placement: .topBarTrailing) {
             if let shareURL = TrainSharing.url(train: train, stops: stops, seats: seats) {
                 // the bare link, with no title alongside it
@@ -1057,7 +1109,7 @@ struct DetailsView: View {
 
     @MainActor
     private func updateTrainDetails(isManual: Bool = false) async {
-        guard !isRefreshing else { return }
+        guard !isRefreshing, !ScreenshotMode.isActive else { return }
 
         // Only a run that can still be today's is asked about; an older one keeps what
         // it was last told, completed by the clock in `TrainProgress.advance`.

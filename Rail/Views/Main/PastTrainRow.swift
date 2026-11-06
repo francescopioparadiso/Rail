@@ -12,25 +12,37 @@ struct PastTrainRow: View, Equatable {
 
     private var showsDivider: Bool { !isLast }
 
+    /// Space either side of the rule between rows, held inside the rows it separates
+    /// so each row's cell begins and ends on the rule itself.
+    private static let ruleGap: CGFloat = 6
+
     // MARK: - Body
+
+    @Environment(\.selectTrain) private var selectTrain
 
     var body: some View {
         VStack(spacing: 0) {
             ZStack {
                 ListView(train: item.train, stops: item.trainStops, summary: item.summary, now: now)
-                    .padding(.top, isFirst ? 4 : item.topPadding)
-                    .padding(.bottom, isLast ? 4 : item.bottomPadding)
+                    .padding(.top, isFirst ? 4 : item.topPadding + Self.ruleGap)
+                    .padding(.bottom, isLast ? 4 : item.bottomPadding + Self.ruleGap)
 
-                NavigationLink(value: item.train) {
-                    EmptyView()
+                if selectTrain == nil {
+                    NavigationLink(value: item.train) {
+                        EmptyView()
+                    }
+                    .buttonStyle(.plain)
+                    .opacity(0)
                 }
-                .buttonStyle(.plain)
-                .opacity(0)
+            }
+            .applyingIf(selectTrain != nil) { row in
+                row.contentShape(Rectangle())
+                    .onTapGesture { selectTrain?(item.train) }
             }
 
             if showsDivider {
+                // last line of the row, so a row's background ends exactly on it
                 Divider()
-                    .padding(.vertical, 6)
             }
         }
     }

@@ -1,4 +1,5 @@
 import Foundation
+import UIKit
 
 // a station name paired with its lefrecce location id (e.g. "830001700"),
 // used as departureLocationId / arrivalLocationId when fetching solutions.
@@ -46,6 +47,13 @@ struct SolutionSegment: Hashable {
 
     /// Italo's trains are looked up by number on Italo's own feed, not viaggiatreno.
     var isItalo: Bool { logo == "ITALO" }
+
+    /// The asset to draw for `logo`. Lefrecce also reports suburban services ("SU",
+    /// "SF") and others the app has no artwork for, which drew an empty space;
+    /// those show the regional mark, like viaggiatreno files them once saved.
+    var logoAsset: String {
+        UIImage(named: logo) != nil ? logo : "REG"
+    }
 }
 
 // a full journey from departure to arrival; more than one segment means a connection.

@@ -10,27 +10,26 @@
 ## 📱 Screenshots
 
 <p float="center">
-  <img src="Thumbnails/1.png" width="268" />
-  <img src="Thumbnails/2.png" width="268" />
-  <img src="Thumbnails/3.png" width="268" />
-  <img src="Thumbnails/4.png" width="268" />
-  <img src="Thumbnails/5.png" width="268" />
-  <img src="Thumbnails/6.png" width="268" />
-  <img src="Thumbnails/7.png" width="268" />
+  <img src="Thumbnails/Thumbnails/iPhone%2018%20Pro/1.png" width="268" />
+  <img src="Thumbnails/Thumbnails/iPhone%2018%20Pro/2.png" width="268" />
+  <img src="Thumbnails/Thumbnails/iPhone%2018%20Pro/3.png" width="268" />
+  <img src="Thumbnails/Thumbnails/iPhone%2018%20Pro/4.png" width="268" />
+  <img src="Thumbnails/Thumbnails/iPhone%2018%20Pro/5.png" width="268" />
+  <img src="Thumbnails/Thumbnails/iPhone%2018%20Pro/6.png" width="268" />
+  <img src="Thumbnails/Thumbnails/iPhone%2018%20Pro/7.png" width="268" />
 </p>
 
 ## ✨ Ultimo aggiornamento
 
-Rail si evolve. Di nuovo.
+Rail arriva su iPhone Duo. E diventa più affidabile ovunque.
 
-Un aggiornamento che porta il viaggio direttamente sulla Schermata di Blocco e rende la ricerca dei treni ancora più completa.
-
-* **Live Activity** — il viaggio in corso resta sulla Schermata di Blocco e nella Dynamic Island con conto alla rovescia, binario, ritardi e posto a sedere; un solo viaggio attivo alla volta, che si avvia da solo
-* **Ricerca con fermata intermedia o ritorno** — aggiungi una stazione intermedia al percorso, oppure cerca andata e ritorno, scegliendo ogni treno in sequenza
-* **Italo integrato** — Italo entra nella ricerca e nei tabelloni; l'orario viene letto dal suo sito di prenotazione, così anche i treni di date lontane si possono cercare e aggiungere (e, quando un treno non è ancora caricabile, l'app lo spiega)
-* **QR code a schermo intero** — il codice dell'abbonamento si apre a tutto schermo per essere letto più facilmente
-* **Email più fluida** — alla riapertura della casella vengono lette solo le email nuove e l'elenco resta visibile durante l'aggiornamento
-* **Tabelloni e design rifiniti** — arrivi prima delle partenze, treni aggiungibili finché la corsa non è conclusa, toolbar, campi di ricerca e bordi di scorrimento più morbidi
+* **iPhone Duo** — da chiuso, i pulsanti si spostano nella barra laterale accanto al bordo; da aperto, l'elenco dei treni resta a sinistra e i dettagli del viaggio a destra, con il treno selezionato evidenziato
+* **Live Activity più fedeli** — la prossima fermata avanza da sola e il viaggio resta anche nella Dynamic Island fino all'arrivo
+* **Biglietti dalle email** — un biglietto senza posto assegnato tiene solo nome e QR code, e il nome del passeggero appare sulla Schermata di Blocco per aprire il QR con un tocco
+* **Email** — se non c'è ancora un account collegato, un pulsante porta subito alle impostazioni email; la prima sincronizzazione mostra sempre l'avanzamento
+* **iCloud** — all'apertura l'app avvisa quando sta scaricando i dati da iCloud
+* **Impostazioni** — nuova sezione Informazioni con "Valuta Rail" e "Invia una segnalazione", che prepara un'email con le informazioni del dispositivo; i calendari mostrano il loro colore
+* **Traduzioni** — ogni testo dell'app, dialoghi compresi, è ora tradotto in italiano
 
 ## ✨ Funzionalità
 
@@ -43,6 +42,7 @@ Un aggiornamento che porta il viaggio direttamente sulla Schermata di Blocco e r
 * **Widget "Liquid Glass":** Widget per la Home Screen con design in vetro smerigliato per mostrare lo stato dell'abbonamento, i biglietti imminenti o il prossimo viaggio a colpo d'occhio.
 * **Treni Preferiti:** Salvataggio delle tratte frequenti per aggiungere i viaggi alla propria routine con un solo tocco.
 * **Live Activity:** Il viaggio in corso sulla Schermata di Blocco e nella Dynamic Island, con conto alla rovescia, binario, ritardi e posto; un solo viaggio attivo alla volta.
+* **iPhone Duo:** Layout dedicato al pieghevole: barra laterale accanto al bordo da chiuso, elenco e dettagli affiancati da aperto.
 * **Monitoraggio Live:** Tracking in tempo reale di orari, ritardi, binari e cancellazioni con calcolo dinamico dei tempi effettivi.
 * **Gestione Gruppi ("I tuoi Posti"):** Organizzazione e visualizzazione delle carrozze e dei posti a sedere per tutti i compagni di viaggio.
 * **Contesto Meteorologico:** Integrazione con servizi meteo per visualizzare le condizioni atmosferiche previste ad ogni singola fermata del tragitto.
@@ -65,6 +65,15 @@ Il progetto adotta un approccio pragmatico che combina le più recenti API Apple
 * **Normalizzazione Multi-Provider:** Layer di astrazione che unifica le risposte JSON eterogenee di provider differenti in un unico modello dati coerente.
 * **Widget Integration:** Implementazione di widget trasparenti tramite `WidgetKit` per visualizzare informazioni critiche in tempo reale.
 * **Algoritmi Custom:** Sviluppo di logiche per la normalizzazione dei binari e il calcolo delle distanze geospaziali tra le stazioni.
+
+## 📸 Screenshot per l'App Store
+
+`scripts/screenshots.sh` genera in automatico gli screenshot e le miniature dell'App Store, in italiano e su dati inventati (nessun account necessario):
+
+* avvia Rail su un simulatore dedicato per **iPhone 18 Pro** (1206 × 2622) e per **iPhone Duo** chiuso (1398 × 2034), creati la prima volta;
+* salva le schermate in `Thumbnails/Screenshots/<dispositivo>/` e le miniature, con cornice e titolo, in `Thumbnails/Thumbnails/<dispositivo>/`.
+
+I titoli sono in cima allo script (le parole tra `*asterischi*` vanno in New York corsivo); le cornici ufficiali Apple (Apple Design Resources) vengono scaricate la prima volta in `Thumbnails/Bezels/`, esclusa dal repository, e composte da `scripts/thumbnail.swift`.
 
 ## 📄 Licenza
 

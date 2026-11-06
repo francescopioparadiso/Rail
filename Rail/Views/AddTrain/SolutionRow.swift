@@ -135,7 +135,7 @@ struct SolutionRow: View {
                         .font(.title3)
                         .foregroundStyle(Color.blue)
                 } else {
-                    Image(segment.logo)
+                    Image(segment.logoAsset)
                         .resizable()
                         .scaledToFit()
                         .frame(height: UIFont.preferredFont(forTextStyle: .title3).lineHeight * 0.8)

@@ -24,6 +24,8 @@ struct EmailTrainImportView: View {
     var isFetchingNewest: Bool = false
     var onTrainAdded: (() -> Void)? = nil
     var onReloadRequested: (() -> Void)? = nil
+    /// Shortcut shown when no mailbox is linked: leaves the sheet for Email settings.
+    var onOpenEmailSettings: (() -> Void)? = nil
 
     /// Previews and screenshots only. Their tickets are invented, so there is no
     /// journey for `EmailTrainService.loadTrain` to find and every row would stay
@@ -123,7 +125,7 @@ struct EmailTrainImportView: View {
         case .finished:
             return totalNewTickets == 0
                 ? String(localized: "No new tickets")
-                : "\(totalNewTickets) new"
+                : String(localized: "\(totalNewTickets) new")
         }
     }
 
@@ -152,11 +154,21 @@ struct EmailTrainImportView: View {
         NavigationStack {
             Group {
                 if linkedAccounts.isEmpty {
-                    ContentUnavailableView(
-                        "No email linked",
-                        systemImage: "bell.slash",
-                        description: Text("Add an email account in Profile → Email to import Trenitalia check-in tickets.")
-                    )
+                    ContentUnavailableView {
+                        Label("No email linked", systemImage: "bell.slash")
+                    } description: {
+                        Text("Add an email account in Profile → Email to import Trenitalia check-in tickets.")
+                    } actions: {
+                        if let onOpenEmailSettings {
+                            Button {
+                                HapticFeedback.confirm()
+                                onOpenEmailSettings()
+                            } label: {
+                                Label("Open Email Settings", systemImage: "envelope")
+                            }
+                            .buttonStyle(.glass)
+                        }
+                    }
                     .foregroundStyle(Color.secondary)
                     .fontDesign(appFontDesign)
                 } else if isWorking && isScanningEverything && preloadedTickets.isEmpty {
@@ -280,18 +292,21 @@ struct EmailTrainImportView: View {
                     }
                 }
 
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        HapticFeedback.confirm()
-                        if let onReloadRequested {
-                            onReloadRequested()
-                        } else {
-                            beginScan(reloadAll: true)
+                // nothing to refresh until a mailbox is linked
+                if !linkedAccounts.isEmpty {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button {
+                            HapticFeedback.confirm()
+                            if let onReloadRequested {
+                                onReloadRequested()
+                            } else {
+                                beginScan(reloadAll: true)
+                            }
+                        } label: {
+                            Image(systemName: "arrow.clockwise")
                         }
-                    } label: {
-                        Image(systemName: "arrow.clockwise")
+                        .disabled(isWorking || isFetchingNewest)
                     }
-                    .disabled(isWorking || isFetchingNewest)
                 }
 
                 if availableAccounts.count > 1 {

@@ -60,6 +60,10 @@ extension TrainActivityAttributes.ContentState.Ticket {
     /// The QR code is not asked for. The form saves a seat with or without one, and
     /// requiring it meant a passenger who had been entered never appeared. The tap
     /// opens the ticket either way.
+    ///
+    /// A ticket with a QR code and no coach or seat — one read from an email that gave
+    /// none — has nothing to put in the chip but the passenger's name, which is what
+    /// it shows when nobody has a coach or a seat.
     @MainActor
     init?(seats: [Seat]) {
         for seat in seats {
@@ -69,6 +73,12 @@ extension TrainActivityAttributes.ContentState.Ticket {
             guard !label.isEmpty else { continue }
 
             self.init(label: label, seatID: seat.id)
+            return
+        }
+
+        if let seat = seats.first(where: { $0.image != nil }) {
+            let name = seat.name.trimmingCharacters(in: .whitespaces)
+            self.init(label: name.isEmpty ? "QR" : name, seatID: seat.id)
             return
         }
         return nil

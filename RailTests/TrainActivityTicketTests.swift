@@ -37,6 +37,23 @@ struct TrainActivityTicketTests {
         #expect(TrainActivityAttributes.ContentState.Ticket(seats: [seat("", ""), seat("  ", " ")]) == nil)
     }
 
+    @Test("With a QR code and no seat, the chip carries the passenger's name")
+    func qrOnly() throws {
+        let qr = seat("", "", qr: Data([1]))
+        let ticket = try #require(TrainActivityAttributes.ContentState.Ticket(seats: [seat("", ""), qr]))
+
+        #expect(ticket.label == "Passenger")
+        #expect(ticket.seatID == qr.id)
+    }
+
+    @Test("A coach or seat still wins over a QR code alone")
+    func seatBeatsQR() throws {
+        let withSeat = seat("4", "12A")
+        let ticket = try #require(TrainActivityAttributes.ContentState.Ticket(seats: [seat("", "", qr: Data([1])), withSeat]))
+
+        #expect(ticket.seatID == withSeat.id)
+    }
+
     @Test("The first passenger who has a seat is the one shown")
     func firstWithASeat() throws {
         let second = seat("7", "3C")

@@ -12,6 +12,8 @@ let appFontDesign: Font.Design = .rounded
 @main
 struct RailApp: App {
     var sharedModelContainer: ModelContainer = {
+        // a screenshot run never opens the user's store
+        if ScreenshotMode.isActive { return PreviewMockData.makeContainer() }
         do {
             return try SharedSwiftData.makeAppContainer()
         } catch {
@@ -23,6 +25,7 @@ struct RailApp: App {
         StationLookup.warmUp()
         NotificationManager.shared.registerDelegate()
         TrainActivityManager.shared.observeEnablement()
+        CloudSyncMonitor.shared.start()
     }
 
     var body: some Scene {
@@ -32,8 +35,13 @@ struct RailApp: App {
         .modelContainer(sharedModelContainer)
     }
 
+    @ViewBuilder
     private var mainScene: some View {
-        ContentView()
+        if let scene = ScreenshotMode.scene {
+            ScreenshotRoot(scene: scene)
+                .fontDesign(appFontDesign)
+        } else {
+            ContentView()
                 .fontDesign(appFontDesign)
                 #if DEBUG
                 // `-rail-test-activity` puts a made-up journey on screen the moment
@@ -47,5 +55,6 @@ struct RailApp: App {
                     await TrainActivityDebug.startTestActivityNow()
                 }
                 #endif
+        }
     }
 }

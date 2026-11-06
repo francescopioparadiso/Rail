@@ -13,6 +13,7 @@ struct TodayView: View {
     @Binding var ticketSeatID: UUID?
     @Binding var showTicketView: Bool
     @Binding var searchText: String
+    @Environment(\.sidebarBackground) private var sidebarBackground
     @Binding var navigationPath: [Train]
     var isActive: Bool = true
 
@@ -108,12 +109,27 @@ struct TodayView: View {
                         .equatable()
                         .listRowInsets(EdgeInsets())
                         .listRowSeparator(.hidden)
+                        .listRowBackground(trainRowBackground(isSelected: sidebarBackground != nil && navigationPath.last?.id == entry.item.train.id))
+
+                        // The layover under a connected train is a row of its own, so the
+                        // selected train's background ends above it.
+                        if let connection = entry.item.connection {
+                            ConnectionDivider(minutes: connection.totalMinutes)
+                                .padding(.horizontal, 12)
+                                .listRowInsets(EdgeInsets())
+                                .listRowSeparator(.hidden)
+                                .listRowBackground(trainRowBackground(isSelected: false))
+                                .deleteDisabled(true)
+                        }
                     }
                     .onDelete(perform: deleteTodayTrains)
                 }
                 .scrollEdgeEffectStyle(.soft, for: .all)
                 .scrollIndicators(.hidden)
                 .listStyle(.insetGrouped)
+                // lets the layover row be as thin as its line
+                .environment(\.defaultMinListRowHeight, 1)
+                .scrollContentBackground(sidebarBackground == nil ? .automatic : .hidden)
                 .refreshable {
                     refreshRowItems()
                     await updateTodayTrains(isManual: true)
@@ -121,7 +137,7 @@ struct TodayView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(appBackgroundColor)
+        .background(sidebarBackground ?? appBackgroundColor)
         .onAppear {
             ReviewManager.shared.requestReviewIfAppropriate(action: requestReview)
             if rowItems.isEmpty {
@@ -221,6 +237,7 @@ struct TodayView: View {
     /// preferences over from another one — including a switch turned off there,
     /// which clears them here.
     private func syncJourneyState() {
+        guard !ScreenshotMode.isActive else { return }
         let currentTrains = trains
         let currentStops = stops
         let currentPasses = passes
@@ -273,7 +290,8 @@ struct TodayView: View {
 
     @MainActor
     private func updateTodayTrains(isManual: Bool = false) async {
-        guard !isUpdating else { return }
+        // the screenshot data is invented: asking the network would overwrite it
+        guard !isUpdating, !ScreenshotMode.isActive else { return }
         isUpdating = true
         defer { isUpdating = false }
 

@@ -2254,45 +2254,7 @@ extension AddTrainView {
 #Preview("Choose Train - stations search") {
     let container = try! ModelContainer(for: Schema([Train.self, Stop.self, Favorite.self]), configurations: ModelConfiguration(isStoredInMemoryOnly: true))
 
-    let start = Calendar.current.date(bySettingHour: 8, minute: 30, second: 0, of: Date())!
-
-    // mock solutions for Milano Centrale → Roma Termini
-    let solutionsFetched: [Solution] = [
-        // direct
-        Solution(segments: [
-            SolutionSegment(
-                origin: "Milano Centrale", destination: "Roma Termini",
-                departureTime: start, arrivalTime: start.addingTimeInterval(3 * 3600),
-                logo: "FR", number: "9612", stationCode: "S01700", isBus: false
-            )
-        ], price: 51.45),
-        // with a connection in Bologna
-        Solution(segments: [
-            SolutionSegment(
-                origin: "Milano Centrale", destination: "Bologna Centrale",
-                departureTime: start.addingTimeInterval(900), arrivalTime: start.addingTimeInterval(900 + 64 * 60),
-                logo: "FR", number: "9613", stationCode: "S01700", isBus: false
-            ),
-            SolutionSegment(
-                origin: "Bologna Centrale", destination: "Roma Termini",
-                departureTime: start.addingTimeInterval(900 + 90 * 60), arrivalTime: start.addingTimeInterval(900 + 90 * 60 + 125 * 60),
-                logo: "IC", number: "605", stationCode: "S05043", isBus: false
-            )
-        ], price: 33.00),
-        // train + replacement bus
-        Solution(segments: [
-            SolutionSegment(
-                origin: "Milano Centrale", destination: "Firenze S.M.N.",
-                departureTime: start.addingTimeInterval(1800), arrivalTime: start.addingTimeInterval(1800 + 110 * 60),
-                logo: "FR", number: "9615", stationCode: "S01700", isBus: false
-            ),
-            SolutionSegment(
-                origin: "Firenze S.M.N.", destination: "Roma Termini",
-                departureTime: start.addingTimeInterval(1800 + 140 * 60), arrivalTime: start.addingTimeInterval(1800 + 140 * 60 + 95 * 60),
-                logo: "BU", number: "FI451", stationCode: "S06421", isBus: true
-            )
-        ], price: 21.45)
-    ]
+    let solutionsFetched = PreviewMockData.chooseTrainSolutions()
 
     return Color(uiColor: .systemBackground)
         .sheet(isPresented: .constant(true)) {

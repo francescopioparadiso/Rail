@@ -13,7 +13,7 @@ struct EmailTicketRow: View {
     }
 
     private var fallbackTitle: String {
-        ticket.trainNumber.isEmpty ? String(localized: "Ticket") : "Train \(ticket.trainNumber)"
+        ticket.trainNumber.isEmpty ? String(localized: "Ticket") : String(localized: "Train \(ticket.trainNumber)")
     }
 
     /// "Departure station → Arrival station", each with only its first word capitalized

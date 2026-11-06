@@ -32,9 +32,11 @@ struct CalendarSettingsView: View {
             if profile.calendarSettings.autoSyncToCalendar {
                 Section {
                     Picker("Calendar", selection: calendarBinding(\.calendarIdentifier)) {
-                        Text("Default").tag("")
+                        Label { Text("Default") } icon: { dot(CalendarManager.shared.defaultCalendarColor) }
+                            .tag("")
                         ForEach(availableCalendars, id: \.calendarIdentifier) { cal in
-                            Text(cal.title).tag(cal.calendarIdentifier)
+                            Label { Text(cal.title) } icon: { dot(cal.cgColor) }
+                                .tag(cal.calendarIdentifier)
                         }
                     }
                     .onChange(of: profile.calendarSettings.calendarIdentifier) { _, _ in
@@ -101,6 +103,21 @@ struct CalendarSettingsView: View {
         } message: {
             Text("Rail needs access to your calendar to add train journeys as events. Please enable it in Settings.")
         }
+    }
+
+    // MARK: - Subviews
+
+    /// A filled circle in the calendar's colour. A picture rather than a symbol, so
+    /// the menu keeps the colour instead of drawing it in one tint.
+    private func dot(_ color: CGColor?) -> Image {
+        // the picture is wider than the circle: the empty right side is the gap
+        // between it and the name
+        let size = CGSize(width: 18, height: 12)
+        let image = UIGraphicsImageRenderer(size: size).image { _ in
+            UIColor(cgColor: color ?? UIColor.systemGray.cgColor).setFill()
+            UIBezierPath(ovalIn: CGRect(x: 0, y: 0, width: 12, height: 12)).fill()
+        }
+        return Image(uiImage: image.withRenderingMode(.alwaysOriginal))
     }
 
     // MARK: - Actions
