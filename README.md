@@ -10,13 +10,13 @@
 ## 📱 Screenshots
 
 <p float="center">
-  <img src="Thumbnails/Thumbnails/iPhone%2018%20Pro/1.png" width="268" />
-  <img src="Thumbnails/Thumbnails/iPhone%2018%20Pro/2.png" width="268" />
-  <img src="Thumbnails/Thumbnails/iPhone%2018%20Pro/3.png" width="268" />
-  <img src="Thumbnails/Thumbnails/iPhone%2018%20Pro/4.png" width="268" />
-  <img src="Thumbnails/Thumbnails/iPhone%2018%20Pro/5.png" width="268" />
-  <img src="Thumbnails/Thumbnails/iPhone%2018%20Pro/6.png" width="268" />
-  <img src="Thumbnails/Thumbnails/iPhone%2018%20Pro/7.png" width="268" />
+  <img src="Images/Thumbnails/iPhone%2018%20Pro/1.png" width="268" />
+  <img src="Images/Thumbnails/iPhone%2018%20Pro/2.png" width="268" />
+  <img src="Images/Thumbnails/iPhone%2018%20Pro/3.png" width="268" />
+  <img src="Images/Thumbnails/iPhone%2018%20Pro/4.png" width="268" />
+  <img src="Images/Thumbnails/iPhone%2018%20Pro/5.png" width="268" />
+  <img src="Images/Thumbnails/iPhone%2018%20Pro/6.png" width="268" />
+  <img src="Images/Thumbnails/iPhone%2018%20Pro/7.png" width="268" />
 </p>
 
 ## ✨ Ultimo aggiornamento
@@ -71,9 +71,11 @@ Il progetto adotta un approccio pragmatico che combina le più recenti API Apple
 `scripts/screenshots.sh` genera in automatico gli screenshot e le miniature dell'App Store, in italiano e su dati inventati (nessun account necessario):
 
 * avvia Rail su un simulatore dedicato per **iPhone 18 Pro** (1206 × 2622) e per **iPhone Duo** chiuso (1398 × 2034), creati la prima volta;
-* salva le schermate in `Thumbnails/Screenshots/<dispositivo>/` e le miniature, con cornice e titolo, in `Thumbnails/Thumbnails/<dispositivo>/`.
+* salva le schermate in `Images/Resources/Screenshots/<dispositivo>/` e le miniature, con cornice e titolo, in `Images/Thumbnails/<dispositivo>/`.
 
-I titoli sono in cima allo script (le parole tra `*asterischi*` vanno in New York corsivo); le cornici ufficiali Apple (Apple Design Resources) vengono scaricate la prima volta in `Thumbnails/Bezels/`, esclusa dal repository, e composte da `scripts/thumbnail.swift`.
+I titoli sono in cima allo script (le parole tra `*asterischi*` vanno in New York corsivo); le cornici ufficiali Apple (Apple Design Resources) vengono scaricate la prima volta in `Images/Resources/Bezels/`, esclusa dal repository, e composte da `scripts/thumbnail.swift`.
+
+`swift scripts/banners.swift` crea le immagini di intestazione (3840 × 1646) e dei risultati di ricerca (3840 × 2560) in `Images/Banners/`: una griglia di simboli SF con le funzioni in rosso e l'icona dell'app, ricavata da `Rail/Rail.icon`.
 
 ## 📄 Licenza
 

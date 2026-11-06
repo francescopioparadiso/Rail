@@ -13,7 +13,7 @@ let appFontDesign: Font.Design = .rounded
 struct RailApp: App {
     var sharedModelContainer: ModelContainer = {
         // a screenshot run never opens the user's store
-        if ScreenshotMode.isActive { return PreviewMockData.makeContainer() }
+        if ScreenshotMode.isActive { return PreviewMockData.makeContainer(showcase: ScreenshotMode.scene == 8) }
         do {
             return try SharedSwiftData.makeAppContainer()
         } catch {

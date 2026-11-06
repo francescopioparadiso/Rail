@@ -9,6 +9,7 @@ import SwiftData
 ///
 ///   1 Today   2 a journey   3 From Email   4 Choose Train
 ///   5 Station board   6 Passes   7 Profile
+///   8 a busy day with a journey open, for the iPhone Duo opened out
 ///
 /// Release builds never read the argument, so `scene` is always nil there.
 enum ScreenshotMode {
@@ -35,10 +36,10 @@ struct ScreenshotRoot: View {
 
     var body: some View {
         ContentView(usesMockMailbox: true, previewNow: PreviewMockData.moment)
-            .sheet(isPresented: .constant(scene >= 3)) { sheet }
+            .sheet(isPresented: .constant((3...7).contains(scene))) { sheet }
             .task {
                 // the journey is pushed the way a tapped link pushes it
-                guard scene == 2 else { return }
+                guard scene == 2 || scene == 8 else { return }
                 try? await Task.sleep(for: .milliseconds(500))
                 DeepLinkRouter.shared.open(trainID: PreviewMockData.detailsTrainID)
             }

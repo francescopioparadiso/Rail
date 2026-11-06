@@ -16,8 +16,11 @@ extension PreviewMockData {
     /// A full app's worth of data, in memory: the profile and its mailboxes, today's
     /// three journeys, past ones, seats, favourites and passes. Shared by the main
     /// preview and the screenshot run (`ScreenshotMode`).
+    ///
+    /// `showcase` adds the rest of a busy day of journeys, for the opened-out iPhone
+    /// Duo, where the list has a whole column to fill.
     @MainActor
-    static func makeContainer() -> ModelContainer {
+    static func makeContainer(showcase: Bool = false) -> ModelContainer {
         let schema = Schema([Train.self, Stop.self, Seat.self, Favorite.self, Pass.self, UserProfile.self])
         let config = ModelConfiguration(isStoredInMemoryOnly: true)
         let container = try! ModelContainer(for: schema, configurations: config)
@@ -163,6 +166,50 @@ extension PreviewMockData {
         insertPastJourney(logo: "REG", number: "4021", from: "Torino Porta Nuova", to: "Cuneo",
                           daysAgo: 3, departure: (7, 20), arrival: (9, 5), arrivalDelay: 0,
                           issue: "Treno cancellato")
+
+        // The rest of the day, for the showcase: plain journeys from one station to another
+        func insertTodayJourney(
+            logo: String, number: String, provider: String,
+            from: String, departure: (Int, Int), platform: String,
+            to: String, arrival: (Int, Int), delay: Int
+        ) {
+            let train = Train(
+                id: UUID(), logo: logo, number: number, identifier: "\(logo)\(number)",
+                provider: provider, last_update_time: Date(), delay: delay, direction: to, issue: ""
+            )
+            context.insert(train)
+            let leaves = time(departure.0, departure.1), arrives = time(arrival.0, arrival.1)
+            context.insert(Stop(
+                id: train.id, name: from, platform: platform, weather: "☀️ 13°C",
+                is_selected: true, status: 0, is_completed: false, is_in_station: false,
+                dep_delay: delay, arr_delay: 0,
+                dep_time_id: leaves, arr_time_id: .distantPast,
+                dep_time_eff: leaves.addingTimeInterval(TimeInterval(delay * 60)), arr_time_eff: .distantPast,
+                ref_time: leaves
+            ))
+            context.insert(Stop(
+                id: train.id, name: to, platform: "", weather: "🌤️ 15°C",
+                is_selected: true, status: 0, is_completed: false, is_in_station: false,
+                dep_delay: 0, arr_delay: delay,
+                dep_time_id: .distantPast, arr_time_id: arrives,
+                dep_time_eff: .distantPast, arr_time_eff: arrives.addingTimeInterval(TimeInterval(delay * 60)),
+                ref_time: arrives
+            ))
+        }
+        if showcase {
+            insertTodayJourney(logo: "FR", number: "9531", provider: "trenitalia",
+                               from: "Torino Porta Nuova", departure: (13, 5), platform: "12",
+                               to: "Roma Termini", arrival: (17, 40), delay: 0)
+            insertTodayJourney(logo: "ITALO", number: "8159", provider: "italo",
+                               from: "Roma Termini", departure: (18, 15), platform: "8",
+                               to: "Napoli Centrale", arrival: (19, 28), delay: 6)
+            insertTodayJourney(logo: "IC", number: "653", provider: "trenitalia",
+                               from: "Napoli Centrale", departure: (20, 10), platform: "14",
+                               to: "Salerno", arrival: (20, 52), delay: 0)
+            insertTodayJourney(logo: "REG", number: "10238", provider: "trenitalia",
+                               from: "Torino Porta Susa", departure: (21, 40), platform: "3",
+                               to: "Milano Centrale", arrival: (23, 35), delay: 2)
+        }
 
         let passes = [
             Pass(id: UUID(), name: "Abbonamento Mensile", start_date: Calendar.current.date(byAdding: .day, value: -15, to: Date())!, expiry_date: Calendar.current.date(byAdding: .day, value: 15, to: Date())!, is_principal: false, price: "62,00 €", image: mockImageData),

@@ -1,11 +1,11 @@
 #!/bin/zsh
 # App Store screenshots and thumbnails of Rail, in Italian, on invented data (no
 # account needed). For each device it builds Rail, runs it on its own simulator
-# (created the first time) and saves, in Thumbnails/:
-#   Screenshots/<device>/1…7.png  the bare screen, nothing around it
-#   Thumbnails/<device>/1…7.png   the screen in the bezel, under its title
+# (created the first time) and saves, in Images/:
+#   Resources/Screenshots/<device>/1…7.png  the bare screen, nothing around it
+#   Thumbnails/<device>/1…7.png             the screen in the bezel, under its title
 # Devices: iPhone 18 Pro (1206 × 2622), iPhone Duo folded (1398 × 2034).
-# Usage: scripts/screenshots.sh        (titles below; bezels downloaded to Thumbnails/Bezels)
+# Usage: scripts/screenshots.sh        (titles below; bezels downloaded to Images/Resources/Bezels)
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -25,7 +25,7 @@ TITLES=(
 
 # Apple's bezels (Apple Design Resources), downloaded the first time: their licence
 # allows them in marketing images, not in this public repository
-BEZELS="$ROOT/Thumbnails/Bezels"
+BEZELS="$ROOT/Images/Resources/Bezels"
 # fetch_bezels <dmg> <path in the dmg with COLOR> <saved name with COLOR> <colors…>
 fetch_bezels() {
     local dmg="$1" source="$2" target="$3"; shift 3
@@ -45,6 +45,8 @@ fetch_bezels Bezel-iPhone-18.dmg "PNG/iPhone 18 Pro/iPhone 18 Pro - COLOR - Port
     "iPhone 18 Pro - COLOR.png" Silver Black Burgundy Glacier
 fetch_bezels Bezel-iPhone-Duo.dmg "PNG/iPhone Duo - COLOR - Outer Closed Portrait.png" \
     "iPhone Duo - COLOR.png" "Night Sky" "Star White"
+fetch_bezels Bezel-iPhone-Duo.dmg "PNG/iPhone Duo - COLOR - Inner Open Landscape.png" \
+    "iPhone Duo Open - COLOR.png" "Night Sky" "Star White"
 
 # Build once, for any simulator, and the thumbnail maker beside it
 xcodebuild -project "$ROOT/Rail.xcodeproj" -scheme Rail -configuration Debug \
@@ -56,7 +58,7 @@ swiftc -O "$ROOT/scripts/thumbnail.swift" -o "$BUILD_DIR/thumbnail"
 shoot() {
     local device="$1" type="$2" runtime="$3" width="${4:-}"
     local name="Screenshots $device"
-    local shots="$ROOT/Thumbnails/Screenshots/$device" thumbs="$ROOT/Thumbnails/Thumbnails/$device"
+    local shots="$ROOT/Images/Resources/Screenshots/$device" thumbs="$ROOT/Images/Thumbnails/$device"
 
     # The simulator: found by name, created the first time with an English region,
     # so the status bar reads "9:41" rather than "09:41"

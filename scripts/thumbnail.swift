@@ -1,11 +1,12 @@
 // Turns a screenshot into an App Store thumbnail laid out like the original
-// Thumbnails/1.png: a two-line title over the device's bezel holding the screenshot.
+// App Store thumbnail: a two-line title over the device's bezel holding the screenshot.
 //
 // thumbnail <device> <screenshot.png> <out.png> "<line 1>" "<line 2>" [bezel color]
-//   device: "iPhone 18 Pro" (1206 × 2622) or "iPhone Duo" (folded, 1398 × 2034)
+//   device: "iPhone 18 Pro" (1206 × 2622), "iPhone Duo" (folded, 1398 × 2034), or
+//           "iPhone Duo Open" (opened out, landscape screenshot, 1080 × 1350 LinkedIn post)
 //   lines:  SF Pro; a part between *stars* is New York semibold italic
 //   colors: iPhone 18 Pro Black, Burgundy, Glacier, Silver (default);
-//           iPhone Duo Night Sky (default), Star White (Thumbnails/Bezels)
+//           iPhone Duo Night Sky (default), Star White (Images/Resources/Bezels)
 import AppKit
 
 let args = CommandLine.arguments
@@ -18,10 +19,12 @@ let canvas: CGSize, defaultColor: String
 switch device {
 case "iPhone 18 Pro": canvas = CGSize(width: 1206, height: 2622); defaultColor = "Silver"
 case "iPhone Duo": canvas = CGSize(width: 1398, height: 2034); defaultColor = "Night Sky"
+// opened out, landscape, for a LinkedIn post: 4:5 portrait, 1080 × 1350
+case "iPhone Duo Open": canvas = CGSize(width: 1080, height: 1350); defaultColor = "Night Sky"
 default: print("unknown device \(device)"); exit(1)
 }
 // run from the project folder, or point BEZELS at the folder of bezels
-let bezelsFolder = ProcessInfo.processInfo.environment["BEZELS"] ?? "Thumbnails/Bezels"
+let bezelsFolder = ProcessInfo.processInfo.environment["BEZELS"] ?? "Images/Resources/Bezels"
 let bezelPath = "\(bezelsFolder)/\(device) - \(args.count > 6 ? args[6] : defaultColor).png"
 
 // MARK: - Layout
@@ -30,9 +33,12 @@ let bezelPath = "\(bezelsFolder)/\(device) - \(args.count > 6 ? args[6] : defaul
 let design = CGSize(width: 1242, height: 2688)
 let s = min(canvas.width / design.width, canvas.height / design.height)
 let background = NSColor(srgbRed: 244 / 255, green: 244 / 255, blue: 248 / 255, alpha: 1)
-let line1Baseline = 272 * s, line2Baseline = 457 * s
-let capHeight = 115 * s   // SF Pro capitals
-let xHeight = 73 * s      // New York italic lowercase
+// A landscape phone leaves the top half of a portrait post to the title, so there
+// the title is set larger
+let t = s * (device == "iPhone Duo Open" ? 1.45 : 1)
+let line1Baseline = 272 * t, line2Baseline = 457 * t
+let capHeight = 115 * t   // SF Pro capitals
+let xHeight = 73 * t      // New York italic lowercase
 // the phone's frame fits in this box, centred: the original's side margin, and its
 // top and bottom (a wider phone, like the Duo folded, then fills the height)
 let phoneBox = CGRect(x: 174 * s, y: 691 * s, width: canvas.width - 2 * 174 * s, height: (2586 - 691) * s)
@@ -158,7 +164,13 @@ out.draw {
     let frameWidth = CGFloat(outerRight - outerLeft + 1), frameHeight = CGFloat(outerBottom - outerTop + 1)
     let scale = min(phoneBox.width / frameWidth, phoneBox.height / frameHeight)
     let frameX = phoneBox.midX - frameWidth * scale / 2
-    let rect = NSRect(x: frameX - CGFloat(outerLeft) * scale, y: phoneBox.minY - CGFloat(outerTop) * scale,
+    // a phone shorter than the box, like the Duo opened out, sits in the middle of
+    // the space below the title
+    let titleBottom = line2Baseline + 40 * t
+    let frameY = frameHeight * scale < phoneBox.height - 1
+        ? (titleBottom + canvas.height - frameHeight * scale) / 2
+        : phoneBox.minY
+    let rect = NSRect(x: frameX - CGFloat(outerLeft) * scale, y: frameY - CGFloat(outerTop) * scale,
                       width: CGFloat(phone.width) * scale, height: CGFloat(phone.height) * scale)
     phone.rep.draw(in: rect, from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
 }
