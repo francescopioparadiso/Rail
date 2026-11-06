@@ -5,10 +5,13 @@
 #   Resources/Screenshots/<device>/1…7.png  the bare screen, nothing around it
 #   Thumbnails/<device>/1…7.png             the screen in the bezel, under its title
 # Devices: iPhone 18 Pro (1206 × 2622), iPhone Duo folded (1398 × 2034).
-# Usage: scripts/screenshots.sh        (titles below; bezels downloaded to Images/Resources/Bezels)
+# Usage: scripts/screenshots.sh [device…]   both, or only the ones named, e.g.
+#        scripts/screenshots.sh "iPhone Duo"
+# Titles are below; bezels are downloaded to Images/Resources/Bezels.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+WANTED=("$@")
 BUNDLE="com.francescoparadis.Rail"
 BUILD_DIR="${TMPDIR:-/tmp}/rail-screenshots-build"
 
@@ -33,7 +36,8 @@ fetch_bezels() {
     local work=$(mktemp -d)
     curl -sfL -o "$work/bezel.dmg" "https://devimages-cdn.apple.com/design/resources/download/$dmg"
     mkdir "$work/mount"
-    yes | hdiutil attach -nobrowse -readonly -mountpoint "$work/mount" "$work/bezel.dmg" >/dev/null 2>&1
+    # "yes" accepts the licence; fed in rather than piped, so pipefail does not trip on it
+    hdiutil attach -nobrowse -readonly -mountpoint "$work/mount" "$work/bezel.dmg" < <(yes) >/dev/null 2>&1
     mkdir -p "$BEZELS"
     for color in "$@"; do
         cp "$work/mount/${source//COLOR/$color}" "$BEZELS/${target//COLOR/$color}"
@@ -57,6 +61,8 @@ swiftc -O "$ROOT/scripts/thumbnail.swift" -o "$BUILD_DIR/thumbnail"
 # shoot <device> <simulator type> <runtime> [display width]
 shoot() {
     local device="$1" type="$2" runtime="$3" width="${4:-}"
+    # only the devices asked for, when some are
+    if (( ${#WANTED} )) && (( ! ${WANTED[(Ie)$device]} )); then return; fi
     local name="Screenshots $device"
     local shots="$ROOT/Images/Resources/Screenshots/$device" thumbs="$ROOT/Images/Thumbnails/$device"
 

@@ -41,7 +41,9 @@ let capHeight = 115 * t   // SF Pro capitals
 let xHeight = 73 * t      // New York italic lowercase
 // the phone's frame fits in this box, centred: the original's side margin, and its
 // top and bottom (a wider phone, like the Duo folded, then fills the height)
-let phoneBox = CGRect(x: 174 * s, y: 691 * s, width: canvas.width - 2 * 174 * s, height: (2586 - 691) * s)
+// (starting lower when a larger title needs the room)
+let phoneTop = max(691 * s, line2Baseline + 100 * t)
+let phoneBox = CGRect(x: 174 * s, y: phoneTop, width: canvas.width - 2 * 174 * s, height: 2586 * s - phoneTop)
 
 // MARK: - Images as plain RGBA, rows from the top
 
