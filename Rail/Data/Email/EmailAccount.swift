@@ -15,7 +15,7 @@ struct Emails: Codable, Identifiable, Sendable {
     // MARK: - Properties
 
     /// Bump when ticket email parsing changes to force one full mailbox rescan.
-    static let currentSyncGenerator = 10
+    static let currentSyncGenerator = 11
     /// Bump when pass email parsing changes to force one full mailbox rescan.
     static let currentPassSyncGenerator = 4
 

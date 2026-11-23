@@ -40,6 +40,11 @@ extension ItaloAPI {
         if let exact = station(named: name) { return exact }
 
         var spelled = " " + name.lowercased() + " "
+        // a two-letter city code before the name: "MI CENTRALE", "BO CENTRALE"
+        for (code, city) in [("mi", "milano"), ("bo", "bologna"), ("fi", "firenze"), ("na", "napoli"),
+                             ("rm", "roma"), ("ve", "venezia"), ("to", "torino")] {
+            if spelled.hasPrefix(" \(code) ") { spelled = " \(city) " + String(spelled.dropFirst(code.count + 2)) }
+        }
         for (short, long) in [
             ("p.n.", "porta nuova"), ("p.s.", "porta susa"), ("c.le", "centrale"),
             ("s.m.n.", "santa maria novella"), ("s.lucia", "santa lucia")

@@ -6,7 +6,7 @@ struct EmailContent: Codable, Identifiable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case id, imapUID, date, link, departureDate, arrivalDate
         case trainNumber, departureStation, arrivalStation, price
-        case passengers, detailsFetchedAt, detailsError, provider
+        case passengers, detailsFetchedAt, detailsError, provider, leg
     }
 
     // MARK: - Properties
@@ -27,6 +27,9 @@ struct EmailContent: Codable, Identifiable, Sendable {
     /// Whose ticket it is: "trenitalia", whose `link` is the check-in id, or "italo",
     /// whose `link` is the six-character ticket code.
     var provider: String = "trenitalia"
+    /// Which journey of its email this is: 0 for the outbound (or the only) one, 1 for
+    /// the return of an Italo round-trip ticket, which sits in one email.
+    var leg: Int = 0
 
     nonisolated init(
         id: UUID = UUID(),
@@ -42,7 +45,8 @@ struct EmailContent: Codable, Identifiable, Sendable {
         passengers: [EmailContentPassenger] = [],
         detailsFetchedAt: Date? = nil,
         detailsError: String? = nil,
-        provider: String = "trenitalia"
+        provider: String = "trenitalia",
+        leg: Int = 0
     ) {
         self.id = id
         self.imapUID = imapUID
@@ -58,6 +62,7 @@ struct EmailContent: Codable, Identifiable, Sendable {
         self.detailsFetchedAt = detailsFetchedAt
         self.detailsError = detailsError
         self.provider = provider
+        self.leg = leg
     }
 
     nonisolated init(from decoder: Decoder) throws {
@@ -76,6 +81,7 @@ struct EmailContent: Codable, Identifiable, Sendable {
         detailsFetchedAt = try container.decodeIfPresent(Date.self, forKey: .detailsFetchedAt)
         detailsError = try container.decodeIfPresent(String.self, forKey: .detailsError)
         provider = try container.decodeIfPresent(String.self, forKey: .provider) ?? "trenitalia"
+        leg = try container.decodeIfPresent(Int.self, forKey: .leg) ?? 0
     }
 
     // MARK: - Computed
@@ -131,6 +137,7 @@ struct EmailContent: Codable, Identifiable, Sendable {
         try container.encodeIfPresent(detailsFetchedAt, forKey: .detailsFetchedAt)
         try container.encodeIfPresent(detailsError, forKey: .detailsError)
         try container.encode(provider, forKey: .provider)
+        try container.encode(leg, forKey: .leg)
     }
 
     nonisolated static func isUpcomingDeparture(_ departureDate: Date, now: Date = Date()) -> Bool {

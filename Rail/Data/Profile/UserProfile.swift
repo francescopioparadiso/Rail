@@ -192,7 +192,7 @@ final class UserProfile {
 
         var content = existing.content
         for ticket in incoming.content {
-            if let index = content.firstIndex(where: { $0.id == ticket.id || $0.imapUID == ticket.imapUID }) {
+            if let index = content.firstIndex(where: { $0.id == ticket.id || ($0.imapUID == ticket.imapUID && $0.leg == ticket.leg) }) {
                 if !ticket.passengers.isEmpty, content[index].passengers.isEmpty {
                     content[index] = ticket
                 }

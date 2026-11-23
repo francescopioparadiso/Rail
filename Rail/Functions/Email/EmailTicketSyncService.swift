@@ -143,13 +143,18 @@ enum EmailTicketSyncService {
 
         var newCount = 0
         for item in result.emails {
-            if let index = updatedAccount.content.firstIndex(where: { $0.imapUID == item.imapUID }) {
+            if let index = updatedAccount.content.firstIndex(where: { $0.imapUID == item.imapUID && $0.leg == item.leg }) {
                 applyParsedJourney(from: item, to: &updatedAccount.content[index])
             } else if let index = updatedAccount.content.firstIndex(where: {
-                CheckInLink.extractID(from: $0.link) == item.checkInID || $0.link == item.checkInID
+                $0.leg == item.leg
+                    && (CheckInLink.extractID(from: $0.link) == item.checkInID || $0.link == item.checkInID)
             }) {
                 applyParsedJourney(from: item, to: &updatedAccount.content[index])
-                updatedAccount.content[index].imapUID = item.imapUID
+                // an Italo ticket keeps the email it was first read from: a forward of it
+                // may have lost the barcode pictures
+                if !updatedAccount.content[index].isItalo {
+                    updatedAccount.content[index].imapUID = item.imapUID
+                }
             } else {
                 updatedAccount.content.append(emailContent(from: item))
                 newCount += 1
@@ -180,7 +185,8 @@ enum EmailTicketSyncService {
             departureStation: item.departureStation,
             arrivalStation: item.arrivalStation,
             price: item.price,
-            provider: item.provider
+            provider: item.provider,
+            leg: item.leg
         )
     }
 
@@ -231,7 +237,7 @@ enum EmailTicketSyncService {
         // barcode and the total.
         if account.content[ticketIndex].isItalo {
             let italo = try await EmailTrainFetcher(account: account)
-                .fetchItaloDetails(forUID: uid, emailDate: account.content[ticketIndex].date)
+                .fetchItaloDetails(forUID: uid, leg: account.content[ticketIndex].leg, emailDate: account.content[ticketIndex].date)
             try Task.checkCancellation()
             guard profile.emails.indices.contains(emailIndex),
                   let index = profile.emails[emailIndex].content.firstIndex(where: { $0.id == ticketID }) else { return }
