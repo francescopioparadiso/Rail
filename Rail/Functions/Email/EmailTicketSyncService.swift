@@ -112,7 +112,7 @@ enum EmailTicketSyncService {
     }
 
     static func tickets(from profile: UserProfile) -> [(account: Emails, ticket: EmailContent)] {
-        profile.emails.flatMap { account in
+        profile.emails.filter(\.isEnabled).flatMap { account in
             account.content
                 .filter { !$0.isSampleTicket }
                 .map { (account, $0) }
@@ -146,7 +146,7 @@ enum EmailTicketSyncService {
             if let index = updatedAccount.content.firstIndex(where: { $0.imapUID == item.imapUID }) {
                 applyParsedJourney(from: item, to: &updatedAccount.content[index])
             } else if let index = updatedAccount.content.firstIndex(where: {
-                CheckInLink.extractID(from: $0.link) == item.checkInID
+                CheckInLink.extractID(from: $0.link) == item.checkInID || $0.link == item.checkInID
             }) {
                 applyParsedJourney(from: item, to: &updatedAccount.content[index])
                 updatedAccount.content[index].imapUID = item.imapUID
@@ -179,13 +179,15 @@ enum EmailTicketSyncService {
             trainNumber: item.trainNumber,
             departureStation: item.departureStation,
             arrivalStation: item.arrivalStation,
-            price: item.price
+            price: item.price,
+            provider: item.provider
         )
     }
 
     private static func applyParsedJourney(from item: FetchedEmail, to ticket: inout EmailContent) {
         ticket.date = item.date
         ticket.link = item.checkInID
+        ticket.provider = item.provider
         // Always restore timed departure/arrival from the email body when available.
         // Prefer email times over midnight-only values left by the check-in scraper.
         if let departureDate = item.departureDate,
@@ -224,6 +226,28 @@ enum EmailTicketSyncService {
         guard let ticketIndex = account.content.firstIndex(where: { $0.id == ticketID }) else { return }
               
         let uid = account.content[ticketIndex].imapUID
+
+        // Italo: the journey is already in the ticket; its email adds the seat, the
+        // barcode and the total.
+        if account.content[ticketIndex].isItalo {
+            let italo = try await EmailTrainFetcher(account: account)
+                .fetchItaloDetails(forUID: uid, emailDate: account.content[ticketIndex].date)
+            try Task.checkCancellation()
+            guard profile.emails.indices.contains(emailIndex),
+                  let index = profile.emails[emailIndex].content.firstIndex(where: { $0.id == ticketID }) else { return }
+
+            var updatedEmails = profile.emails
+            updatedEmails[emailIndex].content[index].passengers = [
+                EmailContentPassenger(name: italo.passengerName, carriage: italo.carriage, seat: italo.seat, qrcode: italo.barcode)
+            ]
+            if let price = italo.price { updatedEmails[emailIndex].content[index].price = price }
+            updatedEmails[emailIndex].content[index].detailsFetchedAt = .now
+            updatedEmails[emailIndex].content[index].detailsError = nil
+            profile.emails = updatedEmails
+            try modelContext.save()
+            return
+        }
+
         var fetchedDetails: EmailContent?
         
         // 1. Try extracting details from a PDF attachment if available

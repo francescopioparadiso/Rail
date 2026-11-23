@@ -8,6 +8,8 @@ struct PreparedEmailTrain {
 
 enum EmailTrainService {
     static func loadTrain(for ticket: EmailContent) async -> PreparedEmailTrain? {
+        if ticket.isItalo { return await loadItaloTrain(for: ticket) }
+
         let fromStation = ticket.departureStation
         let toStation = ticket.arrivalStation
         guard !ticket.trainNumber.isEmpty, !fromStation.isEmpty, !toStation.isEmpty else { return nil }
@@ -76,6 +78,35 @@ enum EmailTrainService {
                 fromStation: stations.from,
                 toStation: stations.to
             ),
+            passengers: ticket.passengers
+        )
+    }
+
+    /// An Italo ticket's train. Italo's live feed knows a run only shortly before it
+    /// leaves, so the booking site's timetable supplies the stops until then; once the
+    /// feed has the run, the app's usual refresh swaps in the live times.
+    private static func loadItaloTrain(for ticket: EmailContent) async -> PreparedEmailTrain? {
+        guard let departure = ticket.departureDate,
+              let from = ItaloAPI.station(emailName: ticket.departureStation),
+              let to = ItaloAPI.station(emailName: ticket.arrivalStation) else { return nil }
+
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "Europe/Rome") ?? .current
+
+        var info: [String: Any]?
+        if calendar.isDateInToday(departure),
+           let live = await ItaloAPI().info(identifier: ticket.trainNumber, shouldFetchWeather: false),
+           matchesDepartureDay(info: live, departureDay: departure, fromStation: from.name, calendar: calendar) {
+            info = live
+        }
+        if info == nil {
+            info = await ItaloAPI.scheduledInfo(number: ticket.trainNumber, from: from, to: to, on: departure)
+        }
+        guard let info else { return nil }
+
+        let stations = matchedStationNames(in: info, from: from.name, to: to.name)
+        return PreparedEmailTrain(
+            prepared: PreparedFavoriteTrain(info: info, fromStation: stations.from, toStation: stations.to),
             passengers: ticket.passengers
         )
     }

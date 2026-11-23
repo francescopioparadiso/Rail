@@ -350,7 +350,8 @@ struct ContentView: View {
             .alert(
                 "Fetching iCloud Data",
                 isPresented: Binding(
-                    get: { cloudSync.showsFetchAlert },
+                    // only on an empty app: with trains already here the download runs quietly
+                    get: { cloudSync.showsFetchAlert && trains.isEmpty },
                     set: { if !$0 { cloudSync.dismissAlert() } }
                 )
             ) {

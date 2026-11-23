@@ -10,7 +10,19 @@ struct FetchedEmail: Sendable {
     let departureStation: String
     let arrivalStation: String
     let price: String
+    /// "trenitalia", whose `checkInID` is the check-in link's id, or "italo", whose
+    /// `checkInID` is the ticket code.
+    var provider: String = "trenitalia"
+}
 
+/// What an Italo email's attachments add to the ticket.
+struct ItaloTicketDetails: Sendable {
+    let passengerName: String
+    let carriage: Int
+    let seat: String
+    let price: String?
+    /// The barcode image from the email, empty if it carried none.
+    let barcode: Data
 }
 
 struct EmailFetchProgress: Sendable {
@@ -155,6 +167,18 @@ actor EmailTrainFetcher {
         let snippet = String(decoded.prefix(300)).replacingOccurrences(of: "\n", with: "⏎")
         print("[EMAIL-DEBUG] UID \(uid): decoded snippet: \(snippet)")
 
+        let date = IMAPResponse.header("Date", in: searchable).flatMap(IMAPResponse.parseDate)
+            ?? IMAPResponse.header("Date", in: raw).flatMap(IMAPResponse.parseDate)
+            ?? IMAPResponse.header("DATE", in: searchable).flatMap(IMAPResponse.parseDate)
+            ?? IMAPResponse.header("DATE", in: raw).flatMap(IMAPResponse.parseDate)
+            ?? .distantPast
+
+        // Italo's confirmation holds the whole journey, so it has no check-in page to read
+        if let from = IMAPResponse.header("From", in: searchable) ?? IMAPResponse.header("From", in: raw),
+           ItaloEmailParser.isItaloSender(from) {
+            return parseItaloEmail(decoded, uid: uid, date: date)
+        }
+
         // Quick keyword filter like Python: skip if none of these keywords present
         let lower = decoded.lowercased()
         let hasPnr = lower.contains("pnr")
@@ -203,11 +227,6 @@ actor EmailTrainFetcher {
         print("[EMAIL-DEBUG] UID \(uid): checkInID=\(checkInID.prefix(40))...")
 
         let journey = EmailJourneyParser.parse(from: decoded)
-        let date = IMAPResponse.header("Date", in: searchable).flatMap(IMAPResponse.parseDate)
-            ?? IMAPResponse.header("Date", in: raw).flatMap(IMAPResponse.parseDate)
-            ?? IMAPResponse.header("DATE", in: searchable).flatMap(IMAPResponse.parseDate)
-            ?? IMAPResponse.header("DATE", in: raw).flatMap(IMAPResponse.parseDate)
-            ?? .distantPast
 
         print("[EMAIL-DEBUG] UID \(uid): PARSED ✅ train=\(journey?.trainNumber ?? "nil") dep=\(journey?.departureStation ?? "nil") arr=\(journey?.arrivalStation ?? "nil") price=\(journey?.price ?? "nil") date=\(date)")
 
@@ -221,6 +240,25 @@ actor EmailTrainFetcher {
             departureStation: journey?.departureStation ?? "",
             arrivalStation: journey?.arrivalStation ?? "",
             price: journey?.price ?? "Unknown"
+        )
+    }
+
+    private func parseItaloEmail(_ decoded: String, uid: String, date: Date) -> FetchedEmail? {
+        guard let journey = ItaloEmailParser.parse(html: decoded, emailDate: date) else {
+            print("[EMAIL-DEBUG] UID \(uid): SKIPPED - Italo email without a ticket")
+            return nil
+        }
+        return FetchedEmail(
+            imapUID: uid,
+            checkInID: journey.code,
+            date: date,
+            departureDate: journey.departureDate,
+            arrivalDate: journey.arrivalDate,
+            trainNumber: journey.trainNumber,
+            departureStation: journey.departureStation,
+            arrivalStation: journey.arrivalStation,
+            price: "Unknown",
+            provider: "italo"
         )
     }
 
@@ -278,7 +316,15 @@ actor EmailTrainFetcher {
         }
         guard !search.isEmpty else { throw EmailFetchError.searchFailed }
 
-        let newUIDs = IMAPResponse.uids(in: search)
+        // Italo's purchase confirmations, which the Trenitalia search leaves out. A
+        // failure here only means no Italo tickets this time, never a failed scan.
+        let italoCriteria = #"FROM "italotreno.it" SUBJECT "Conferma""#
+        let italoSearch = try? await session.command(
+            uidConstraint.isEmpty ? "UID SEARCH \(italoCriteria)" : "UID SEARCH \(uidConstraint) \(italoCriteria)"
+        )
+        let italoUIDs = italoSearch.flatMap { IMAPResponse.taggedSuccess($0) ? IMAPResponse.uids(in: $0) : nil } ?? []
+
+        let newUIDs = Set(IMAPResponse.uids(in: search) + italoUIDs)
             .compactMap { uid in UInt64(uid).map { (raw: uid, numeric: $0) } }
             .filter { item in
                 guard let effectiveLastUID else { return true }
@@ -397,6 +443,27 @@ actor EmailTrainFetcher {
             uidValidity: currentUIDValidity,
             didResetUIDValidity: didResetUIDValidity,
             foundCount: matchingUIDs.count
+        )
+    }
+
+    /// An Italo email's seat, barcode picture and the receipt's total.
+    func fetchItaloDetails(forUID uid: String, emailDate: Date) async throws -> ItaloTicketDetails {
+        session.useLargeMessageLimits(true)
+        defer { session.useLargeMessageLimits(false) }
+        _ = try await session.openPassMailbox()
+        defer { session.close() }
+
+        let response = try await session.command("UID FETCH \(uid) (BODY.PEEK[])")
+        let message = IMAPResponse.messageContent(from: response) ?? response
+        let decoded = EmailBodyDecoder.decode(body: message, headers: message)
+        let journey = ItaloEmailParser.parse(html: decoded.text, emailDate: emailDate)
+        let pdfs = decoded.pdfs
+        return ItaloTicketDetails(
+            passengerName: journey?.passengerName ?? "",
+            carriage: journey?.carriage ?? 0,
+            seat: journey?.seat ?? "",
+            price: pdfs.lazy.compactMap(ItaloEmailParser.price(inPDF:)).first,
+            barcode: EmailMIMEExtractor.imageAttachments(from: message).first ?? Data()
         )
     }
 

@@ -43,6 +43,19 @@ enum EmailMIMEExtractor {
         return pdfs
     }
 
+    /// The base64 images attached to a message, in order (an Italo ticket's barcode).
+    nonisolated static func imageAttachments(from message: String) -> [Data] {
+        let parts = message.replacingOccurrences(of: "\r\n", with: "\n").components(separatedBy: "\n--")
+        return parts.compactMap { part in
+            let lower = part.lowercased()
+            guard lower.contains("content-type: image/"),
+                  lower.contains("content-transfer-encoding: base64"),
+                  let body = mimeBody(of: part) else { return nil }
+            let collapsed = body.components(separatedBy: .whitespacesAndNewlines).joined()
+            return Data(base64Encoded: collapsed, options: .ignoreUnknownCharacters)
+        }
+    }
+
     nonisolated private static func mimeBody(of part: String) -> String? {
         if let range = part.range(of: "\n\n") {
             return String(part[range.upperBound...])

@@ -96,7 +96,7 @@ enum EmailPassSyncService {
     }
 
     static func passes(from profile: UserProfile) -> [(account: Emails, pass: EmailPassContent)] {
-        profile.emails.flatMap { account in
+        profile.emails.filter(\.isEnabled).flatMap { account in
             account.passes.map { (account, $0) }
         }
         .sorted {

@@ -6,7 +6,7 @@ struct EmailContent: Codable, Identifiable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case id, imapUID, date, link, departureDate, arrivalDate
         case trainNumber, departureStation, arrivalStation, price
-        case passengers, detailsFetchedAt, detailsError
+        case passengers, detailsFetchedAt, detailsError, provider
     }
 
     // MARK: - Properties
@@ -24,6 +24,9 @@ struct EmailContent: Codable, Identifiable, Sendable {
     var passengers: [EmailContentPassenger] = []
     var detailsFetchedAt: Date?
     var detailsError: String?
+    /// Whose ticket it is: "trenitalia", whose `link` is the check-in id, or "italo",
+    /// whose `link` is the six-character ticket code.
+    var provider: String = "trenitalia"
 
     nonisolated init(
         id: UUID = UUID(),
@@ -38,7 +41,8 @@ struct EmailContent: Codable, Identifiable, Sendable {
         price: String = "Unknown",
         passengers: [EmailContentPassenger] = [],
         detailsFetchedAt: Date? = nil,
-        detailsError: String? = nil
+        detailsError: String? = nil,
+        provider: String = "trenitalia"
     ) {
         self.id = id
         self.imapUID = imapUID
@@ -53,6 +57,7 @@ struct EmailContent: Codable, Identifiable, Sendable {
         self.passengers = passengers
         self.detailsFetchedAt = detailsFetchedAt
         self.detailsError = detailsError
+        self.provider = provider
     }
 
     nonisolated init(from decoder: Decoder) throws {
@@ -70,9 +75,12 @@ struct EmailContent: Codable, Identifiable, Sendable {
         passengers = try container.decodeIfPresent([EmailContentPassenger].self, forKey: .passengers) ?? []
         detailsFetchedAt = try container.decodeIfPresent(Date.self, forKey: .detailsFetchedAt)
         detailsError = try container.decodeIfPresent(String.self, forKey: .detailsError)
+        provider = try container.decodeIfPresent(String.self, forKey: .provider) ?? "trenitalia"
     }
 
     // MARK: - Computed
+
+    nonisolated var isItalo: Bool { provider == "italo" }
 
     var hasLoadedDetails: Bool {
         detailsFetchedAt != nil || !passengers.isEmpty
@@ -83,12 +91,13 @@ struct EmailContent: Codable, Identifiable, Sendable {
         return Self.isDepartureOnOrAfterToday(departureDate)
     }
 
-    /// Check-in page details can enrich both upcoming and past email tickets.
+    /// Check-in page details can enrich both upcoming and past email tickets; an
+    /// Italo ticket's come from the attachments of its own email.
     nonisolated var shouldFetchCheckInDetails: Bool {
         !isSampleTicket
             && detailsFetchedAt == nil
             && passengers.isEmpty
-            && CheckInLink.extractID(from: link) != nil
+            && (isItalo ? !link.isEmpty : CheckInLink.extractID(from: link) != nil)
     }
 
     /// Preview-only stubs that must never appear in a real mailbox sync.
@@ -121,6 +130,7 @@ struct EmailContent: Codable, Identifiable, Sendable {
         try container.encode(passengers, forKey: .passengers)
         try container.encodeIfPresent(detailsFetchedAt, forKey: .detailsFetchedAt)
         try container.encodeIfPresent(detailsError, forKey: .detailsError)
+        try container.encode(provider, forKey: .provider)
     }
 
     nonisolated static func isUpcomingDeparture(_ departureDate: Date, now: Date = Date()) -> Bool {

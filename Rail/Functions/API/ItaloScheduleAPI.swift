@@ -34,6 +34,30 @@ extension ItaloAPI {
         return stations.first { comparable($0.name) == target || comparable($0.routeName) == target }
     }
 
+    /// The station an Italo email names, which abbreviates ("Torino P.N.", "Milano
+    /// C.le", "Firenze S.M.N.") where the app's own list spells out.
+    static func station(emailName name: String) -> ItaloStation? {
+        if let exact = station(named: name) { return exact }
+
+        var spelled = " " + name.lowercased() + " "
+        for (short, long) in [
+            ("p.n.", "porta nuova"), ("p.s.", "porta susa"), ("c.le", "centrale"),
+            ("s.m.n.", "santa maria novella"), ("s.lucia", "santa lucia")
+        ] {
+            spelled = spelled.replacingOccurrences(of: " \(short) ", with: " \(long) ")
+                .replacingOccurrences(of: " \(short)", with: " \(long)")
+        }
+        if let spelledOut = station(named: spelled) { return spelledOut }
+
+        // a name that begins another, when only one station does
+        let target = comparable(spelled)
+        guard target.count >= 4 else { return nil }
+        let candidates = stations.filter {
+            comparable($0.name).hasPrefix(target) || comparable($0.routeName).hasPrefix(target)
+        }
+        return candidates.count == 1 ? candidates[0] : nil
+    }
+
     // MARK: - Timetable
 
     /// The direct Italo trains running from `origin` to `destination` on `day`,
@@ -50,6 +74,62 @@ extension ItaloAPI {
         let runs = await scheduledRuns(from: origin, to: destination, on: day)
         guard let run = runs.first(where: { $0.number == number }) else { return nil }
         return info(for: run)
+    }
+
+    // MARK: - By number
+
+    /// `number`'s whole run on `day`, found from its number alone. The booking site
+    /// only answers for a pair of stations and cuts the run to them, so a few
+    /// corridors are searched for the train, then every terminus is tried at both
+    /// ends to stretch the cut out to the whole run.
+    static func scheduledInfo(number: String, on day: Date) async -> [String: Any]? {
+        let found = merged(await calls(of: number, in: probes, on: day), [])
+        guard let first = found.first?.code, let last = found.last?.code else { return nil }
+
+        let known = Set(found.map(\.code))
+        let ends = termini.filter { !known.contains($0) }.flatMap { [($0, last), (first, $0)] }
+        let extended = await calls(of: number, in: ends, on: day)
+        return info(for: ItaloScheduledRun(number: number, calls: merged(found, extended)))
+    }
+
+    /// Corridors every long run crosses, both ways.
+    private static let probes = [("BC_", "SMN"), ("SMN", "BC_"), ("RMT", "NAC"), ("NAC", "RMT"), ("BC_", "FF_"), ("FF_", "BC_")]
+
+    /// Where a run can start or end.
+    private static let termini = [
+        "TOP", "OUE", "TSC", "UDN", "BLZ", "VSL", "MC_",
+        "RCE", "SAL", "BAC", "ML_", "BIG", "TR_", "BLT", "FG_", "NAC", "RMT"
+    ]
+
+    /// The stops `number` makes between each pair of stations that has it, the pairs
+    /// searched side by side.
+    private static func calls(of number: String, in pairs: [(String, String)], on day: Date) async -> [ItaloScheduledCall] {
+        await withTaskGroup(of: [ItaloScheduledCall].self) { group in
+            for (from, to) in pairs {
+                guard let origin = station(code: from), let destination = station(code: to) else { continue }
+                group.addTask {
+                    await scheduledRuns(from: origin, to: destination, on: day).first { $0.number == number }?.calls ?? []
+                }
+            }
+            return await group.reduce(into: []) { $0 += $1 }
+        }
+    }
+
+    /// Two cuts of one run joined: a stop in both keeps its true arrival and departure.
+    private static func merged(_ first: [ItaloScheduledCall], _ second: [ItaloScheduledCall]) -> [ItaloScheduledCall] {
+        var byCode: [String: ItaloScheduledCall] = [:]
+        for call in first + second {
+            if let known = byCode[call.code] {
+                byCode[call.code] = ItaloScheduledCall(
+                    code: call.code,
+                    arrival: min(known.arrival, call.arrival),
+                    departure: max(known.departure, call.departure)
+                )
+            } else {
+                byCode[call.code] = call
+            }
+        }
+        return byCode.values.sorted { $0.departure < $1.departure }
     }
 
     static func info(for run: ItaloScheduledRun) -> [String: Any] {
@@ -212,16 +292,12 @@ extension ItaloAPI {
 
     // MARK: - Session
 
-    /// The guest token the booking site hands every visitor, kept while it's good.
+    /// A guest token from the booking site. Each one allows a single search at a
+    /// time ("too many connections" otherwise), so every search takes its own.
     fileprivate actor BookingSession {
         static let shared = BookingSession()
 
-        private var current: String?
-        private var fetched = Date.distantPast
-
         func token() async -> String? {
-            if let current, Date().timeIntervalSince(fetched) < 20 * 60 { return current }
-
             guard let url = URL(string: "\(ItaloAPI.bookingSite)/api/login") else { return nil }
             var request = URLRequest(url: url, timeoutInterval: 20)
             request.httpMethod = "POST"
@@ -237,11 +313,7 @@ extension ItaloAPI {
                 }
                 let token = HTTPCookie.cookies(withResponseHeaderFields: headers, for: url)
                     .first { $0.name == "BIGSessionToken" }?.value
-                if let token, !token.isEmpty {
-                    current = token
-                    fetched = Date()
-                }
-                return token
+                return token?.isEmpty == false ? token : nil
             } catch {
                 print("Error getting Italo guest token: \(error)")
                 return nil

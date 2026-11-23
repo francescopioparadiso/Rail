@@ -1941,7 +1941,15 @@ struct AddTrainView: View {
         
         Task {
             /// fetch from both providers
-            let results = await fetchCommonTrainList(number : trainNumber)
+            var results = await fetchCommonTrainList(number : trainNumber)
+
+            // Italo's live feed has a train only shortly before it leaves; a run
+            // further ahead is read from its booking timetable
+            if trainNumber.count == 4,
+               !results.contains(where: { $0["provider"] as? String == "italo" }),
+               let scheduled = await ItaloAPI.scheduledInfo(number: trainNumber, on: dateSelected) {
+                results.append(scheduled)
+            }
             
             /// assign results to variables
             for result in results {

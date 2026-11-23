@@ -22,6 +22,9 @@ struct EmailSettingsView: View {
         }
     }
 
+    private var activeAccounts: [Emails] { filteredAccounts.filter(\.isEnabled) }
+    private var inactiveAccounts: [Emails] { filteredAccounts.filter { !$0.isEnabled } }
+
     // MARK: - Body
 
     var body: some View {
@@ -40,14 +43,21 @@ struct EmailSettingsView: View {
                 .fontDesign(appFontDesign)
             } else {
                 List {
-                    ForEach(filteredAccounts) { account in
-                        NavigationLink {
-                            EditEmailView(profile: profile, accountID: account.id)
-                        } label: {
-                            Text(account.email.isEmpty ? String(localized: "New Email") : account.email)
+                    // one plain section until an account is disabled
+                    if inactiveAccounts.isEmpty {
+                        Section {
+                            rows(for: activeAccounts)
+                        }
+                    } else {
+                        if !activeAccounts.isEmpty {
+                            Section("Active Emails") {
+                                rows(for: activeAccounts)
+                            }
+                        }
+                        Section("Inactive Emails") {
+                            rows(for: inactiveAccounts)
                         }
                     }
-                    .onDelete(perform: deleteAccounts)
                 }
                 .scrollEdgeEffectStyle(.soft, for: .all)
                 .listStyle(.insetGrouped)
@@ -87,10 +97,25 @@ struct EmailSettingsView: View {
         }
     }
 
+    private func rows(for accounts: [Emails]) -> some View {
+        ForEach(accounts) { account in
+            NavigationLink {
+                EditEmailView(profile: profile, accountID: account.id)
+            } label: {
+                Text(account.email.isEmpty ? String(localized: "New Email") : account.email)
+                    .foregroundStyle(account.isEnabled ? .primary : .secondary)
+            }
+        }
+        .onDelete { offsets in
+            let ids = Set(offsets.map { accounts[$0].id })
+            deleteAccounts(withIDs: ids)
+        }
+    }
+
     // MARK: - Actions
 
-    private func deleteAccounts(at offsets: IndexSet) {
-        profile.emails.remove(atOffsets: offsets)
+    private func deleteAccounts(withIDs ids: Set<UUID>) {
+        profile.emails.removeAll { ids.contains($0.id) }
         try? modelContext.save()
     }
 

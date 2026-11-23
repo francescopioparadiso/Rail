@@ -60,6 +60,15 @@ struct EditEmailView: View {
         )
     }
 
+    private var isEnabledBinding: Binding<Bool> {
+        Binding(
+            get: { account?.isEnabled ?? true },
+            set: { newValue in
+                updateAccount { $0.isEnabled = newValue }
+            }
+        )
+    }
+
     private var passwordBinding: Binding<String> {
         Binding(
             get: { account?.appPassword ?? "" },
@@ -110,6 +119,10 @@ struct EditEmailView: View {
     var body: some View {
         Form {
             if let account = account {
+                Section {
+                    Toggle("Enabled", isOn: isEnabledBinding)
+                }
+
                 Section {
                     TextField("Email Address", text: emailTextBinding)
                         .keyboardType(.emailAddress)

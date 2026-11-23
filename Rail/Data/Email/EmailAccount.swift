@@ -4,7 +4,7 @@ struct Emails: Codable, Identifiable, Sendable {
     // MARK: - Types
 
     private enum CodingKeys: String, CodingKey {
-        case id, provider, email, appPassword
+        case id, provider, email, appPassword, isEnabled
         case customIMAPServer, customIMAPPort
         case content, passes
         case lastSyncedUID, lastSyncedPassUID, imapUIDValidity, passImapUIDValidity
@@ -15,7 +15,7 @@ struct Emails: Codable, Identifiable, Sendable {
     // MARK: - Properties
 
     /// Bump when ticket email parsing changes to force one full mailbox rescan.
-    static let currentSyncGenerator = 9
+    static let currentSyncGenerator = 10
     /// Bump when pass email parsing changes to force one full mailbox rescan.
     static let currentPassSyncGenerator = 4
 
@@ -23,6 +23,8 @@ struct Emails: Codable, Identifiable, Sendable {
     var provider: EmailProvider
     var email: String
     var appPassword: String
+    /// A disabled account stays in the list but is never read: no sync, no tickets or passes shown.
+    var isEnabled: Bool = true
     /// Used when `provider == .other`.
     var customIMAPServer: String?
     /// Used when `provider == .other`. Defaults to 993 if unset.
@@ -44,6 +46,7 @@ struct Emails: Codable, Identifiable, Sendable {
         provider: EmailProvider,
         email: String,
         appPassword: String,
+        isEnabled: Bool = true,
         customIMAPServer: String? = nil,
         customIMAPPort: Int? = nil,
         content: [EmailContent] = [],
@@ -61,6 +64,7 @@ struct Emails: Codable, Identifiable, Sendable {
         self.provider = provider
         self.email = email
         self.appPassword = appPassword
+        self.isEnabled = isEnabled
         self.customIMAPServer = customIMAPServer
         self.customIMAPPort = customIMAPPort
         self.content = content
@@ -81,6 +85,7 @@ struct Emails: Codable, Identifiable, Sendable {
         provider = try container.decodeIfPresent(EmailProvider.self, forKey: .provider) ?? .apple
         email = try container.decodeIfPresent(String.self, forKey: .email) ?? ""
         appPassword = try container.decodeIfPresent(String.self, forKey: .appPassword) ?? ""
+        isEnabled = try container.decodeIfPresent(Bool.self, forKey: .isEnabled) ?? true
         customIMAPServer = try container.decodeIfPresent(String.self, forKey: .customIMAPServer)
         customIMAPPort = try container.decodeIfPresent(Int.self, forKey: .customIMAPPort)
         content = try container.decodeIfPresent([EmailContent].self, forKey: .content) ?? []
@@ -119,8 +124,10 @@ struct Emails: Codable, Identifiable, Sendable {
         return provider.port
     }
 
-    /// Enough fields filled to attempt an IMAP login.
+    /// Enabled, with enough fields filled to attempt an IMAP login. Every sync
+    /// reads only the accounts that pass, so disabling one stops it all.
     nonisolated var hasConfiguredCredentials: Bool {
+        guard isEnabled else { return false }
         let trimmedEmail = email.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedPassword = appPassword.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedEmail.isEmpty, !trimmedPassword.isEmpty, trimmedEmail.contains("@") else {
@@ -140,6 +147,7 @@ struct Emails: Codable, Identifiable, Sendable {
         try container.encode(provider, forKey: .provider)
         try container.encode(email, forKey: .email)
         try container.encode(appPassword, forKey: .appPassword)
+        try container.encode(isEnabled, forKey: .isEnabled)
         try container.encodeIfPresent(customIMAPServer, forKey: .customIMAPServer)
         try container.encodeIfPresent(customIMAPPort, forKey: .customIMAPPort)
         try container.encode(content, forKey: .content)
